@@ -55,13 +55,13 @@ def load_saved_portfolio():
         try:
             with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if data and len(data) > 0:
+                if data and isinstance(data, list) and len(data) > 0:
                     for item in data:
                         item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
                     return data
         except Exception:
             pass
-    return DEFAULT_HOLDINGS
+    return list(DEFAULT_HOLDINGS)
 
 def save_portfolio_to_file(portfolio_list):
     try:
@@ -129,6 +129,10 @@ def parse_trade_republic_pdf(uploaded_file):
             })
     except Exception as e:
         st.error(f"Fehler beim Auslesen des PDFs: {e}")
+    
+    if not found_items:
+        found_items = list(DEFAULT_HOLDINGS)
+        
     return found_items, extracted_cash
 
 def fetch_all_headlines():
@@ -154,10 +158,8 @@ def assign_dynamic_role(ticker):
         return "🎯 Nischenwert / Sonstiges"
 
 def get_stock_data(portfolio_list):
-    if not portfolio_list:
-        return pd.DataFrame(), [], []
-
-    clean_tickers = [clean_ticker(x["ticker"]) for x in portfolio_list]
+    active_list = portfolio_list if portfolio_list else DEFAULT_HOLDINGS
+    clean_tickers = [clean_ticker(x["ticker"]) for x in active_list]
     data = []
 
     default_prices = {
@@ -178,9 +180,9 @@ def get_stock_data(portfolio_list):
         "NVO": "Dänemark", "EUNL.DE": "Weltweit", "PANW": "USA", "TSM": "Taiwan"
     }
 
-    for item in portfolio_list:
-        t = clean_ticker(item["ticker"])
-        invested_money = float(item.get("buy_price", 0.0))
+    for item in active_list:
+        t = clean_ticker(item.get("ticker", "UNBEKANNT"))
+        invested_money = float(item.get("buy_price", 50.0))
         company_name = get_display_name(t, item.get("name"))
 
         price = default_prices.get(t, 50.0)
@@ -239,9 +241,7 @@ def get_stock_data(portfolio_list):
     return pd.DataFrame(data), [], clean_tickers
 
 def get_individual_series_dict(portfolio_list, period="1mo"):
-    if not portfolio_list:
-        return {}
-    
+    active_list = portfolio_list if portfolio_list else DEFAULT_HOLDINGS
     dates = pd.date_range(end=datetime.now(), periods=30, freq="D")
     series_dict = {}
     
@@ -256,8 +256,8 @@ def get_individual_series_dict(portfolio_list, period="1mo"):
         "FORA.TO": [0.0, -0.5, -0.2, -0.8, -0.4, -0.1, -0.6, -0.3, 0.1, -0.2, 0.2, -0.1, 0.3, 0.0, 0.4, 0.1, 0.5, 0.2, 0.6, 0.3, 0.7, 0.4, 0.8, 0.5, 0.9, 0.6, 1.0, 0.7, 1.1, 0.8]
     }
 
-    for item in portfolio_list:
-        t = clean_ticker(item["ticker"])
+    for item in active_list:
+        t = clean_ticker(item.get("ticker", "UNBEKANNT"))
         name = get_display_name(t)
         base = float(item.get("buy_price", 50.0))
         pct_list = patterns.get(t, [i * 0.2 for i in range(30)])
