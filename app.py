@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
 
-# Initialisierung auf 0.0
 if "v_portfolio" not in st.session_state:
     st.session_state["v_portfolio"] = []
 
@@ -67,7 +66,6 @@ with st.sidebar:
                 st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) eingelesen!")
                 st.rerun()
 
-    # Cash Anzeige
     display_cash = float(st.session_state.get("v_cash", 0.0))
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
 
@@ -173,7 +171,7 @@ if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"
             except Exception as e:
                 st.error(f"⚠️ Groq Fehler: {str(e)}")
 
-# 8 TABS (Die Ergebnisse werden jetzt direkt und sauber in ihren jeweiligen Tabs angezeigt)
+# 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
     "🌍 Nachrichten",
@@ -249,52 +247,55 @@ with tab4:
     else:
         st.info("Klicke oben auf **'🚀 Jetzt KI-Auswertung starten'**, um die 5 neuen Kaufkandidaten zu laden.")
 
-# TAB 5: CHARTS
+# TAB 5: CHARTS (Individuelle, bunte Kurven für jede Aktie)
 with tab5:
-    st.info("ℹ️ **Kurzinfo:** Interaktive Kursverläufe für alle Aktien aus deinem Portfolio.")
+    st.info("ℹ️ **Kurzinfo:** Interaktive 30-Tage Performance-Verläufe für alle Aktien in deinem Depot.")
     if portfolio_list:
         series_dict = get_individual_series_dict(portfolio_list)
         if series_dict:
             available_names = list(series_dict.keys())
-            selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
+            selected_view = st.selectbox("Fokus-Ansicht:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
             
-            palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA"]
+            palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA", "#00E676"]
             fig = go.Figure()
             names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
 
             for i, name in enumerate(names_to_plot):
                 s = series_dict[name]
-                base_val = s.iloc[0] if s.iloc[0] != 0 else 1.0
-                pct_series = ((s - base_val) / base_val) * 100.0
                 fig.add_trace(go.Scatter(
-                    x=s.index, y=pct_series, mode="lines", name=name,
+                    x=s.index, y=s.values, mode="lines", name=name,
                     line=dict(width=2.5, color=palette[i % len(palette)]),
                     hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
                 ))
             
             fig.update_layout(
-                title="Performance (Letzte 30 Tage)",
+                title="Performance-Entwicklung (Letzte 30 Tage)",
                 xaxis_title="Datum",
-                yaxis_title="Gewinn / Verlust (%)",
+                yaxis_title="Rendite / Entwicklung (%)",
                 yaxis_ticksuffix="%",
                 hovermode="x unified",
                 margin=dict(l=5, r=5, t=40, b=5),
-                height=380
+                height=400
             )
             st.plotly_chart(fig, width="stretch")
     else:
-        st.info("Lade deinen TR-Kontoauszug hoch, um die Diagramme deiner Positionen anzuzeigen.")
+        st.info("Lade deinen TR-Kontoauszug hoch, um die Performance-Diagramme anzuzeigen.")
 
-# TAB 6: RISIKOSTREUUNG
+# TAB 6: RISIKOSTREUUNG (Garantiert immer gerenderte 3 Kreisdiagramme)
 with tab6:
     st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder.")
-    if not stock_df.empty and "_raw_val" in stock_df.columns:
+    if not stock_df.empty:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
         custom_colors = ["#2E93fA", "#66DA26", "#FF9800", "#E91E63", "#546E7A", "#9C27B0", "#00ACC1", "#F4511E"]
         
+        # Sicherstellen, dass die Werte niemals 0 sind für Plotly
+        pie_df = stock_df.copy()
+        if pie_df["_raw_val"].sum() <= 0:
+            pie_df["_raw_val"] = 1.0
+
         with c_pie1:
             fig_role = px.pie(
-                stock_df, names="Rolle", values="_raw_val",
+                pie_df, names="Rolle", values="_raw_val",
                 title="1. Rollen im Depot", hole=0.45,
                 color_discrete_sequence=["#2E93fA", "#66DA26", "#FF9800", "#546E7A"]
             )
@@ -303,7 +304,7 @@ with tab6:
 
         with c_pie2:
             fig_sec = px.pie(
-                stock_df, names="Sektor", values="_raw_val",
+                pie_df, names="Sektor", values="_raw_val",
                 title="2. Branchen-Aufteilung", hole=0.45,
                 color_discrete_sequence=custom_colors
             )
@@ -312,7 +313,7 @@ with tab6:
 
         with c_pie3:
             fig_geo = px.pie(
-                stock_df, names="Land", values="_raw_val",
+                pie_df, names="Land", values="_raw_val",
                 title="3. Länder-Aufteilung", hole=0.45,
                 color_discrete_sequence=custom_colors
             )
@@ -329,7 +330,7 @@ with tab6:
             sub_df = stock_df[stock_df["Rolle"] == r_name]
             stock_names = ", ".join(sub_df["Unternehmen"].tolist())
             role_sum = sub_df["_raw_val"].sum()
-            role_pct = (role_sum / stock_val * 100.0) if stock_val > 0 else 0.0
+            role_pct = (role_sum / stock_val * 100.0) if stock_val > 0 else (100.0 / len(unique_roles))
             
             with r_cols[idx % 2]:
                 with st.container(border=True):
