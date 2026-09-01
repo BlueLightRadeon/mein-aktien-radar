@@ -74,7 +74,7 @@ with st.sidebar:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
             in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=10.0)
             
-            if st.button("➕ Hinzufügen", use_container_width=True):
+            if st.button("➕ Hinzufügen", width="stretch"):
                 sym = clean_ticker(selected_cand)
                 disp_name = get_display_name(sym)
                 st.session_state.my_portfolio.append({
@@ -130,43 +130,37 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# CALLBACK FÜR SOFORTIGES RENDERN BEIM KLICK
-def trigger_analysis():
+# KI-AUSWERTUNGS BUTTON
+if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
     if not GROQ_KEY:
-        st.session_state["api_error"] = "⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen."
-        return
-    if not st.session_state.my_portfolio:
-        st.session_state["api_error"] = "⚠️ Keine Aktien im Depot vorhanden."
-        return
-    try:
-        client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
-        news_data = fetch_all_headlines()
-        news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
+    elif not st.session_state.my_portfolio:
+        st.error("⚠️ Keine Aktien im Depot vorhanden.")
+    else:
+        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
+            try:
+                client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
+                news_data = fetch_all_headlines()
+                news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
-        metrics_summary = stock_df[[
-            "Unternehmen", "Börsenkurs", "RSI (14D)", 
-            "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
-        ]].to_string(index=False)
+                metrics_summary = stock_df[[
+                    "Unternehmen", "Börsenkurs", "RSI (14D)", 
+                    "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
+                ]].to_string(index=False)
 
-        cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
+                cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
 
-        out_m, out_d, out_s, out_c = run_analysis(
-            client, selected_model, news_text, metrics_summary, "", cluster_context
-        )
-        st.session_state["ai_market"] = out_m
-        st.session_state["ai_depot"] = out_d
-        st.session_state["ai_signals"] = out_s
-        st.session_state["ai_cluster"] = out_c
-        st.session_state["last_analysis_time"] = get_berlin_time_str()
-        st.session_state.pop("api_error", None)
-    except Exception as e:
-        st.session_state["api_error"] = f"Fehler: {str(e)}"
-
-# BUTTON MIT CALLBACK
-st.button("🚀 Jetzt KI-Auswertung starten", on_click=trigger_analysis, use_container_width=True, type="primary")
-
-if "api_error" in st.session_state and st.session_state["api_error"]:
-    st.error(st.session_state["api_error"])
+                out_m, out_d, out_s, out_c = run_analysis(
+                    client, selected_model, news_text, metrics_summary, "", cluster_context
+                )
+                st.session_state["ai_market"] = out_m
+                st.session_state["ai_depot"] = out_d
+                st.session_state["ai_signals"] = out_s
+                st.session_state["ai_cluster"] = out_c
+                st.session_state["last_analysis_time"] = get_berlin_time_str()
+                st.success("✅ Auswertung abgeschlossen!")
+            except Exception as e:
+                st.error(f"Fehler: {str(e)}")
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -197,7 +191,7 @@ with tab0:
                 "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
             ]],
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
 # TAB 1: WELT-NACHRICHTEN
@@ -218,7 +212,7 @@ with tab2:
                 "Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
             ]],
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
     if st.session_state.get("ai_depot"):
         st.divider()
@@ -245,7 +239,7 @@ with tab3:
                 "Dividendenrendite", "Ausschüttung pro Jahr", "Ausschüttungs-Monate"
             ]],
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
 # TAB 4: TOP 5 KAUFEMPFEHLUNGEN
@@ -289,7 +283,7 @@ with tab5:
                 margin=dict(l=5, r=5, t=40, b=5),
                 height=380
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
 # TAB 6: RISIKOSTREUUNG
 with tab6:
@@ -305,7 +299,7 @@ with tab6:
                 color_discrete_sequence=["#2E93fA", "#66DA26", "#FF9800", "#546E7A"]
             )
             fig_role.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_role, use_container_width=True)
+            st.plotly_chart(fig_role, width="stretch")
 
         with c_pie2:
             fig_sec = px.pie(
@@ -314,7 +308,7 @@ with tab6:
                 color_discrete_sequence=custom_colors
             )
             fig_sec.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_sec, use_container_width=True)
+            st.plotly_chart(fig_sec, width="stretch")
 
         with c_pie3:
             fig_geo = px.pie(
@@ -323,7 +317,7 @@ with tab6:
                 color_discrete_sequence=custom_colors
             )
             fig_geo.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_geo, use_container_width=True)
+            st.plotly_chart(fig_geo, width="stretch")
 
         st.divider()
         st.subheader("🧩 Wie verteilen sich deine tatsächlichen Aktien?")
@@ -359,7 +353,7 @@ with tab7:
         with cd2:
             duel_b = st.selectbox("Zweite Aktie:", names_list, index=1)
         
-        if st.button("⚡ Duell auswerten", use_container_width=True):
+        if st.button("⚡ Duell auswerten", width="stretch"):
             if GROQ_KEY:
                 cl = Groq(api_key=GROQ_KEY.strip(), timeout=8.0)
                 row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
