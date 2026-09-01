@@ -123,7 +123,7 @@ with st.sidebar:
         results = search_ticker_candidates(search_query)
         if results:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=35.0, step=5.0)
+            in_money = st.number_input("Aktueller Wert (€):", min_value=1.0, value=35.0, step=5.0)
             
             if st.button("➕ Hinzufügen", width="stretch"):
                 sym = clean_ticker(selected_cand)
@@ -139,7 +139,7 @@ with st.sidebar:
                 st.rerun()
 
     st.divider()
-    st.subheader("📋 Eingelesene Positionen & Beträge:")
+    st.subheader("📋 Positionen & Werte:")
     portfolio_list = st.session_state.get("v_portfolio", [])
     if portfolio_list:
         for idx, item in enumerate(list(portfolio_list)):
@@ -149,7 +149,7 @@ with st.sidebar:
                 st.write(f"• **{disp_name}**")
                 current_val = float(item.get("buy_price", 35.0))
                 new_val = st.number_input(
-                    f"Einsatz (€):", 
+                    f"Wert (€):", 
                     min_value=0.5, 
                     value=current_val, 
                     step=5.0, 
@@ -172,27 +172,25 @@ with st.sidebar:
     available_models = get_account_models(GROQ_KEY)
     selected_model = st.selectbox("KI-Modell:", available_models, index=0)
 
-# BERECHNUNG DER DEPOT-DATEN (Exakt nach Realwerten)
+# BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 
-if not stock_df.empty and "_raw_invested" in stock_df.columns:
-    total_invested = stock_df["_raw_invested"].sum()
+if not stock_df.empty and "_raw_val" in stock_df.columns:
     stock_val = stock_df["_raw_val"].sum()
     stock_pnl = stock_df["_raw_pnl"].sum()
 else:
-    total_invested = sum([float(x.get("buy_price", 0.0)) for x in portfolio_list])
-    stock_val = total_invested
+    stock_val = sum([float(x.get("buy_price", 0.0)) for x in portfolio_list])
     stock_pnl = 0.0
 
 total_tr_account = stock_val + display_cash
-stock_pnl_pct = (stock_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
+stock_pnl_pct = (stock_pnl / (stock_val - stock_pnl) * 100.0) if (stock_val - stock_pnl) > 0 else 0.0
 
-# METRIKEN OBEN
+# DIE 3 KLAREN HAUPTKARTEN
 c_m1, c_m2, c_m3 = st.columns(3)
 with c_m1:
-    st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld (aus Auszug) + Gesamtwert deiner Aktien")
+    st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Gesamtwert deines Kontos: Aktienbestand + Verrechnungskonto (Cash)")
 with c_m2:
-    st.metric("Eingezahltes Geld", fmt_eur(total_invested), help="Dein tatsächlich eingesetztes Kapital")
+    st.metric("Aktueller Wert der Aktien", fmt_eur(stock_val), help="Gesamtwert aller deiner aktuell gehaltenen Wertpapiere")
 with c_m3:
     st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
@@ -249,7 +247,7 @@ with tab0:
         
     st.subheader("Deine Positionen im Überblick:")
     if not stock_df.empty:
-        disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
+        disp_cols = [c for c in ["Unternehmen", "Aktueller Wert (TR)", "Börsenkurs", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
     else:
         st.info("📂 Lade deinen Trade Republic Kontoauszug (PDF) in der linken Seitenleiste hoch, um deine Werte hier zu sehen.")
