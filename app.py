@@ -118,10 +118,10 @@ with st.sidebar:
         selected_model = "llama-3.3-70b-versatile"
 
 # BERECHNUNG DER DEPOT-DATEN
-if st.session_state.my_portfolio:
-    stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
+stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
+if not stock_df.empty:
     total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
-    stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
+    stock_val = stock_df["_raw_val"].sum() if stock_df["_raw_val"].sum() > 0 else total_invested
     total_tr_account = stock_val + st.session_state.tr_cash
     stock_pnl = stock_val - total_invested
     stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
@@ -134,9 +134,6 @@ if st.session_state.my_portfolio:
     with c_m3:
         st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 else:
-    stock_df = pd.DataFrame()
-    ticker_news = []
-    resolved_tickers = []
     stock_val = 0.0
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
@@ -144,7 +141,7 @@ else:
 # KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
     elif not st.session_state.my_portfolio:
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
