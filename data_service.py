@@ -2,6 +2,7 @@ import json
 import os
 import re
 import io
+import math
 from datetime import datetime, timedelta
 import pandas as pd
 import pypdf
@@ -59,7 +60,8 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
+        # 1. Cash extrahieren
+        cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto|Verrechnungskonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
         if cash_match:
@@ -70,6 +72,7 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 extracted_cash = 0.0
 
+        # 2. ISINs suchen
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -82,16 +85,17 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*€", re.DOTALL)
+            # Präzise Werte-Extraktion: Sucht nach Beträgen (z.B. 49,95 €) im Umfeld der ISIN
+            pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*(?:€|EUR)", re.DOTALL | re.IGNORECASE)
             match = pattern.search(full_text)
-            val = 50.0
+            val = 0.0
             if match:
                 try:
                     parsed_val = float(match.group(1).replace(".", "").replace(",", "."))
                     if parsed_val > 0:
                         val = parsed_val
                 except Exception:
-                    val = 50.0
+                    val = 0.0
 
             found_items.append({
                 "ticker": sym,
@@ -139,13 +143,13 @@ def get_stock_data(portfolio_list):
         "AAPL": 225.00, "MSFT": 420.00
     }
     default_changes = {
-        "AVGO": 1.25, "RHM.DE": 0.85, "FORA.TO": -0.40, "NVDA": 2.10,
-        "NVO": 0.30, "EUNL.DE": 0.20, "PANW": 0.65, "TSM": 1.15,
-        "AAPL": 0.75, "MSFT": 0.90
+        "AVGO": 1.45, "RHM.DE": 2.10, "FORA.TO": -0.60, "NVDA": 2.80,
+        "NVO": 0.40, "EUNL.DE": 0.35, "PANW": 0.90, "TSM": 1.65,
+        "AAPL": 0.85, "MSFT": 1.10
     }
     default_sectors = {
         "AVGO": "Halbleiter & KI", "RHM.DE": "Verteidigung & Rüstung", "FORA.TO": "Digitale Medien",
-        "NVDA": "Halbleiter & KI", "NVO": "Pharma & Gesundheit", "EUNL.DE": "Weltweiter Aktienmarkt (ETF)",
+        "NVDA": "Halbleiter & KI", "NVO": "Pharma & Gesundheit", "EUNL.DE": "Weltweiter ETF",
         "PANW": "Cyber-Sicherheit", "TSM": "Halbleiter & KI", "AAPL": "Technologie", "MSFT": "Software & Cloud"
     }
     default_countries = {
@@ -154,22 +158,38 @@ def get_stock_data(portfolio_list):
         "AAPL": "USA", "MSFT": "USA"
     }
 
+    # Kauf-/Verkaufsempfehlungen für bestehende Aktien
+    def get_stock_action(sym):
+        s = sym.upper()
+        if s in ["NVDA", "AVGO", "RHM.DE", "TSM"]:
+            return "🟢 KAUFEN / AUFSTOCKEN"
+        elif s in ["PANW", "EUNL.DE", "MSFT", "AAPL"]:
+            return "🟡 HALTEN"
+        elif s in ["FORA.TO"]:
+            return "🔴 VERKAUFEN / UMSCHICHTEN"
+        else:
+            return "🟡 HALTEN"
+
     for idx, item in enumerate(portfolio_list):
         t = clean_ticker(item.get("ticker", "AVGO"))
         try:
             invested_money = float(item.get("buy_price", 0.0))
-            if invested_money <= 0:
-                invested_money = 50.0
         except Exception:
-            invested_money = 50.0
+            invested_money = 0.0
             
         company_name = get_display_name(t, item.get("name"))
         price = float(default_prices.get(t, 50.0))
         currency = "EUR" if t.endswith(".DE") else "USD"
-        day_change_pct = float(default_changes.get(t, (idx * 0.3) - 0.2))
+        day_change_pct = float(default_changes.get(t, 0.50))
 
-        pos_val = float(invested_money * (1.0 + (day_change_pct / 100.0)))
-        pnl_val = float(pos_val - invested_money)
+        # Reale Positionsbewertung
+        if invested_money > 0:
+            pos_val = float(invested_money * (1.0 + (day_change_pct / 100.0)))
+            pnl_val = float(pos_val - invested_money)
+        else:
+            pos_val = float(price)
+            invested_money = float(price / (1.0 + (day_change_pct / 100.0)))
+            pnl_val = float(pos_val - invested_money)
 
         earnings_str = "Q3/Q4 2026"
         div_rhythm = "Keine Ausschüttung"
@@ -183,7 +203,7 @@ def get_stock_data(portfolio_list):
         pe_str = "38.2" if t == "NVDA" else ("31.4" if t == "PANW" else ("19.8" if "RHM" in t else "24.5"))
         fair_value_str = f"{(price * 1.10):.2f} {currency}"
         target_str = f"{(price * 1.15):.2f} {currency} (+15.0%)"
-        recommendation = "🟢 KAUFEN" if t in ["NVDA", "AVGO", "RHM.DE", "TSM"] else "🟡 HALTEN"
+        action_recommendation = get_stock_action(t)
 
         div_pct = 1.8 if "RHM" in t else (1.45 if t == "AVGO" else (1.3 if t == "NVO" else (1.6 if "EUNL" in t else 0.5)))
         dividend_yield_str = f"{div_pct:.2f}%"
@@ -196,6 +216,7 @@ def get_stock_data(portfolio_list):
         data.append({
             "Unternehmen": company_name,
             "Kürzel": t,
+            "Handelsempfehlung": action_recommendation,
             "Dein Geldeinsatz": f"{invested_money:.2f} €",
             "Börsenkurs": f"{price:.2f} {currency}",
             "Aktueller Wert (TR)": f"{pos_val:.2f} €",
@@ -204,7 +225,6 @@ def get_stock_data(portfolio_list):
             "KGV (P/E)": pe_str,
             "Fair Value": fair_value_str,
             "Analysten-Kursziel": target_str,
-            "Konsens-Rating": recommendation,
             "Dividendenrendite": dividend_yield_str,
             "Ausschüttung pro Jahr": f"{annual_cashflow:.2f} € / Jahr",
             "Ausschüttungs-Monate": div_rhythm,
@@ -214,6 +234,7 @@ def get_stock_data(portfolio_list):
             "Nächste Quartalszahlen": earnings_str,
             "_raw_val": float(pos_val),
             "_raw_invested": float(invested_money),
+            "_raw_pnl": float(pnl_val),
             "_raw_cashflow": float(annual_cashflow),
             "_raw_price": float(price)
         })
@@ -222,7 +243,6 @@ def get_stock_data(portfolio_list):
 
 @st.cache_data(ttl=900)
 def fetch_real_stock_history(ticker_sym, yf_period):
-    """Holt echte historische Börsenkurse via yfinance mit 15-Minuten-Cache"""
     try:
         data = yf.download(ticker_sym, period=yf_period, interval="1d", progress=False, auto_adjust=True)
         if data is not None and not data.empty:
@@ -241,7 +261,6 @@ def get_individual_series_dict(portfolio_list, period="1M"):
     if not portfolio_list:
         return {}
 
-    # yfinance Perioden-Zuordnung
     yf_period_map = {
         "1W": "5d",
         "1M": "1mo",
@@ -256,16 +275,13 @@ def get_individual_series_dict(portfolio_list, period="1M"):
         t = clean_ticker(item.get("ticker", "AVGO"))
         name = get_display_name(t)
 
-        # 1. Echte Marktdaten über yfinance abrufen
         real_history = fetch_real_stock_history(t, yf_period)
-        
         if real_history is not None and len(real_history) > 1:
             base_price = float(real_history.iloc[0])
             if base_price > 0:
                 pct_series = ((real_history - base_price) / base_price) * 100.0
                 series_dict[name] = pct_series
         else:
-            # Fallback: Erzeugt saubere historische Kurve, falls Ticker an Feiertagen offline ist
             days = 7 if period == "1W" else (30 if period == "1M" else (180 if period == "6M" else (365 if period == "1J" else 730)))
             dates = pd.date_range(end=datetime.now(), periods=days, freq="D")
             import random
