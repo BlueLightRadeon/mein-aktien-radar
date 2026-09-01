@@ -123,7 +123,7 @@ with st.sidebar:
         results = search_ticker_candidates(search_query)
         if results:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=5.0)
+            in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=35.0, step=5.0)
             
             if st.button("➕ Hinzufügen", width="stretch"):
                 sym = clean_ticker(selected_cand)
@@ -147,8 +147,7 @@ with st.sidebar:
             col_pos_a, col_pos_b = st.columns([3, 1])
             with col_pos_a:
                 st.write(f"• **{disp_name}**")
-                # Direkt editierbarer Geldeinsatz pro Position!
-                current_val = float(item.get("buy_price", 50.0))
+                current_val = float(item.get("buy_price", 35.0))
                 new_val = st.number_input(
                     f"Einsatz (€):", 
                     min_value=0.5, 
