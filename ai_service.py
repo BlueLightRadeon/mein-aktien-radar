@@ -5,8 +5,6 @@ import re
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 STATIC_MODELS = [
     "llama-3.3-70b-versatile",
-    "llama3-70b-8192",
-    "llama3-8b-8192",
     "mixtral-8x7b-32768",
     "gemma2-9b-it"
 ]
@@ -81,7 +79,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
