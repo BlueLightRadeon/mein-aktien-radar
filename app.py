@@ -23,12 +23,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# Säubere alte Festplatten-Dateien restlos
-if os.path.exists("portfolio.json"):
-    try:
-        os.remove("portfolio.json")
-    except Exception:
-        pass
+# Zwingend alte JSON-Cache-Dateien auf dem Server entfernen
+for cached_file in ["portfolio.json", "portfolio_cache.json"]:
+    if os.path.exists(cached_file):
+        try:
+            os.remove(cached_file)
+        except Exception:
+            pass
 
 st.title("📈 KI Markt- & Depot-Radar")
 
@@ -46,7 +47,7 @@ def get_berlin_time_str():
     tz_de = timezone(timedelta(hours=2))
     return datetime.now(tz_de).strftime("%H:%M:%S Uhr")
 
-# Session-State: Startet absolut leer bei 0,00 €
+# Session-State: Startet absolut leer bei 0 Positionen und 0,00 € Cash
 if "my_portfolio" not in st.session_state:
     st.session_state.my_portfolio = []
 
@@ -64,7 +65,7 @@ with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
     with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
-        st.caption("Lade deinen Auszug hoch und klicke auf 'Auszug jetzt einlesen'.")
+        st.caption("Wähle deine PDF aus und klicke auf '📄 Auszug jetzt einlesen'.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         if tr_pdf is not None:
             if st.button("📄 Auszug jetzt einlesen", width="stretch"):
