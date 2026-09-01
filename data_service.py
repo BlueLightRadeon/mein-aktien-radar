@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import io
 from datetime import datetime
 import pandas as pd
 import pypdf
@@ -89,8 +90,8 @@ def parse_trade_republic_pdf(uploaded_file):
     found_items = []
     extracted_cash = 194.02
     try:
-        uploaded_file.seek(0)
-        reader = pypdf.PdfReader(uploaded_file)
+        pdf_bytes = uploaded_file.read() if hasattr(uploaded_file, "read") else uploaded_file
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
         cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
