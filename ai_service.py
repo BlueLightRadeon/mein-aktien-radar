@@ -29,8 +29,8 @@ def get_account_models(api_key):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein quantitativer Chef-Aktienanalyst und Portfoliomanager. Erstelle eine detaillierte, vollständige Analyse auf Deutsch. 
-Formuliere alle Analysen direkt und ohne Platzhalter aus.
+Du bist ein quantitativer Chef-Aktienanalyst und Portfoliomanager. Erstelle eine detaillierte, vollständige Finanzanalyse auf Deutsch. 
+WICHTIG: Schreibe alle Punkte direkt aus und nutze exakt die vier Trennmarker.
 
 AKTUELLE NACHRICHTENLAGE:
 {news_text}
@@ -41,64 +41,67 @@ BESTEHENDE DEPOTWERTE & HISTORISCHE DATEN DES NUTZERS:
 DEPOT-STRUKTUR:
 {cluster_context}
 
-Gliedere deine Antwort zwingend anhand der folgenden vier Trennmarkierungen:
+Gliedere deine Antwort zwingend mit diesen 4 exakten Markern:
 
 ===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
-Formuliere 10 prägnante Stichpunkte zu globalen Leitbörsen, Notenbank-Zinsentscheiden, Tech-Investitionen und geopolitischen Einflussfaktoren.
+Formuliere genau 10 konkrete, aktuelle Stichpunkte zur weltweiten Konjunktur, Zinspolitik von Fed & EZB, Rohstoffen, Halbleiter- und Tech-Märkten sowie geopolitischen Risiken.
 
 ### 🧭 Gesamtstimmung der Börse
-Bewerte die Lage eindeutig mit 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig und begründe dies in 3-4 Sätzen.
+Bewerte die Börsenlage mit 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig und begründe dies in 3-4 Sätzen.
 
 ===DEPOT===
 ### 💼 KAUF- & VERKAUFSEMPFEHLUNGEN FÜR DEINE BESTEHENDEN AKTIEN (KOMBINIERTE GESAMTANALYSE)
-Analysiere JEDE im Depot gehaltene Position ausführlich mit dem direkten Vorher-Nachher-Vergleich:
+Analysiere JEDE im Depot gehaltene Aktie ausnahmslos einzeln nach diesem Schema:
 
-Für jedes Unternehmen folgendes Format anwenden:
----
-#### 📌 [Unternehmensname] ([Ticker]) | Wert im Depot: [Wert] €
+#### 📌 [Unternehmensname] ([Ticker])
 - **🟢/🟡/🔴 Aktuelle Empfehlung:** [KAUFEN / AUFSTOCKEN / HALTEN / VERKAUFEN]
-  - **Aktuelle Begründung:** Fundamentale Einschätzung (KGV, Fair Value, Auftragslage, Kurspotenzial).
-- **⏱️ Rückblick vor 3 Monaten:** [Damalige Empfehlung z. B. HALTEN]
-  - **Damalige Ausgangslage:** Welche Faktoren damals maßgeblich waren.
-- **📈 Trend & Fazit:** Wie sich die These in den letzten 3 Monaten entwickelt hat und welcher konkrete Schritt jetzt empfohlen wird.
+  - **Aktuelle Begründung:** Fundamentale Kennzahlen (KGV, Fair Value, Auftragslage, Kurspotenzial).
+- **⏱️ Rückblick vor 3 Monaten:** [Damalige Empfehlung]
+  - **Damalige Ausgangslage:** Welche Faktoren damals die Bewertung bestimmt haben.
+- **📈 Trend & Fazit:** Entwicklung der Anlagethese in den letzten 3 Monaten und konkreter nächster Handlungsschritt.
 
 ===SIGNALE===
 ### 🎯 TOP 5 NEUE KAUF-EMPFEHLUNGEN (Zur Portfolio-Erweiterung)
-Empfehle 5 konkrete, kaufenswerte Qualitätsaktien oder ETFs zur Diversifikation (keine Werte, die schon im Depot liegen):
+Empfehle genau 5 konkrete, kaufenswerte Qualitätsaktien oder ETFs zur Diversifikation (keine Werte, die schon im Depot liegen):
+
 1. **[Aktie 1]** (Ticker | Branche | Land)
    - **Warum JETZT kaufen?**
    - **Chance / Kurspotenzial:**
-   - **Risiko:** Gering / Mittel / Hoch
+   - **Risikobewertung:** Gering / Mittel / Hoch
+
 2. **[Aktie 2]** (Ticker | Branche | Land)
    - **Warum JETZT kaufen?**
    - **Chance / Kurspotenzial:**
-   - **Risiko:**
+   - **Risikobewertung:**
+
 3. **[Aktie 3]** (Ticker | Branche | Land)
    - **Warum JETZT kaufen?**
    - **Chance / Kurspotenzial:**
-   - **Risiko:**
+   - **Risikobewertung:**
+
 4. **[Aktie 4]** (Ticker | Branche | Land)
    - **Warum JETZT kaufen?**
    - **Chance / Kurspotenzial:**
-   - **Risiko:**
+   - **Risikobewertung:**
+
 5. **[Aktie 5]** (Ticker | Branche | Land)
    - **Warum JETZT kaufen?**
    - **Chance / Kurspotenzial:**
-   - **Risiko:**
+   - **Risikobewertung:**
 
-#### 🔴 AKTUELL MEIDEN
-Nenne 3 Branchen oder Nischenwerte mit erhöhtem Abwärtsrisiko.
+#### 🔴 AKTUELL MEIDEN:
+Nenne 3-4 Branchen oder Aktiengruppen mit erhöhtem Abwärtsrisiko.
 
 ===KLUMPEN===
 ### 🛡️ Risikostreuung & Depot-Optimierung
-1. **Risiko-Score**: 1 (sehr defensiv) bis 10 (sehr spekulativ).
-2. **Bewertung der aktuellen Schwerpunkte** (Tech, Rüstung, Healthcare etc.).
-3. **Konkrete Portfolio-Empfehlung** zur weiteren Absicherung.
+1. **Risiko-Score**: 1 (Sehr konservativ) bis 10 (Sehr spekulativ).
+2. **Erläuterung der Streuung**: Wo liegen aktuell Übergewichtungen (z. B. Tech, Rüstung)?
+3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 neuen Aktien das Depot am besten absichert.
 """
 
-    duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
-    models_to_try = [duel_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
+    target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    models_to_try = [target_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -110,12 +113,12 @@ Nenne 3 Branchen oder Nischenwerte mit erhöhtem Abwärtsrisiko.
             res = client.chat.completions.create(
                 model=m_id,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte immer auf Deutsch und formuliere alle Analysen direkt und ausführlich aus."},
+                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte immer auf Deutsch und formuliere alle 4 Abschnitte vollständig und sauber getrennt aus."},
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=3200,
-                timeout=30.0
+                max_tokens=3500,
+                timeout=35.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
@@ -128,26 +131,18 @@ Nenne 3 Branchen oder Nischenwerte mit erhöhtem Abwärtsrisiko.
         err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
         return err_msg, err_msg, err_msg, err_msg
 
-    normalized_text = full_text
-    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*MARKT\s*={2,5}\*{0,2}|#{1,4}\s*MARKT)', '<<<SECTION_MARKT>>>', normalized_text, flags=re.IGNORECASE)
-    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*DEPOT\s*={2,5}\*{0,2}|#{1,4}\s*DEPOT)', '<<<SECTION_DEPOT>>>', normalized_text, flags=re.IGNORECASE)
-    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*(?:SIGNALE|KAUF|EMPFEHLUNGEN)\s*={2,5}\*{0,2}|#{1,4}\s*(?:SIGNALE|KAUF|EMPFEHLUNGEN))', '<<<SECTION_SIGNALE>>>', normalized_text, flags=re.IGNORECASE)
-    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*(?:KLUMPEN|RISIKO|STREUUNG)\s*={2,5}\*{0,2}|#{1,4}\s*(?:KLUMPEN|RISIKO|STREUUNG))', '<<<SECTION_KLUMPEN>>>', normalized_text, flags=re.IGNORECASE)
+    # Robuste Trennung der 4 Abschnitte
+    pattern_m = re.search(r'={2,5}\s*MARKT\s*={2,5}(.*?)(?=={2,5}\s*DEPOT\s*={2,5}|$)', full_text, re.DOTALL | re.IGNORECASE)
+    pattern_d = re.search(r'={2,5}\s*DEPOT\s*={2,5}(.*?)(?=={2,5}\s*SIGNALE\s*={2,5}|$)', full_text, re.DOTALL | re.IGNORECASE)
+    pattern_s = re.search(r'={2,5}\s*SIGNALE\s*={2,5}(.*?)(?=={2,5}\s*KLUMPEN\s*={2,5}|$)', full_text, re.DOTALL | re.IGNORECASE)
+    pattern_c = re.search(r'={2,5}\s*KLUMPEN\s*={2,5}(.*?)$', full_text, re.DOTALL | re.IGNORECASE)
 
-    sections = {}
-    parts = re.split(r'<<<(SECTION_[A-Z]+)>>>', normalized_text)
-    if len(parts) >= 3:
-        for i in range(1, len(parts), 2):
-            sec_name = parts[i]
-            sec_content = parts[i+1].strip() if i+1 < len(parts) else ""
-            sections[sec_name] = sec_content
+    out_market = pattern_m.group(1).strip() if pattern_m else full_text[:800]
+    out_depot = pattern_d.group(1).strip() if pattern_d else "Kombinierte Empfehlungen geladen."
+    out_signals = pattern_s.group(1).strip() if pattern_s else "Kaufempfehlungen werden berechnet..."
+    out_cluster = pattern_c.group(1).strip() if pattern_c else "Risikostreuung erstellt."
 
-    out_market = sections.get("SECTION_MARKT", full_text)
-    out_depot = sections.get("SECTION_DEPOT", "Handelsempfehlungen liegen im Tab '💼 Stimmung & Empfehlungen' vor.")
-    out_signals = sections.get("SECTION_SIGNALE", full_text)
-    out_cluster = sections.get("SECTION_KLUMPEN", "Streuungsanalyse erstellt.")
-
-    return out_market.strip(), out_depot.strip(), out_signals.strip(), out_cluster.strip()
+    return out_market, out_depot, out_signals, out_cluster
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
