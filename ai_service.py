@@ -22,60 +22,85 @@ def get_account_models(api_key):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein erfahrener Investment-Stratege. Analysiere die Daten und antworte auf Deutsch.
+Du bist ein renommierter Chef-Anlagestratege und quantitativer Portfoliomanager. 
+Analysiere die aktuellen Weltnachrichten sowie das bestehende Depot des Nutzers und erstelle fundierte, konkrete Kaufempfehlungen für NEUE Aktien zur Portfolio-Erweiterung.
 
 [AKTUELLE WELT- & MARKTNACHRICHTEN]
 {news_text[:1500]}
 
-[DEPOT-KENNZAHLEN]
+[BESTEHENDE DEPOT-WERTE DES NUTZERS]
 {metrics_summary}
 
-[DEPOT-AUFTEILUNG]
+[AKTUELLE DEPOT-AUFTEILUNG]
 {cluster_context}
 
 Erstelle deine Antwort strikt getrennt nach diesen Markern:
 
 ===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
-10 prägnante Stichpunkte zur aktuellen Wirtschaftslage.
+10 prägnante Stichpunkte zur aktuellen weltweiten Wirtschaftslage.
 
 ### 🧭 Gesamtstimmung der Börse
 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit kurzer Begründung.
 
----
-
-### 💡 Markt-Ratgeber: Konkrete Kauf- & Verkaufsempfehlungen
-
-#### 🟢 TOP 10 KAUF-EMPFEHLUNGEN (Profiteure der aktuellen Trends):
-Nenne 10 konkrete Qualitätsaktien oder ETFs (mit Ticker) und begründe kurz den Vorteil:
-1. **[Aktie 1]** (Ticker): Warum kaufen?
-2. **[Aktie 2]** (Ticker): Warum kaufen?
-3. **[Aktie 3]** (Ticker): Warum kaufen?
-4. **[Aktie 4]** (Ticker): Warum kaufen?
-5. **[Aktie 5]** (Ticker): Warum kaufen?
-6. **[Aktie 6]** (Ticker): Warum kaufen?
-7. **[Aktie 7]** (Ticker): Warum kaufen?
-8. **[Aktie 8]** (Ticker): Warum kaufen?
-9. **[Aktie 9]** (Ticker): Warum kaufen?
-10. **[Aktie 10]** (Ticker): Warum kaufen?
-
-#### 🔴 AKTUELL MEIDEN:
-Nenne 4 Branchen oder Aktien mit erhöhtem Risiko und Begründung.
-
 ===DEPOT===
-Analysiere jede der Depot-Positionen des Nutzers bezüglich Bewertung und Ausblick.
+Kurzer Statuscheck zu den bestehenden 8 Werten des Nutzers:
+- **[Unternehmen]**: Aktuelle Bewertung, Trend und worauf man jetzt achten muss.
 
 ===SIGNALE===
-Handlungsempfehlungen für die Depot-Positionen:
-- **[Unternehmen]**: 🟢 KAUFEN, 🟡 HALTEN oder 🔴 VERKAUFEN mit Begründung.
+### 🎯 KI-Empfehlungen: NEUE Aktien zur Portfolio-Erweiterung
+Empfiehl mindestens 10 konkrete, starke NEUE Aktien oder ETFs (NICHT aus dem aktuellen Depot), die das Depot des Nutzers perfekt ergänzen und Risiken ausgleichen:
+
+1. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?** (Konkreter Treiber basierend auf Nachrichten & Bewertung)
+   - **Rolle im Portfolio:** (z. B. Defensiver Cashflow, Profiteur hoher Zinsen, Basiskonsum)
+   - **Faires Kursziel / Potenzial:** z. B. +15 % bis +25 %
+2. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+3. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+4. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+5. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+6. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+7. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+8. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+9. **[Aktienname / ETF]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Rolle im Portfolio:**
+   - **Faires Kursziel / Potenzial:**
+10. **[Aktienname / ETF]** (Ticker | Branche | Land)
+    - **Warum JETZT kaufen?**
+    - **Rolle im Portfolio:**
+    - **Faires Kursziel / Potenzial:**
+
+#### 🔴 AKTUELL MEIDEN (Branchen mit hohem Risiko):
+Nenne 4 Branchen oder Aktienarten, die man aktuell meiden sollte.
 
 ===KLUMPEN===
-1. **Risiko-Score**: 1 (Sehr gut gestreut) bis 10 (Hohes Risiko).
-2. **Erläuterung der Streuung**: Wie stabil das Portfolio aufgestellt ist.
-3. **Optimierung**: Welche 1-2 Werte oder Sektoren das Depot noch robuster machen.
+1. **Risiko-Score**: 1 (Sehr gut gestreut) bis 10 (Hohes Klumpenrisiko).
+2. **Erläuterung zur Streuung**: Wo liegen aktuell die Übergewichte?
+3. **Konkreter Erweiterungsplan**: Welche 2-3 der oben empfohlenen neuen Aktien das Gesamtrisiko am schnellsten senken.
 """
 
-    # Erster Versuch mit gewähltem Modell, Fallback auf Llama 3.3
     models_to_try = [model_name] if model_name == DEFAULT_MODEL else [model_name, DEFAULT_MODEL]
     full_text = ""
     last_err = None
@@ -86,7 +111,7 @@ Handlungsempfehlungen für die Depot-Positionen:
                 model=target_model,
                 messages=[{"role": "user", "content": combined_prompt}],
                 temperature=0.2,
-                max_tokens=2000,
+                max_tokens=2200,
             )
             full_text = res.choices[0].message.content
             if full_text:
@@ -96,7 +121,7 @@ Handlungsempfehlungen für die Depot-Positionen:
             continue
 
     if not full_text:
-        raise last_err if last_err else RuntimeError("Keine Antwort von der Groq API erhalten.")
+        raise last_err if last_err else RuntimeError("Keine Antwort von der KI-Schnittstelle erhalten.")
 
     out_market = "Keine Daten."
     out_depot = "Keine Daten."
@@ -122,7 +147,7 @@ Handlungsempfehlungen für die Depot-Positionen:
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
-Vergleiche diese beiden Aktien objektiv:
+Vergleiche als quantitativer Analyst diese beiden Aktien objektiv:
 Aktie A: {stock_a_info}
 Aktie B: {stock_b_info}
 
