@@ -35,7 +35,6 @@ RSS_SOURCES = [
     "https://oilprice.com/rss/main",
 ]
 
-# Exakte Zuordnung von ISIN zu Yahoo-Ticker & Klarnamen
 ISIN_MAP = {
     "US11135F1012": ("AVGO", "Broadcom"),
     "DE0007030009": ("RHM.DE", "Rheinmetall"),
@@ -57,14 +56,14 @@ ISIN_MAP = {
 }
 
 DEFAULT_HOLDINGS = [
-    {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238, "buy_price": 75.18},
-    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242, "buy_price": 78.97},
-    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.597, "buy_price": 54.14},
-    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.263, "buy_price": 49.43},
-    {"ticker": "TSM", "name": "TSMC", "shares": 0.137, "buy_price": 49.18},
-    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624, "buy_price": 48.90},
+    {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238273, "buy_price": 75.18},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242466, "buy_price": 78.97},
+    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.596822, "buy_price": 54.14},
+    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.262936, "buy_price": 49.43},
+    {"ticker": "TSM", "name": "TSMC", "shares": 0.136612, "buy_price": 49.18},
+    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624309, "buy_price": 48.90},
     {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 38.96},
-    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021, "buy_price": 23.00},
+    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021265, "buy_price": 23.00},
 ]
 
 def clean_ticker(ticker_str):
@@ -137,7 +136,6 @@ def search_ticker_candidates(query):
     return candidates
 
 def parse_trade_republic_pdf(uploaded_file):
-    """Parst die Trade Republic Vermögensübersicht exakt zeilenweise."""
     found_items = []
     extracted_cash = None
     
@@ -145,7 +143,7 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # 1. Cash parsen (z. B. "Cashkonto 194,02 EUR" oder "Cash 194,02")
+        # Cash parsen
         cash_match = re.search(r"(?:Cashkonto|Cash)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
@@ -155,19 +153,18 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 pass
 
-        # 2. Zeilenblöcke anhand von ISINs zerlegen
+        # ISIN Blöcke
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         matches = list(re.finditer(isin_pattern, full_text))
         
         for i, match in enumerate(matches):
             isin = match.group(1)
             start_pos = match.start()
-            end_pos = matches[i+1].start() if i + 1 < len(matches) else start_pos + 400
+            end_pos = matches[i+1].start() if i + 1 < len(matches) else start_pos + 450
             
-            # Textblock vor und nach der ISIN betrachten
             block = full_text[max(0, start_pos - 120):min(len(full_text), end_pos)]
             
-            # Stückzahl ermitteln
+            # Stückzahl
             shares = 1.0
             stk_match = re.search(r"([\d.,]+)\s*Stk\.", block, re.IGNORECASE)
             if stk_match:
@@ -176,28 +173,27 @@ def parse_trade_republic_pdf(uploaded_file):
                 except Exception:
                     pass
             
-            # Kurswert in EUR aus dem Tabellenblock extrahieren
+            # Kurswert (z. B. nach Datum '01.09.2026 | 49,18' oder Fließtext)
             invested_val = 50.0
-            # Typisches Muster: Datum gefolgt von Kurswert (z.B. "01.09.2026 | 75,18")
-            val_match = re.search(r"\d{2}\.\d{2}\.\d{4}\s*\|\s*([\d.,]+)", block)
-            if not val_match:
-                # Fallback: Letzte Zahl im Block
-                nums = re.findall(r"\b\d+,\d{2}\b", block)
-                if nums:
-                    val_match_str = nums[-1]
-                else:
-                    val_match_str = None
-            else:
-                val_match_str = val_match.group(1)
-                
-            if val_match_str:
+            val_match = re.search(r"\d{2}\.\d{2}\.\d{4}\s*(?:\|\s*)?([\d.,]+)", block)
+            if val_match:
                 try:
-                    parsed_v = float(val_match_str.replace(".", "").replace(",", "."))
-                    # Ausschließen des Gesamtbrokerage-Werts
+                    parsed_v = float(val_match.group(1).replace(".", "").replace(",", "."))
                     if 0.5 <= parsed_v < 400.0:
                         invested_val = parsed_v
                 except Exception:
                     pass
+            else:
+                nums = re.findall(r"\b\d+,\d{2}\b", block)
+                if nums:
+                    for num_str in reversed(nums):
+                        try:
+                            parsed_v = float(num_str.replace(",", "."))
+                            if 0.5 <= parsed_v < 400.0:
+                                invested_val = parsed_v
+                                break
+                        except Exception:
+                            pass
 
             if isin in ISIN_MAP:
                 sym, disp_name = ISIN_MAP[isin]
