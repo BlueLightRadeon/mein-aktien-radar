@@ -65,7 +65,7 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
         if not current_stock_df.empty and "Unternehmen" in current_stock_df.columns:
-            summary_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Dividendenrendite"] if c in current_stock_df.columns]
+            summary_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Begründung & Einschätzung", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Dividendenrendite"] if c in current_stock_df.columns]
             metrics_summary = current_stock_df[summary_cols].to_string(index=False)
             cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in current_stock_df.columns]
             cluster_context = current_stock_df[cluster_cols].to_string(index=False)
@@ -161,7 +161,7 @@ with st.sidebar:
     available_models = get_account_models(GROQ_KEY)
     selected_model = st.selectbox("KI-Modell:", available_models, index=0)
 
-# BERECHNUNG DER DEPOT-DATEN (Exakt nach Realwerten)
+# BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 
 if not stock_df.empty and "_raw_invested" in stock_df.columns:
@@ -218,8 +218,8 @@ with col_info:
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
-    "🌍 Nachrichten",
     "💼 Stimmung & Empfehlungen",
+    "🌍 Nachrichten",
     "📅 Termine & Cashflow",
     "🎯 Top 5 Kaufempfehlungen",
     "📊 Charts",
@@ -238,32 +238,32 @@ with tab0:
         
     st.subheader("Deine Positionen im Überblick:")
     if not stock_df.empty:
-        disp_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
+        disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
     else:
         st.info("📂 Lade deinen Trade Republic Kontoauszug (PDF) in der linken Seitenleiste hoch, um deine Werte hier zu sehen.")
 
-# TAB 1: WELT-NACHRICHTEN
+# TAB 1: STIMMUNG & BEGRÜNDETE HANDELSEMPFEHLUNGEN FÜR DEIN DEPOT
 with tab1:
+    st.info("ℹ️ **Kurzinfo:** Einzelanalyse & fundierte Kauf-/Verkaufsempfehlungen für jede deiner bestehenden Aktien.")
+    if not stock_df.empty:
+        disp_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Begründung & Einschätzung", "Börsenkurs", "Fair Value", "Analysten-Kursziel", "Gewinn / Verlust"] if c in stock_df.columns]
+        st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
+    if st.session_state.get("ai_depot"):
+        st.divider()
+        st.subheader("🤖 Detaillierter KI-Handelsbericht für deine Aktien:")
+        st.markdown(st.session_state["ai_depot"])
+    else:
+        st.info("Lade ein Depot hoch, um die Handelsempfehlungen zu berechnen.")
+
+# TAB 2: WELT-NACHRICHTEN
+with tab2:
     st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
     if st.session_state.get("ai_market"):
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
     else:
         st.info("Lade dein Depot hoch, um die Marktanalyse automatisch zu laden.")
-
-# TAB 2: STIMMUNG & EMPFEHLUNGEN FÜR BESTEHENDE AKTIEN
-with tab2:
-    st.info("ℹ️ **Kurzinfo:** Einzelanalyse & konkrete Kauf-/Verkaufsempfehlungen für jede deiner bestehenden Aktien.")
-    if not stock_df.empty:
-        disp_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
-        st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
-    if st.session_state.get("ai_depot"):
-        st.divider()
-        st.subheader("🤖 KI-Handelsempfehlungen für dein Depot:")
-        st.markdown(st.session_state["ai_depot"])
-    else:
-        st.info("Keine Daten geladen.")
 
 # TAB 3: TERMINE & CASHFLOW
 with tab3:
@@ -336,16 +336,15 @@ with tab5:
     else:
         st.info("Lade deinen TR-Kontoauszug hoch, um die Performance-Diagramme anzuzeigen.")
 
-# TAB 6: RISIKOSTREUUNG (Mit eigenständigen Farbwelten)
+# TAB 6: RISIKOSTREUUNG
 with tab6:
     st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines realen Geldes auf Rollen, Branchen und Länder.")
     if not stock_df.empty:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
         
-        # 3 VÖLLIG GETRENNTE FARBWELTEN
-        colors_role = ["#2563EB", "#0284C7", "#0D9488", "#64748B", "#3B82F6"]  # Blau/Cyan/Grau
-        colors_sector = ["#059669", "#10B981", "#34D399", "#14B8A6", "#047857", "#6EE7B7", "#065F46"]  # Smaragd/Grün
-        colors_geo = ["#D97706", "#F59E0B", "#8B5CF6", "#EC4899", "#6366F1", "#FB923C", "#A855F7"]  # Amber/Violett/Pink
+        colors_role = ["#2563EB", "#0284C7", "#0D9488", "#64748B", "#3B82F6"]
+        colors_sector = ["#059669", "#10B981", "#34D399", "#14B8A6", "#047857", "#6EE7B7", "#065F46"]
+        colors_geo = ["#D97706", "#F59E0B", "#8B5CF6", "#EC4899", "#6366F1", "#FB923C", "#A855F7"]
         
         pie_df = stock_df.copy()
         if pie_df["_raw_val"].sum() <= 0:
