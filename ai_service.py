@@ -3,23 +3,11 @@ from groq import Groq
 import re
 
 DEFAULT_MODEL = "openai/gpt-oss-120b"
+STATIC_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"]
 
-@st.cache_data(ttl=3600)
 def get_account_models(api_key):
-    if not api_key:
-        return [DEFAULT_MODEL]
-    try:
-        c = Groq(api_key=api_key.strip(), timeout=5.0)
-        models_data = c.models.list().data
-        valid_models = [
-            m.id for m in models_data 
-            if not any(x in m.id.lower() for x in ["whisper", "guard", "vision", "safeguard", "orpheus", "tts"])
-        ]
-        preferred = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-        sorted_models = [m for m in preferred if m in valid_models] + [m for m in valid_models if m not in preferred]
-        return sorted_models if sorted_models else [DEFAULT_MODEL]
-    except Exception:
-        return [DEFAULT_MODEL, "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
+    # Statische Liste: Verhindert jedes Blockieren beim Laden der Seite
+    return STATIC_MODELS
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
@@ -87,36 +75,35 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    # Nur das ausgewählte Modell anfragen (keine Endlos-Schleifen)
-    target = model_name if model_name else DEFAULT_MODEL
-    try:
-        res = client.chat.completions.create(
-            model=target,
-            messages=[
-                {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
-                {"role": "user", "content": combined_prompt}
-            ],
-            temperature=0.2,
-            max_tokens=2000,
-            timeout=12.0
-        )
-        full_text = res.choices[0].message.content if res.choices else ""
-    except Exception as e:
-        # Einmaliger, schneller Fallback auf das schnellste Modell
+    target = model_name if model_name in STATIC_MODELS else DEFAULT_MODEL
+    full_text = ""
+    last_err_msg = ""
+
+    # Schneller Request mit festem Timeout (max. 10 Sek)
+    for model_to_try in [target, "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]:
         try:
             res = client.chat.completions.create(
-                model="openai/gpt-oss-20b",
-                messages=[{"role": "user", "content": combined_prompt}],
+                model=model_to_try,
+                messages=[
+                    {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
+                    {"role": "user", "content": combined_prompt}
+                ],
                 temperature=0.2,
-                max_tokens=1800,
-                timeout=8.0
+                max_tokens=2000,
+                timeout=10.0
             )
-            full_text = res.choices[0].message.content if res.choices else ""
-        except Exception as e2:
-            err_msg = f"⚠️ Groq API Fehler: {str(e)}"
-            return err_msg, err_msg, err_msg, err_msg
+            if res.choices and res.choices[0].message and res.choices[0].message.content:
+                full_text = res.choices[0].message.content
+                break
+        except Exception as e:
+            last_err_msg = str(e)
+            continue
 
-    # Unfehlbare Normalisierung: Bereinigt alle Varianten der Trennzeilen
+    if not full_text:
+        err_display = f"⚠️ **Groq API Fehler:** `{last_err_msg}`\n\nBitte prüfe deinen API-Key in den Streamlit Secrets."
+        return err_display, err_display, err_display, err_display
+
+    # Zerlegung via Regex
     normalized_text = full_text
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*MARKT\s*={2,5}\*{0,2}|#{1,4}\s*MARKT)', '<<<SECTION_MARKT>>>', normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*DEPOT\s*={2,5}\*{0,2}|#{1,4}\s*DEPOT)', '<<<SECTION_DEPOT>>>', normalized_text, flags=re.IGNORECASE)
@@ -158,7 +145,7 @@ Aktie B: {stock_b_info}
 """
     try:
         res = client.chat.completions.create(
-            model=model_name if model_name else DEFAULT_MODEL,
+            model=model_name if model_name in STATIC_MODELS else DEFAULT_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
