@@ -5,7 +5,6 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# Smartphone-optimierte Seitenkonfiguration
 st.set_page_config(
     page_title="KI Markt- & Depot-Radar",
     page_icon="📈",
@@ -14,7 +13,6 @@ st.set_page_config(
 
 st.title("📈 KI Markt- & Depot-Radar")
 
-# Key aus Streamlit Secrets laden
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 with st.sidebar:
@@ -55,7 +53,6 @@ def fetch_all_headlines(sources):
             headlines.append(f"- {title}")
     except Exception:
       continue
-  # Strikt auf 25 Schlagzeilen begrenzen, um Groq-Limits sicher einzuhalten
   return headlines[:25]
 
 
@@ -87,6 +84,34 @@ def get_stock_data(tickers):
   return pd.DataFrame(data)
 
 
+def pick_valid_chat_model(client):
+  """Liest die für deinen API-Key tatsächlich freigeschalteten Chat-Modelle aus."""
+  try:
+    available = [m.id for m in client.models.list().data]
+    # Filtert reine Audio-/Whisper-/Guard-Modelle heraus
+    valid_text_models = [
+        m
+        for m in available
+        if not any(x in m.lower() for x in ["whisper", "guard", "vision"])
+    ]
+
+    # Bevorzuge aktuelle Llama 3.3 oder Llama 3 Modelle
+    for pref in [
+        "llama-3.3-70b-versatile",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768",
+    ]:
+      if pref in valid_text_models:
+        return pref
+
+    if valid_text_models:
+      return valid_text_models[0]
+  except Exception:
+    pass
+  return "llama-3.3-70b-versatile"
+
+
 tab1, tab2, tab3 = st.tabs(
     ["🌍 Markt Top 10", "💼 Sentiment & Depot", "📅 Earnings-Kalender"]
 )
@@ -103,17 +128,20 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
         t.strip().upper() for t in portfolio_input.split(",") if t.strip()
     ]
 
-    with st.spinner("Scanne 40+ Quellen und werte Daten per KI aus..."):
+    with st.spinner("Prüfe Modell und erstelle Analyse..."):
+      # Ermittelt das exakte, in deinem Konto aktive Modell
+      model_to_use = pick_valid_chat_model(client)
+
       news_data = fetch_all_headlines(RSS_SOURCES)
       news_text = "\n".join(news_data)
       stock_df = get_stock_data(tickers)
 
       prompt_market = f"""
-Aktuelle globale Finanz- und Wirtschaftsnachrichten:
+Aktuelle weltweite Wirtschaftsnachrichten:
 {news_text}
 
 Fasse die **TOP 10 wichtigsten Markt-Informationen** prägnant auf Deutsch zusammen.
-Bewerte am Ende kurz die Gesamt-Marktstimmung (Bullisch / Neutral / Bärisch).
+Bewerte am Ende kurz die Marktstimmung (Bullisch / Neutral / Bärisch).
 """
 
       prompt_depot = f"""
@@ -121,16 +149,15 @@ Depot-Aktien: {', '.join(tickers)}
 Nachrichtenlage:
 {news_text}
 
-Erstelle für jede Aktie ({', '.join(tickers)}):
+Erstelle für jede Aktie einzeln:
 1. **Sentiment**: 🟢 Bullisch, 🟡 Neutral oder 🔴 Bärisch
-2. **Fokus/News**: Aktuelle Trends oder Einflussfaktoren.
+2. **Fokus/News**: Relevante Trends oder Neuigkeiten dazu.
 3. **Tipp für Anleger**: Worauf die nächsten Tage geachtet werden sollte.
 """
 
-      # Wir fragen das offizielle, stabile Llama-Modell gezielt ab
       try:
         res_market = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=model_to_use,
             messages=[{"role": "user", "content": prompt_market}],
             temperature=0.4,
             max_tokens=800,
@@ -138,7 +165,7 @@ Erstelle für jede Aktie ({', '.join(tickers)}):
         out_market = res_market.choices[0].message.content
 
         res_depot = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=model_to_use,
             messages=[{"role": "user", "content": prompt_depot}],
             temperature=0.4,
             max_tokens=800,
@@ -146,6 +173,7 @@ Erstelle für jede Aktie ({', '.join(tickers)}):
         out_depot = res_depot.choices[0].message.content
 
         with tab1:
+          st.caption(f"🤖 Verwendetes Modell: `{model_to_use}`")
           st.markdown(out_market)
 
         with tab2:
@@ -159,4 +187,4 @@ Erstelle für jede Aktie ({', '.join(tickers)}):
           st.dataframe(stock_df, hide_index=True)
 
       except Exception as e:
-        st.error(f"Fehler bei der Groq-Abfrage: {str(e)}")
+        st.error(f"Fehler bei Modell '{model_to_use}': {str(e)}")
