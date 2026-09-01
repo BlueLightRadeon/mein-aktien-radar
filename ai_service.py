@@ -2,12 +2,11 @@ import streamlit as st
 from groq import Groq
 import re
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 STATIC_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b"
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b"
 ]
 
 def get_account_models(api_key):
@@ -83,7 +82,8 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     full_text = ""
     last_err_msg = ""
 
-    for model_to_try in [target, "llama-3.1-8b-instant", "openai/gpt-oss-120b"]:
+    # Schneller Request an die aktiven Groq-Modelle
+    for model_to_try in [target, "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]:
         try:
             res = client.chat.completions.create(
                 model=model_to_try,
@@ -93,7 +93,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                 ],
                 temperature=0.2,
                 max_tokens=2200,
-                timeout=10.0
+                timeout=12.0
             )
             if res.choices and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
