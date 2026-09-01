@@ -9,7 +9,7 @@ try:
     from data_service import (
         load_saved_portfolio, save_portfolio_to_file, get_stock_data,
         get_individual_series_dict, fetch_all_headlines, search_ticker_candidates,
-        clean_ticker, parse_trade_republic_pdf, get_display_name
+        clean_ticker, parse_trade_republic_pdf, get_display_name, DEFAULT_HOLDINGS
     )
     from ai_service import get_account_models, run_analysis, run_duel_analysis
 except Exception as e:
@@ -33,9 +33,9 @@ def get_berlin_time_str():
 # Portfolio initialisieren
 if "my_portfolio" not in st.session_state or not st.session_state.my_portfolio:
     st.session_state.my_portfolio = load_saved_portfolio()
-else:
-    for item in st.session_state.my_portfolio:
-        item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
+
+if not st.session_state.my_portfolio:
+    st.session_state.my_portfolio = list(DEFAULT_HOLDINGS)
 
 if "tr_cash" not in st.session_state:
     st.session_state.tr_cash = 194.02
@@ -97,7 +97,7 @@ with st.sidebar:
                 st.write(f"• **{disp_name}**")
                 st.caption(f"Einsatz: {fmt_eur(float(item.get('buy_price', 0.0)))}")
             with col_pos_b:
-                if st.button("❌", key=f"del_item_{idx}_{item['ticker']}"):
+                if st.button("❌", key=f"del_item_{idx}_{item.get('ticker','')}"):
                     st.session_state.my_portfolio.pop(idx)
                     save_portfolio_to_file(st.session_state.my_portfolio)
                     st.rerun()
@@ -111,49 +111,40 @@ with st.sidebar:
 
 # BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
-if not stock_df.empty:
-    total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
-    stock_val = stock_df["_raw_val"].sum() if stock_df["_raw_val"].sum() > 0 else total_invested
-    total_tr_account = stock_val + st.session_state.tr_cash
-    stock_pnl = stock_val - total_invested
-    stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
+total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
+stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
+total_tr_account = stock_val + st.session_state.tr_cash
+stock_pnl = stock_val - total_invested
+stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
 
-    c_m1, c_m2, c_m3 = st.columns(3)
-    with c_m1:
-        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld (aus Auszug) + Gesamtwert deiner Aktien")
-    with c_m2:
-        st.metric("Eingezahltes Geld", fmt_eur(total_invested), help="Dein tatsächlich eingesetztes Kapital")
-    with c_m3:
-        st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
-else:
-    stock_val = 0.0
-    total_invested = 0.0
-    total_tr_account = st.session_state.tr_cash
+c_m1, c_m2, c_m3 = st.columns(3)
+with c_m1:
+    st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld (aus Auszug) + Gesamtwert deiner Aktien")
+with c_m2:
+    st.metric("Eingezahltes Geld", fmt_eur(total_invested), help="Dein tatsächlich eingesetztes Kapital")
+with c_m3:
+    st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
-# BUTTON SETZT EINDEUTIGEN STATE-TRIGGER
+# KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
-    st.session_state["do_analysis"] = True
-
-# AUSFÜHRUNG VOR DEM TABS-RENDERING
-if st.session_state.get("do_analysis", False):
-    st.session_state["do_analysis"] = False
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
-    elif not st.session_state.my_portfolio:
-        st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
-        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
+        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
             try:
-                client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
+                client = Groq(api_key=GROQ_KEY.strip())
                 news_data = fetch_all_headlines()
                 news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
-                metrics_summary = stock_df[[
-                    "Unternehmen", "Börsenkurs", "RSI (14D)", 
-                    "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
-                ]].to_string(index=False)
-
-                cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
+                # Crash-Sichere Erstellung der Zusammenfassung
+                if not stock_df.empty and "Unternehmen" in stock_df.columns:
+                    summary_cols = [c for c in ["Unternehmen", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"] if c in stock_df.columns]
+                    metrics_summary = stock_df[summary_cols].to_string(index=False)
+                    cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in stock_df.columns]
+                    cluster_context = stock_df[cluster_cols].to_string(index=False)
+                else:
+                    metrics_summary = "Standarddepot: Broadcom, Rheinmetall, NVIDIA, Novo Nordisk, MSCI World ETF, Palo Alto Networks, TSMC."
+                    cluster_context = "Sektoren: Halbleiter, Verteidigung, Gesundheit, Welt-ETF, Cyber-Sicherheit."
 
                 out_m, out_d, out_s, out_c = run_analysis(
                     client, selected_model, news_text, metrics_summary, "", cluster_context
@@ -163,9 +154,9 @@ if st.session_state.get("do_analysis", False):
                 st.session_state["ai_signals"] = out_s
                 st.session_state["ai_cluster"] = out_c
                 st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.rerun()
+                st.success("✅ Auswertung erfolgreich abgeschlossen!")
             except Exception as e:
-                st.error(f"⚠️ Fehler beim Groq-Aufruf: {str(e)}")
+                st.error(f"Fehler: {str(e)}")
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -190,14 +181,8 @@ with tab0:
         
     st.subheader("Deine Positionen im Überblick:")
     if not stock_df.empty:
-        st.dataframe(
-            stock_df[[
-                "Unternehmen", "Dein Geldeinsatz", 
-                "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
-            ]],
-            hide_index=True,
-            width="stretch"
-        )
+        disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
+        st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
@@ -212,13 +197,8 @@ with tab1:
 with tab2:
     st.info("ℹ️ **Kurzinfo:** Einzelanalyse für jede deiner aktuell hinterlegten Aktien.")
     if not stock_df.empty:
-        st.dataframe(
-            stock_df[[
-                "Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
-            ]],
-            hide_index=True,
-            width="stretch"
-        )
+        disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
+        st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
     if st.session_state.get("ai_depot"):
         st.divider()
         st.subheader("🤖 KI-Stimmungsbericht:")
@@ -238,14 +218,8 @@ with tab3:
             st.info(f"📊 **Durchschnittliche Rendite:** `{(total_annual_div / stock_val * 100) if stock_val > 0 else 0.0:.2f} % p.a.`")
 
         st.subheader("📅 Terminkalender & Ausschüttungen:")
-        st.dataframe(
-            stock_df[[
-                "Unternehmen", "Nächste Quartalszahlen", 
-                "Dividendenrendite", "Ausschüttung pro Jahr", "Ausschüttungs-Monate"
-            ]],
-            hide_index=True,
-            width="stretch"
-        )
+        disp_cols = [c for c in ["Unternehmen", "Nächste Quartalszahlen", "Dividendenrendite", "Ausschüttung pro Jahr", "Ausschüttungs-Monate"] if c in stock_df.columns]
+        st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
 
 # TAB 4: TOP 5 KAUFEMPFEHLUNGEN
 with tab4:
@@ -259,41 +233,40 @@ with tab4:
 # TAB 5: CHARTS
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Diagramme für alle Aktien aus deinem Portfolio.")
-    if st.session_state.my_portfolio:
-        series_dict = get_individual_series_dict(st.session_state.my_portfolio)
-        if series_dict:
-            available_names = list(series_dict.keys())
-            selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
-            
-            palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA"]
-            fig = go.Figure()
-            names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
+    series_dict = get_individual_series_dict(st.session_state.my_portfolio)
+    if series_dict:
+        available_names = list(series_dict.keys())
+        selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
+        
+        palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA"]
+        fig = go.Figure()
+        names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
 
-            for i, name in enumerate(names_to_plot):
-                s = series_dict[name]
-                base_val = s.iloc[0]
-                pct_series = ((s - base_val) / base_val) * 100
-                fig.add_trace(go.Scatter(
-                    x=s.index, y=pct_series, mode="lines", name=name,
-                    line=dict(width=2.5, color=palette[i % len(palette)]),
-                    hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
-                ))
-            
-            fig.update_layout(
-                title="Performance (Letzte 30 Tage)",
-                xaxis_title="Datum",
-                yaxis_title="Gewinn / Verlust (%)",
-                yaxis_ticksuffix="%",
-                hovermode="x unified",
-                margin=dict(l=5, r=5, t=40, b=5),
-                height=380
-            )
-            st.plotly_chart(fig, width="stretch")
+        for i, name in enumerate(names_to_plot):
+            s = series_dict[name]
+            base_val = s.iloc[0]
+            pct_series = ((s - base_val) / base_val) * 100
+            fig.add_trace(go.Scatter(
+                x=s.index, y=pct_series, mode="lines", name=name,
+                line=dict(width=2.5, color=palette[i % len(palette)]),
+                hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
+            ))
+        
+        fig.update_layout(
+            title="Performance (Letzte 30 Tage)",
+            xaxis_title="Datum",
+            yaxis_title="Gewinn / Verlust (%)",
+            yaxis_ticksuffix="%",
+            hovermode="x unified",
+            margin=dict(l=5, r=5, t=40, b=5),
+            height=380
+        )
+        st.plotly_chart(fig, width="stretch")
 
 # TAB 6: RISIKOSTREUUNG
 with tab6:
     st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder.")
-    if not stock_df.empty:
+    if not stock_df.empty and "_raw_val" in stock_df.columns:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
         custom_colors = ["#2E93fA", "#66DA26", "#FF9800", "#E91E63", "#546E7A", "#9C27B0", "#00ACC1", "#F4511E"]
         
@@ -360,7 +333,7 @@ with tab7:
         
         if st.button("⚡ Duell auswerten", width="stretch"):
             if GROQ_KEY:
-                cl = Groq(api_key=GROQ_KEY.strip(), timeout=8.0)
+                cl = Groq(api_key=GROQ_KEY.strip())
                 row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
                 row_b = stock_df[stock_df["Unternehmen"] == duel_b].iloc[0].to_dict()
                 with st.spinner("Analysiere Duell..."):
