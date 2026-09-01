@@ -38,13 +38,13 @@ def fmt_eur(val):
     except Exception:
         return f"{val} €"
 
-# --- SEITENLEISTE: DIREKTE EINGABE & PDF-IMPORT ---
+# --- SEITENLEISTE: EINGABE & VERWALTUNG ---
 with st.sidebar:
     st.header("💼 Mein Depot & Trade Republic")
     
-    # 1. Automatischer PDF-Import (Überschreibt die Musterdaten mit deinen echten Werten)
+    # 1. Automatischer PDF-Import
     with st.expander("📥 TR-Kontoauszug (PDF) hochladen"):
-        st.caption("Lade hier deinen PDF-Depotauszug hoch. Die App liest deine echten Positionen und dein Cash aus und ersetzt die bisherigen Schätzwerte.")
+        st.caption("Lade hier deinen PDF-Depotauszug hoch, um echte Positionen automatisch einzulesen.")
         tr_pdf = st.file_uploader("PDF hochladen", type=["pdf"])
         if tr_pdf:
             imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
@@ -53,7 +53,7 @@ with st.sidebar:
                 if imported_cash is not None:
                     st.session_state.tr_cash = imported_cash
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {len(imported_items)} echte Positionen erfolgreich importiert!")
+                st.success(f"✅ {len(imported_items)} Positionen erfolgreich importiert!")
                 st.rerun()
 
     # 2. Trade Republic Cash
@@ -158,9 +158,9 @@ if st.session_state.my_portfolio:
     # Header-Banner
     c_m1, c_m2, c_m3 = st.columns(3)
     with c_m1:
-        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Aktueller Aktienwert + dein Bargeld")
+        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Aktueller Aktienwert + dein Bargeld auf Trade Republic")
     with c_m2:
-        st.metric("Dein eingezahltes Geld", fmt_eur(total_invested), help="Das Geld, das du für die Käufe bezahlt hast")
+        st.metric("Dein eingezahltes Geld", fmt_eur(total_invested), help="Das Geld, das du für alle Aktienkäufe bezahlt hast")
     with c_m3:
         st.metric("Dein Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 else:
@@ -171,8 +171,9 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# TAB 0: TRADE REPUBLIC KONTO TAB
+# TAB 0: TRADE REPUBLIC KONTO
 with tab0:
+    st.info("💡 **Wozu dieser Tab da ist:** Spiegelt dein echtes Trade Republic Konto wider – getrennt nach deinem Bargeld (Cash) und dem aktuellen Gesamtwert aller Aktien.")
     st.subheader("🏦 Mein Trade Republic Depot-Spiegel")
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
@@ -195,8 +196,25 @@ with tab0:
     else:
         st.info("Lade oben links dein PDF hoch oder trage deine Beträge ein.")
 
-# TAB 5: Live-Charts
+# TAB 1: WELT-NACHRICHTEN
+with tab1:
+    st.info("💡 **Wozu dieser Tab da ist:** Scannt über 45 weltweite Finanzquellen und fasst die 10 wichtigsten Wirtschafts-Ereignisse sowie die allgemeine Börsenstimmung für dich zusammen.")
+
+# TAB 2: STIMMUNG & DEPOT
+with tab2:
+    st.info("💡 **Wozu dieser Tab da ist:** Detaillierte Einzelanalyse deiner Aktien – die KI prüft für jeden Wert die aktuelle Marktstimmung, das Preisschild (KGV) und den Trend für die nächsten Tage.")
+
+# TAB 3: TERMINE & DIVIDENDEN
+with tab3:
+    st.info("💡 **Wozu dieser Tab da ist:** Zeigt dir anstehende Geschäftsberichte (Quartalszahlen) und wie viel passive Gewinnausschüttung (Dividende in % pro Jahr) dir die Unternehmen auszahlen.")
+
+# TAB 4: KAUF- / VERKAUF-TIPPS
+with tab4:
+    st.info("💡 **Wozu dieser Tab da ist:** Klare KI-Handlungsempfehlungen (Kaufen, Halten oder Verkaufen) für jede Aktie mit verständlicher Begründung, Banken-Kurszielen und dem fairen Wert.")
+
+# TAB 5: LIVE-CHARTS & PERFORMANCE
 with tab5:
+    st.info("💡 **Wozu dieser Tab da ist:** Interaktive Live-Charts – vergleiche die Kursverläufe deiner Aktien wahlweise als prozentualen Gewinn/Verlust ab Start oder als Geldpreis pro Aktie.")
     st.subheader("📊 Kursentwicklung & Performance")
     c1, c2 = st.columns([1, 1])
     with c1:
@@ -263,8 +281,9 @@ with tab5:
 
             st.plotly_chart(fig, use_container_width=True)
 
-# TAB 6: Risikostreuung
+# TAB 6: RISIKOSTREUUNG
 with tab6:
+    st.info("💡 **Wozu dieser Tab da ist:** Prüft, wie dein Geld auf Branchen und Länder verteilt ist. Die KI warnt dich vor Klumpenrisiken (einseitigen Abhängigkeiten) und gibt Absicherungstipps.")
     st.subheader("🥧 Risikostreuung & Einseitigkeit (Klumpenrisiko)")
     if not stock_df.empty:
         col_d1, col_d2 = st.columns(2)
@@ -277,8 +296,9 @@ with tab6:
             fig_geo.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_geo, use_container_width=True)
 
-# TAB 7: Aktien-Vergleich
+# TAB 7: AKTIEN-VERGLEICH
 with tab7:
+    st.info("💡 **Wozu dieser Tab da ist:** Direktes 1-gegen-1-Duell zweier Aktien aus deinem Portfolio – die KI vergleicht Chancen, Bewertung und Risiken und kürt die aktuell bessere Wahl.")
     st.subheader("⚔️ Direktes Aktien-Duell (1 gegen 1)")
     if not stock_df.empty and len(stock_df) >= 2:
         cd1, cd2 = st.columns(2)
