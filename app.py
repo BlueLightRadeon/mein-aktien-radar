@@ -164,24 +164,22 @@ def get_stock_data(tickers):
 
 
 def pick_valid_chat_model(client):
-  """Liest die für deinen API-Key freigeschalteten Chat-Modelle aus."""
+  """Wählt ausschließlich offizielle, lizenzfreie Standard-Chat-Modelle aus."""
+  # Feste Liste bewährter, immer freier Groq-Modelle (ohne Zusatzbedingungen)
+  standard_free_models = [
+      "llama-3.3-70b-versatile",
+      "llama-3.1-70b-versatile",
+      "llama-3.1-8b-instant",
+      "llama3-70b-8192",
+      "llama3-8b-8192",
+      "mixtral-8x7b-32768",
+      "gemma2-9b-it",
+  ]
   try:
     available = [m.id for m in client.models.list().data]
-    valid_text_models = [
-        m
-        for m in available
-        if not any(x in m.lower() for x in ["whisper", "guard", "vision"])
-    ]
-    for pref in [
-        "llama-3.3-70b-versatile",
-        "llama3-70b-8192",
-        "llama3-8b-8192",
-        "mixtral-8x7b-32768",
-    ]:
-      if pref in valid_text_models:
-        return pref
-    if valid_text_models:
-      return valid_text_models[0]
+    for candidate in standard_free_models:
+      if candidate in available:
+        return candidate
   except Exception:
     pass
   return "llama-3.3-70b-versatile"
