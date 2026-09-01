@@ -35,33 +35,19 @@ RSS_SOURCES = [
     "https://oilprice.com/rss/main",
 ]
 
-CLEAN_NAME_MAP = {
-    "NVDA": "NVIDIA",
-    "PANW": "Palo Alto Networks",
-    "AVGO": "Broadcom",
-    "TSM": "TSMC",
-    "FORA.TO": "VerticalScope",
-    "FORA": "VerticalScope",
-    "NVO": "Novo Nordisk",
-    "RHM.DE": "Rheinmetall",
-    "RHM": "Rheinmetall",
-    "AAPL": "Apple",
-    "MSFT": "Microsoft",
-    "AMZN": "Amazon",
-    "GOOGL": "Alphabet (Google)",
-    "GOOG": "Alphabet (Google)",
-    "META": "Meta Platforms",
-    "TSLA": "Tesla"
-}
-
+# Exakte Zuordnung von ISIN zu Yahoo-Ticker & Klarnamen
 ISIN_MAP = {
-    "US67066G1040": ("NVDA", "NVIDIA"),
-    "US6974351057": ("PANW", "Palo Alto Networks"),
     "US11135F1012": ("AVGO", "Broadcom"),
-    "US8740391003": ("TSM", "TSMC"),
-    "CA92536G1063": ("FORA.TO", "VerticalScope"),
-    "DK0062498333": ("NVO", "Novo Nordisk"),
     "DE0007030009": ("RHM.DE", "Rheinmetall"),
+    "CA92537Y1043": ("FORA.TO", "VerticalScope"),
+    "CA92536G1063": ("FORA.TO", "VerticalScope"),
+    "US67066G1040": ("NVDA", "NVIDIA"),
+    "US6706661040": ("NVDA", "NVIDIA"),
+    "US6701002056": ("NVO", "Novo Nordisk"),
+    "DK0062498333": ("NVO", "Novo Nordisk"),
+    "IE00B0M62Q58": ("EUNL.DE", "iShares Core MSCI World ETF"),
+    "US6974351057": ("PANW", "Palo Alto Networks"),
+    "US8740391003": ("TSM", "TSMC"),
     "US0378331005": ("AAPL", "Apple"),
     "US5949181045": ("MSFT", "Microsoft"),
     "US0231351067": ("AMZN", "Amazon"),
@@ -71,13 +57,14 @@ ISIN_MAP = {
 }
 
 DEFAULT_HOLDINGS = [
-    {"ticker": "NVDA", "name": "NVIDIA", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "AVGO", "name": "Broadcom", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "TSM", "name": "TSMC", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 1.0, "buy_price": 25.0},
-    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 1.0, "buy_price": 100.0},
+    {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238, "buy_price": 75.18},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242, "buy_price": 78.97},
+    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.597, "buy_price": 54.14},
+    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.263, "buy_price": 49.43},
+    {"ticker": "TSM", "name": "TSMC", "shares": 0.137, "buy_price": 49.18},
+    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624, "buy_price": 48.90},
+    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 38.96},
+    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021, "buy_price": 23.00},
 ]
 
 def clean_ticker(ticker_str):
@@ -88,9 +75,10 @@ def clean_ticker(ticker_str):
 
 def get_display_name(ticker, fallback_name=None):
     sym = clean_ticker(ticker)
-    if sym in CLEAN_NAME_MAP:
-        return CLEAN_NAME_MAP[sym]
-    if fallback_name and len(fallback_name) > 2 and not fallback_name.startswith("US") and not fallback_name.startswith("DE"):
+    for isin, (mapped_sym, mapped_name) in ISIN_MAP.items():
+        if sym == mapped_sym:
+            return mapped_name
+    if fallback_name and len(fallback_name) > 2 and not fallback_name.startswith("US") and not fallback_name.startswith("DE") and not fallback_name.startswith("IE"):
         return fallback_name
     return sym
 
@@ -128,7 +116,7 @@ def search_ticker_candidates(query):
         return [f"{sym} ({name})"]
         
     for isin, (sym, name) in ISIN_MAP.items():
-        if q_up == sym or q_up in name.upper():
+        if q_up == sym or q_up in name.upper() or q_up in isin:
             return [f"{sym} ({name})"]
 
     candidates = []
@@ -149,7 +137,7 @@ def search_ticker_candidates(query):
     return candidates
 
 def parse_trade_republic_pdf(uploaded_file):
-    """Liest alle Trade Republic Auszüge robust aus (ISINs, Stückzahlen, Kurswerte & Cash)."""
+    """Parst die Trade Republic Vermögensübersicht exakt zeilenweise."""
     found_items = []
     extracted_cash = None
     
@@ -157,62 +145,73 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # 1. Cash / Verrechnungskonto suchen
-        cash_patterns = [
-            r"(?:Verrechnungskonto|Saldo|Guthaben|Cash|Geldkonto)[^\d]*([\d.,]+)\s*€",
-            r"(?:Verrechnungskonto|Saldo|Guthaben|Cash)[^\d]*EUR\s*([\d.,]+)",
-            r"([\d.,]+)\s*EUR\s*(?:Guthaben|Saldo)"
-        ]
-        for pat in cash_patterns:
-            cash_match = re.search(pat, full_text, re.IGNORECASE)
-            if cash_match:
+        # 1. Cash parsen (z. B. "Cashkonto 194,02 EUR" oder "Cash 194,02")
+        cash_match = re.search(r"(?:Cashkonto|Cash)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
+        if not cash_match:
+            cash_match = re.search(r"(?:Cashkonto|Cash)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
+        if cash_match:
+            try:
+                extracted_cash = float(cash_match.group(1).replace(".", "").replace(",", "."))
+            except Exception:
+                pass
+
+        # 2. Zeilenblöcke anhand von ISINs zerlegen
+        isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
+        matches = list(re.finditer(isin_pattern, full_text))
+        
+        for i, match in enumerate(matches):
+            isin = match.group(1)
+            start_pos = match.start()
+            end_pos = matches[i+1].start() if i + 1 < len(matches) else start_pos + 400
+            
+            # Textblock vor und nach der ISIN betrachten
+            block = full_text[max(0, start_pos - 120):min(len(full_text), end_pos)]
+            
+            # Stückzahl ermitteln
+            shares = 1.0
+            stk_match = re.search(r"([\d.,]+)\s*Stk\.", block, re.IGNORECASE)
+            if stk_match:
                 try:
-                    c_str = cash_match.group(1).replace(".", "").replace(",", ".")
-                    val = float(c_str)
-                    if val >= 0:
-                        extracted_cash = val
-                        break
+                    shares = float(stk_match.group(1).replace(".", "").replace(",", "."))
+                except Exception:
+                    pass
+            
+            # Kurswert in EUR aus dem Tabellenblock extrahieren
+            invested_val = 50.0
+            # Typisches Muster: Datum gefolgt von Kurswert (z.B. "01.09.2026 | 75,18")
+            val_match = re.search(r"\d{2}\.\d{2}\.\d{4}\s*\|\s*([\d.,]+)", block)
+            if not val_match:
+                # Fallback: Letzte Zahl im Block
+                nums = re.findall(r"\b\d+,\d{2}\b", block)
+                if nums:
+                    val_match_str = nums[-1]
+                else:
+                    val_match_str = None
+            else:
+                val_match_str = val_match.group(1)
+                
+            if val_match_str:
+                try:
+                    parsed_v = float(val_match_str.replace(".", "").replace(",", "."))
+                    # Ausschließen des Gesamtbrokerage-Werts
+                    if 0.5 <= parsed_v < 400.0:
+                        invested_val = parsed_v
                 except Exception:
                     pass
 
-        # 2. Alle ISINs finden
-        isin_matches = re.findall(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b", full_text)
-        unique_isins = list(dict.fromkeys(isin_matches))
-        
-        # Falls keine ISINs, nach Ticker / bekannten Namen suchen
-        if not unique_isins:
-            for isin, (sym, name) in ISIN_MAP.items():
-                if sym.upper() in full_text.upper() or name.upper() in full_text.upper():
-                    unique_isins.append(isin)
-
-        for isin in unique_isins:
             if isin in ISIN_MAP:
                 sym, disp_name = ISIN_MAP[isin]
             else:
                 cand = search_ticker_candidates(isin)
                 sym = clean_ticker(cand[0]) if cand else isin
                 disp_name = get_display_name(sym)
-                
-            invested_val = 50.0
-            
-            # Wert um die ISIN herum parsen
-            isin_pos = full_text.find(isin)
-            if isin_pos != -1:
-                snippet = full_text[max(0, isin_pos-150):min(len(full_text), isin_pos+200)]
-                
-                # Betrag suchen (z. B. "50,00 EUR", "125,50 €")
-                val_matches = re.findall(r"([\d.,]+)\s*(?:EUR|€)", snippet)
-                for vm in val_matches:
-                    try:
-                        vm_clean = vm.replace(".", "").replace(",", ".")
-                        parsed_val = float(vm_clean)
-                        if 1.0 <= parsed_val <= 100000.0:
-                            invested_val = parsed_val
-                            break
-                    except Exception:
-                        pass
-                        
-            found_items.append({"ticker": sym, "name": disp_name, "shares": 1.0, "buy_price": invested_val})
+
+            found_items.append({
+                "ticker": sym,
+                "name": disp_name,
+                "shares": shares,
+                "buy_price": invested_val
+            })
             
     except Exception as e:
         st.error(f"Fehler beim Auslesen des PDFs: {e}")
@@ -267,6 +266,8 @@ def assign_dynamic_role(sector, country, ticker):
         return "🛡️ Krisen-Puffer (Defensiv & Schutz)"
     elif any(x in sec for x in ["cyber", "security", "telecom", "utility", "versorger"]) or t == "PANW":
         return "🔒 Tech-Schutzschild (Stabile IT)"
+    elif "EUNL" in t or "ETF" in sec:
+        return "🌍 Basis-Fundament (Welt-ETF)"
     else:
         return "🎯 Nischenwert / Sonstiges"
 
@@ -367,6 +368,7 @@ def get_stock_data(portfolio_list):
             elif t == "PANW": sector = "Cyber-Sicherheit"
             elif t in ["RHM.DE", "RHM"]: sector = "Verteidigung & Rüstung"
             elif t == "NVO": sector = "Pharma & Gesundheit"
+            elif "EUNL" in t: sector = "Weltweiter Aktienmarkt (ETF)"
             elif "FORA" in t: sector = "Digitale Medien"
             else: sector = "Technologie / Sonstiges"
 
@@ -376,6 +378,7 @@ def get_stock_data(portfolio_list):
             elif t == "TSM": country = "Taiwan"
             elif t == "NVO": country = "Dänemark"
             elif ".TO" in t: country = "Kanada"
+            elif "EUNL" in t: country = "Weltweit (Diversifiziert)"
             else: country = "USA"
 
         role = assign_dynamic_role(sector, country, t)
