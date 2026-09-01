@@ -4,7 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
-import zoneinfo
 
 try:
     from data_service import (
@@ -28,12 +27,8 @@ st.title("📈 KI Markt- & Depot-Radar")
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 def get_berlin_time_str():
-    try:
-        tz_berlin = zoneinfo.ZoneInfo("Europe/Berlin")
-        return datetime.now(tz_berlin).strftime("%H:%M:%S Uhr")
-    except Exception:
-        tz_fallback = timezone(timedelta(hours=2))
-        return datetime.now(tz_fallback).strftime("%H:%M:%S Uhr")
+    tz_de = timezone(timedelta(hours=2))
+    return datetime.now(tz_de).strftime("%H:%M:%S Uhr")
 
 # Portfolio initialisieren
 if "my_portfolio" not in st.session_state or not st.session_state.my_portfolio:
@@ -138,13 +133,13 @@ else:
 # KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
     elif not st.session_state.my_portfolio:
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
         with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
             try:
-                client = Groq(api_key=GROQ_KEY.strip(), timeout=10.0)
+                client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
                 news_data = fetch_all_headlines()
                 news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
@@ -163,6 +158,7 @@ if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type=
                 st.session_state["ai_signals"] = out_s
                 st.session_state["ai_cluster"] = out_c
                 st.session_state["last_analysis_time"] = get_berlin_time_str()
+                st.success("✅ Auswertung abgeschlossen!")
             except Exception as e:
                 st.error(f"Fehler: {str(e)}")
 
