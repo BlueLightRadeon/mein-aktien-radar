@@ -4,7 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
-import time
 import zoneinfo
 
 try:
@@ -43,9 +42,8 @@ else:
     for item in st.session_state.my_portfolio:
         item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
 
-# Cash-Guthaben
 if "tr_cash" not in st.session_state:
-    st.session_state.tr_cash = 51.57
+    st.session_state.tr_cash = 194.02
 
 def fmt_eur(val):
     try:
@@ -93,7 +91,6 @@ with st.sidebar:
                 st.success(f"✅ {len(imported_items)} Positionen übernommen!")
                 st.rerun()
 
-    # Cash-Anzeige (Read-Only aus Auszug)
     st.info(f"💶 **Cash-Guthaben:** `{fmt_eur(st.session_state.tr_cash)}`")
 
     st.divider()
@@ -167,7 +164,7 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# MANUELLER AUSWERTUNGS-BUTTON (OHNE ENDLOSSCHLEIFE)
+# MANUELLER AUSWERTUNGS-BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt!")
@@ -213,7 +210,7 @@ with tab0:
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
-    st.info("ℹ️ **Kurzinfo:** Scannt weltweite Finanzquellen und fasst die 10 wichtigsten Markt-Ereignisse zusammen.")
+    st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
     if "ai_market" in st.session_state and st.session_state["ai_market"]:
         st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
@@ -259,7 +256,7 @@ with tab3:
 
 # TAB 4: KAUF-TIPPS & ERWEITERUNG
 with tab4:
-    st.info("ℹ️ **Kurzinfo:** Konkrete Handlungsempfehlungen: Externe Qualitätsaktien und ETFs zur Portfolio-Erweiterung.")
+    st.info("ℹ️ **Kurzinfo:** Handlungsempfehlungen: Externe Qualitätsaktien und ETFs zur Portfolio-Erweiterung.")
     if "ai_signals" in st.session_state and st.session_state["ai_signals"]:
         st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_signals"])
@@ -269,22 +266,8 @@ with tab4:
 # TAB 5: CHARTS
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Diagramme für alle Aktien aus deinem Portfolio.")
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        timeframe = st.selectbox(
-            "Zeitraum:",
-            options=["1d", "5d", "1mo", "6mo", "1y", "5y"],
-            index=2,
-            format_func=lambda x: {
-                "1d": "1 Tag (Live)", "5d": "5 Tage", "1mo": "1 Monat",
-                "6mo": "6 Monate", "1y": "1 Jahr", "5y": "5 Jahre"
-            }[x]
-        )
-    with c2:
-        chart_mode = st.radio("Ansicht:", ["Wertentwicklung in %", "Preis pro Aktie (in Geld)"], horizontal=True)
-
     if st.session_state.my_portfolio:
-        series_dict = get_individual_series_dict(st.session_state.my_portfolio, period=timeframe)
+        series_dict = get_individual_series_dict(st.session_state.my_portfolio)
         if series_dict:
             available_names = list(series_dict.keys())
             selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
@@ -293,51 +276,30 @@ with tab5:
             fig = go.Figure()
             names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
 
-            if chart_mode == "Wertentwicklung in %":
-                for i, name in enumerate(names_to_plot):
-                    s = series_dict[name]
-                    if not s.empty and s.iloc[0] > 0:
-                        base_val = s.iloc[0]
-                        pct_series = ((s - base_val) / base_val) * 100
-                        fig.add_trace(go.Scatter(
-                            x=s.index, y=pct_series, mode="lines", name=name,
-                            line=dict(width=2.5, color=palette[i % len(palette)]),
-                            hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
-                        ))
-                
-                fig.add_hline(y=0, line_dash="dash", line_color="rgba(150,150,150,0.6)", annotation_text="0%")
-                fig.update_layout(
-                    title=f"Performance ({timeframe.upper()})",
-                    xaxis_title="Datum",
-                    yaxis_title="Gewinn / Verlust (%)",
-                    yaxis_ticksuffix="%",
-                    hovermode="x unified",
-                    margin=dict(l=5, r=5, t=40, b=5),
-                    height=380
-                )
-            else:
-                for i, name in enumerate(names_to_plot):
-                    s = series_dict[name]
-                    fig.add_trace(go.Scatter(
-                        x=s.index, y=s, mode="lines", name=name,
-                        line=dict(width=2.5, color=palette[i % len(palette)]),
-                        hovertemplate=f"<b>{name}</b>: %{{y:.2f}}<extra></extra>"
-                    ))
-                fig.update_layout(
-                    title=f"Kursverlauf ({timeframe.upper()})",
-                    xaxis_title="Datum",
-                    yaxis_title="Preis in € / $",
-                    hovermode="x unified",
-                    margin=dict(l=5, r=5, t=40, b=5),
-                    height=380
-                )
-
+            for i, name in enumerate(names_to_plot):
+                s = series_dict[name]
+                base_val = s.iloc[0]
+                pct_series = ((s - base_val) / base_val) * 100
+                fig.add_trace(go.Scatter(
+                    x=s.index, y=pct_series, mode="lines", name=name,
+                    line=dict(width=2.5, color=palette[i % len(palette)]),
+                    hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
+                ))
+            
+            fig.update_layout(
+                title="Performance (Letzte 30 Tage)",
+                xaxis_title="Datum",
+                yaxis_title="Gewinn / Verlust (%)",
+                yaxis_ticksuffix="%",
+                hovermode="x unified",
+                margin=dict(l=5, r=5, t=40, b=5),
+                height=380
+            )
             st.plotly_chart(fig, use_container_width=True)
 
 # TAB 6: RISIKOSTREUUNG
 with tab6:
     st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder.")
-    
     if not stock_df.empty:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
         custom_colors = ["#2E93fA", "#66DA26", "#FF9800", "#E91E63", "#546E7A", "#9C27B0", "#00ACC1", "#F4511E"]
