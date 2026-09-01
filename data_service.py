@@ -8,19 +8,19 @@ import pypdf
 import streamlit as st
 
 ISIN_MAP = {
-    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "val": 75.18, "sh": 0.238273, "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez", "price": 315.50},
-    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "val": 23.00, "sh": 0.021265, "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai", "price": 1081.60},
-    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope", "val": 48.90, "sh": 27.624309, "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung", "price": 1.77},
-    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope", "val": 48.90, "sh": 27.624309, "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung", "price": 1.77},
-    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA", "val": 49.43, "sh": 0.262936, "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich", "price": 187.98},
-    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA", "val": 49.43, "sh": 0.262936, "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich", "price": 187.98},
-    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk", "val": 38.96, "sh": 1.0, "earnings": "04.11.2026 (Q3)", "div_month": "April & August", "price": 38.96},
-    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk", "val": 38.96, "sh": 1.0, "earnings": "04.11.2026 (Q3)", "div_month": "April & August", "price": 38.96},
-    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "val": 54.14, "sh": 0.596822, "earnings": "Laufend (Index)", "div_month": "Halbjährlich (Juni/Dez)", "price": 90.72},
-    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks", "val": 78.97, "sh": 0.242466, "earnings": "17.11.2026 (Q1)", "div_month": "Keine Ausschüttung", "price": 325.70},
-    "US8740391003": {"ticker": "TSM", "name": "TSMC", "val": 49.18, "sh": 0.136612, "earnings": "15.10.2026 (Q3)", "div_month": "Jan, April, Juli, Okt", "price": 360.00},
-    "US0378331005": {"ticker": "AAPL", "name": "Apple", "val": 50.0, "sh": 1.0, "earnings": "29.10.2026 (Q4)", "div_month": "Feb, Mai, Aug, Nov", "price": 225.00},
-    "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "val": 50.0, "sh": 1.0, "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez", "price": 420.00}
+    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez", "price": 315.50},
+    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai", "price": 1081.60},
+    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung", "price": 1.77},
+    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung", "price": 1.77},
+    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich", "price": 187.98},
+    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich", "price": 187.98},
+    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August", "price": 38.96},
+    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August", "price": 38.96},
+    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "earnings": "Laufend (Index)", "div_month": "Halbjährlich (Juni/Dez)", "price": 90.72},
+    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks", "earnings": "17.11.2026 (Q1)", "div_month": "Keine Ausschüttung", "price": 325.70},
+    "US8740391003": {"ticker": "TSM", "name": "TSMC", "earnings": "15.10.2026 (Q3)", "div_month": "Jan, April, Juli, Okt", "price": 360.00},
+    "US0378331005": {"ticker": "AAPL", "name": "Apple", "earnings": "29.10.2026 (Q4)", "div_month": "Feb, Mai, Aug, Nov", "price": 225.00},
+    "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez", "price": 420.00}
 }
 
 def clean_ticker(ticker_str):
@@ -58,6 +58,7 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
+        # 1. Cash extrahieren
         cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
@@ -69,29 +70,35 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 pass
 
+        # 2. Positionen anhand von ISINs extrahieren
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
         ordered_isins = [x for x in all_isins_in_doc if not (x in seen or seen.add(x))]
 
+        # Betragssuche für jede gefundene ISIN im Text
         for isin in ordered_isins:
+            disp_name = isin
+            sym = isin
             if isin in ISIN_MAP:
-                info = ISIN_MAP[isin]
-                sym = info["ticker"]
-                disp_name = info["name"]
-                invested_val = float(info["val"])
-                shares = float(info["sh"])
-            else:
-                sym = isin
-                disp_name = isin
-                invested_val = 50.0
-                shares = 1.0
+                sym = ISIN_MAP[isin]["ticker"]
+                disp_name = ISIN_MAP[isin]["name"]
+
+            # Sucht nach Euro-Beträgen in der Nähe der ISIN
+            pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*€", re.DOTALL)
+            match = pattern.search(full_text)
+            val = 50.0
+            if match:
+                try:
+                    val = float(match.group(1).replace(".", "").replace(",", "."))
+                except Exception:
+                    val = 50.0
 
             found_items.append({
                 "ticker": sym,
                 "name": disp_name,
-                "shares": float(shares),
-                "buy_price": float(invested_val)
+                "shares": 1.0,
+                "buy_price": float(val)
             })
     except Exception as e:
         st.error(f"Fehler beim Auslesen des PDFs: {e}")
