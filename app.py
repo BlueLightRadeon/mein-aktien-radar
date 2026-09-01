@@ -265,7 +265,7 @@ with tab0:
     else:
         st.info("📂 Lade deinen Trade Republic Kontoauszug (PDF) in der linken Seitenleiste hoch, um deine Werte hier zu sehen.")
 
-# TAB 1: STIMMUNG & EMPFEHLUNGEN (KOMBINIERTE TABELLE & KI-BERICHT)
+# TAB 1: STIMMUNG & EMPFEHLUNGEN
 with tab1:
     st.info("ℹ️ **Kurzinfo:** Vollständige Gegenüberstellung: Aktuelle Empfehlungen & Begründungen vs. historische 3-Monats-Analyse.")
     if not stock_df.empty:
