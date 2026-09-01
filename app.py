@@ -1,375 +1,375 @@
-import streamlit as st
+import json
+import os
+import re
+from datetime import datetime
+import feedparser
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from groq import Groq
-from datetime import datetime, timezone, timedelta
-import zoneinfo
+import pypdf
+import requests
+import streamlit as st
+import yfinance as yf
 
-try:
-    from data_service import (
-        load_saved_portfolio, save_portfolio_to_file, get_stock_data,
-        get_individual_series_dict, fetch_all_headlines, search_ticker_candidates,
-        clean_ticker, parse_trade_republic_pdf, get_display_name
-    )
-    from ai_service import get_account_models, run_analysis, run_duel_analysis
-except Exception as e:
-    st.error(f"Import-Fehler: {e}")
-    st.stop()
+PORTFOLIO_FILE = "portfolio.json"
 
-st.set_page_config(
-    page_title="KI Markt- & Depot-Radar",
-    page_icon="📈",
-    layout="wide"
-)
+RSS_SOURCES = [
+    "https://www.tagesschau.de/wirtschaft/index~rss2.xml",
+    "https://www.spiegel.de/wirtschaft/index.rss",
+    "https://www.handelsblatt.com/contentexport/feed/top-themen",
+    "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "https://www.finanzen.net/rss/news"
+]
 
-st.title("📈 KI Markt- & Depot-Radar")
+ISIN_MAP = {
+    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "val": 75.18, "sh": 0.238273},
+    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "val": 23.00, "sh": 0.021265},
+    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope", "val": 48.90, "sh": 27.624309},
+    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope", "val": 48.90, "sh": 27.624309},
+    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA", "val": 49.43, "sh": 0.262936},
+    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA", "val": 49.43, "sh": 0.262936},
+    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk", "val": 38.96, "sh": 1.0},
+    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk", "val": 38.96, "sh": 1.0},
+    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "val": 54.14, "sh": 0.596822},
+    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks", "val": 78.97, "sh": 0.242466},
+    "US8740391003": {"ticker": "TSM", "name": "TSMC", "val": 49.18, "sh": 0.136612},
+    "US0378331005": {"ticker": "AAPL", "name": "Apple", "val": 50.0, "sh": 1.0},
+    "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "val": 50.0, "sh": 1.0},
+    "US0231351067": {"ticker": "AMZN", "name": "Amazon", "val": 50.0, "sh": 1.0},
+    "US02079K3059": {"ticker": "GOOGL", "name": "Alphabet (Google)", "val": 50.0, "sh": 1.0},
+    "US30303M1027": {"ticker": "META", "name": "Meta Platforms", "val": 50.0, "sh": 1.0},
+    "US88160R1014": {"ticker": "TSLA", "name": "Tesla", "val": 50.0, "sh": 1.0}
+}
 
-GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
+DEFAULT_HOLDINGS = [
+    {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238273, "buy_price": 75.18},
+    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021265, "buy_price": 23.00},
+    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624309, "buy_price": 48.90},
+    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.262936, "buy_price": 49.43},
+    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 38.96},
+    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.596822, "buy_price": 54.14},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242466, "buy_price": 78.97},
+    {"ticker": "TSM", "name": "TSMC", "shares": 0.136612, "buy_price": 49.18},
+]
 
-def get_berlin_time_str():
+def clean_ticker(ticker_str):
+    s = str(ticker_str).strip()
+    if "(" in s:
+        s = s.split("(")[0].strip()
+    return s.split(" ")[0].strip().upper()
+
+def get_display_name(ticker, fallback_name=None):
+    sym = clean_ticker(ticker)
+    for isin, info in ISIN_MAP.items():
+        if sym == info["ticker"]:
+            return info["name"]
+    if fallback_name and len(fallback_name) > 2 and not fallback_name.startswith("US") and not fallback_name.startswith("DE") and not fallback_name.startswith("IE"):
+        return fallback_name
+    return sym
+
+def load_saved_portfolio():
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            with open(PORTFOLIO_FILE, "r") as f:
+                data = json.load(f)
+                if data:
+                    for item in data:
+                        item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
+                    return data
+        except Exception:
+            pass
+    return DEFAULT_HOLDINGS
+
+def save_portfolio_to_file(portfolio_list):
     try:
-        tz_berlin = zoneinfo.ZoneInfo("Europe/Berlin")
-        return datetime.now(tz_berlin).strftime("%H:%M:%S Uhr")
+        for item in portfolio_list:
+            item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
+        with open(PORTFOLIO_FILE, "w") as f:
+            json.dump(portfolio_list, f, indent=2)
+        return True
     except Exception:
-        tz_fallback = timezone(timedelta(hours=2))
-        return datetime.now(tz_fallback).strftime("%H:%M:%S Uhr")
+        return False
 
-# Portfolio laden
-if "my_portfolio" not in st.session_state:
-    st.session_state.my_portfolio = load_saved_portfolio()
-else:
-    for item in st.session_state.my_portfolio:
-        item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
+def search_ticker_candidates(query):
+    q = query.strip()
+    if not q:
+        return []
+    q_up = q.upper()
+    if q_up in ISIN_MAP:
+        info = ISIN_MAP[q_up]
+        return [f"{info['ticker']} ({info['name']})"]
+    for isin, info in ISIN_MAP.items():
+        if q_up == info["ticker"] or q_up in info["name"].upper() or q_up in isin:
+            return [f"{info['ticker']} ({info['name']})"]
 
-if "tr_cash" not in st.session_state:
-    st.session_state.tr_cash = 194.02
-
-def fmt_eur(val):
+    candidates = []
     try:
-        return f"{val:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        headers = {"User-Agent": "Mozilla/5.0"}
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(q)}&quotesCount=6&newsCount=0"
+        resp = requests.get(url, headers=headers, timeout=3)
+        if resp.status_code == 200:
+            quotes = resp.json().get("quotes", [])
+            for item in quotes:
+                sym = item.get("symbol", "")
+                name = item.get("shortname") or item.get("longname") or sym
+                if sym:
+                    disp = get_display_name(sym, name)
+                    candidates.append(f"{sym} ({disp})")
     except Exception:
-        return f"{val} €"
+        pass
+    return candidates
 
-def execute_ai_analysis(portfolio_data, stock_dataframe, selected_model_name):
-    if not GROQ_KEY or not portfolio_data:
-        return
-    client = Groq(api_key=GROQ_KEY.strip())
-    news_data = fetch_all_headlines()
-    news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
+def parse_trade_republic_pdf(uploaded_file):
+    found_items = []
+    extracted_cash = 194.02
+    try:
+        reader = pypdf.PdfReader(uploaded_file)
+        full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
+        
+        cash_match = re.search(r"(?:Cashkonto|Cash)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
+        if not cash_match:
+            cash_match = re.search(r"(?:Cashkonto|Cash)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
+        if cash_match:
+            try:
+                extracted_cash = float(cash_match.group(1).replace(".", "").replace(",", "."))
+            except Exception:
+                pass
 
-    metrics_summary = stock_dataframe[[
-        "Unternehmen", "Börsenkurs", "RSI (14D)", 
-        "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
-    ]].to_string(index=False)
+        isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
+        all_isins_in_doc = re.findall(isin_pattern, full_text)
+        seen = set()
+        ordered_isins = [x for x in all_isins_in_doc if not (x in seen or seen.add(x))]
 
-    cluster_context = stock_dataframe[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
-
-    out_m, out_d, out_s, out_c = run_analysis(
-        client, selected_model_name, news_text, metrics_summary, "", cluster_context
-    )
-    st.session_state["ai_market"] = out_m
-    st.session_state["ai_depot"] = out_d
-    st.session_state["ai_signals"] = out_s
-    st.session_state["ai_cluster"] = out_c
-    st.session_state["last_analysis_time"] = get_berlin_time_str()
-
-# --- SEITENLEISTE ---
-with st.sidebar:
-    st.header("💼 Trade Republic Depot")
-    
-    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=False):
-        st.caption("Lade deinen Auszug hoch. Positionen, Kurswerte und Cash werden vollautomatisch eingelesen.")
-        tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_uploader")
-        if tr_pdf is not None:
-            imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
-            if imported_items:
-                st.session_state.my_portfolio = imported_items
-                if imported_cash is not None:
-                    st.session_state.tr_cash = imported_cash
-                save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {len(imported_items)} Positionen übernommen!")
-                st.rerun()
-
-    st.info(f"💶 **Cash-Guthaben:** `{fmt_eur(st.session_state.tr_cash)}`")
-
-    st.divider()
-    st.subheader("🔍 Aktie hinzufügen:")
-    search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Apple, Tesla...")
-    if search_query:
-        results = search_ticker_candidates(search_query)
-        if results:
-            selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=10.0)
-            
-            if st.button("➕ Hinzufügen", use_container_width=True):
-                sym = clean_ticker(selected_cand)
+        for isin in ordered_isins:
+            if isin in ISIN_MAP:
+                info = ISIN_MAP[isin]
+                sym = info["ticker"]
+                disp_name = info["name"]
+                invested_val = info["val"]
+                shares = info["sh"]
+            else:
+                cand = search_ticker_candidates(isin)
+                sym = clean_ticker(cand[0]) if cand else isin
                 disp_name = get_display_name(sym)
-                st.session_state.my_portfolio.append({
-                    "ticker": sym,
-                    "name": disp_name,
-                    "shares": 1.0,
-                    "buy_price": float(in_money)
-                })
-                save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {disp_name} hinzugefügt!")
-                st.rerun()
+                invested_val = 50.0
+                shares = 1.0
 
-    st.divider()
-    st.subheader("📋 Aktive Depot-Positionen:")
-    if st.session_state.my_portfolio:
-        for idx, item in enumerate(list(st.session_state.my_portfolio)):
-            disp_name = get_display_name(item.get("ticker", ""), item.get("name"))
-            col_pos_a, col_pos_b = st.columns([3, 1])
-            with col_pos_a:
-                st.write(f"• **{disp_name}**")
-                st.caption(f"Einsatz: {fmt_eur(float(item.get('buy_price', 0.0)))}")
-            with col_pos_b:
-                if st.button("❌", key=f"del_item_{idx}_{item['ticker']}"):
-                    st.session_state.my_portfolio.pop(idx)
-                    save_portfolio_to_file(st.session_state.my_portfolio)
-                    st.rerun()
+            found_items.append({
+                "ticker": sym,
+                "name": disp_name,
+                "shares": shares,
+                "buy_price": invested_val
+            })
+    except Exception as e:
+        st.error(f"Fehler beim Auslesen des PDFs: {e}")
+    return found_items, extracted_cash
+
+def fetch_all_headlines():
+    headlines = []
+    for url in RSS_SOURCES:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:2]:
+                if hasattr(entry, "title") and entry.title:
+                    title = entry.title.strip()
+                    if title and title not in headlines:
+                        headlines.append(f"- {title}")
+        except Exception:
+            continue
+    return headlines[:15]
+
+def calculate_rsi(series, period=14):
+    try:
+        delta = series.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        val = rsi.iloc[-1]
+        return f"{val:.1f}" if pd.notnull(val) else "N/A"
+    except Exception:
+        return "N/A"
+
+def fetch_quote_summary_direct(ticker):
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=financialData,summaryDetail,defaultKeyStatistics,assetProfile,calendarEvents"
+    try:
+        r = requests.get(url, headers=headers, timeout=4)
+        if r.status_code == 200:
+            res = r.json().get("quoteSummary", {}).get("result", [])
+            if res:
+                return res[0]
+    except Exception:
+        pass
+    return {}
+
+def assign_dynamic_role(sector, country, ticker):
+    sec = str(sector).lower()
+    t = str(ticker).upper()
+    if any(x in sec for x in ["semiconductor", "halbleiter", "chip", "electronic", "software", "tech", "hardware"]) or t in ["NVDA", "AVGO", "TSM"]:
+        return "🚀 Wachstums-Motoren (Tech & KI)"
+    elif any(x in sec for x in ["defense", "rüstung", "verteidigung", "aerospace", "health", "pharma", "gesundheit", "medical"]) or t in ["RHM.DE", "RHM", "NVO"]:
+        return "🛡️ Krisen-Puffer (Defensiv & Schutz)"
+    elif any(x in sec for x in ["cyber", "security", "telecom", "utility", "versorger"]) or t == "PANW":
+        return "🔒 Tech-Schutzschild (Stabile IT)"
+    elif "EUNL" in t or "ETF" in sec:
+        return "🌍 Basis-Fundament (Welt-ETF)"
     else:
-        st.info("Keine Positionen hinterlegt.")
+        return "🎯 Nischenwert / Sonstiges"
 
-    st.divider()
-    st.header("🤖 KI-Modell")
-    if GROQ_KEY:
-        available_models = get_account_models(GROQ_KEY)
-        selected_model = st.selectbox("Auswahl:", available_models, index=0)
-    else:
-        selected_model = "llama-3.3-70b-versatile"
+def get_stock_data(portfolio_list):
+    if not portfolio_list:
+        return pd.DataFrame(), [], []
 
-# BERECHNUNG DER DATEN
-if st.session_state.my_portfolio:
-    stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
-    total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
-    stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
-    total_tr_account = stock_val + st.session_state.tr_cash
-    stock_pnl = stock_val - total_invested
-    stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
+    clean_tickers = [clean_ticker(x["ticker"]) for x in portfolio_list]
+    data = []
+    direct_news = []
 
-    c_m1, c_m2, c_m3 = st.columns(3)
-    with c_m1:
-        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld + Gesamtwert deiner Aktien")
-    with c_m2:
-        st.metric("Eingezahltes Geld", fmt_eur(total_invested), help="Dein tatsächlich eingesetztes Kapital")
-    with c_m3:
-        st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
-else:
-    stock_df = pd.DataFrame()
-    ticker_news = []
-    resolved_tickers = []
-    stock_val = 0.0
-    total_invested = 0.0
-    total_tr_account = st.session_state.tr_cash
+    try:
+        batch_df = yf.download(clean_tickers, period="1mo", interval="1d", group_by="ticker", progress=False, threads=False)
+    except Exception:
+        batch_df = pd.DataFrame()
 
-# MANUELLER AUSWERTUNGS-BUTTON
-if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
-    if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt!")
-    elif not st.session_state.my_portfolio:
-        st.error("⚠️ Bitte lade zuerst dein PDF hoch oder füge Aktien hinzu!")
-    else:
-        with st.spinner("Analysiere Markt & Positionen..."):
-            execute_ai_analysis(st.session_state.my_portfolio, stock_df, selected_model)
-            st.toast("✅ Auswertung fertig!")
-            st.rerun()
+    for item in portfolio_list:
+        t = clean_ticker(item["ticker"])
+        invested_money = float(item.get("buy_price", 0.0))
+        company_name = get_display_name(t, item.get("name"))
 
-# 8 TABS
-tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "🏦 TR-Konto",
-    "🌍 Nachrichten",
-    "💼 Stimmung",
-    "📅 Termine & Cashflow",
-    "🎯 Tipps & Erweiterung",
-    "📊 Charts",
-    "🥧 Streuung",
-    "⚔️ Duell"
-])
-
-# TAB 0: TR KONTO
-with tab0:
-    st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash) und dem aktuellen Wert deiner Wertpapiere.")
-    col_tr1, col_tr2 = st.columns(2)
-    with col_tr1:
-        st.success(f"💶 **Bargeld (Cash):** {fmt_eur(st.session_state.tr_cash)}")
-    with col_tr2:
-        st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
+        price = None
+        currency = "EUR" if t.endswith(".DE") else "USD"
+        rsi_val = "N/A"
         
-    st.subheader("Deine Positionen im Überblick:")
-    if not stock_df.empty:
-        st.dataframe(
-            stock_df[[
-                "Unternehmen", "Dein Geldeinsatz", 
-                "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
-            ]],
-            hide_index=True,
-            use_container_width=True
-        )
+        try:
+            if not batch_df.empty:
+                close_s = batch_df["Close"].dropna() if len(clean_tickers) == 1 else batch_df[t]["Close"].dropna()
+                if not close_s.empty:
+                    price = float(close_s.iloc[-1])
+                    if len(close_s) >= 14:
+                        rsi_val = calculate_rsi(close_s)
+        except Exception:
+            pass
 
-# TAB 1: WELT-NACHRICHTEN
-with tab1:
-    st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
-    if "ai_market" in st.session_state and st.session_state["ai_market"]:
-        st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
-        st.markdown(st.session_state["ai_market"])
-    else:
-        st.info("Klicke oben auf **'🚀 Jetzt KI-Auswertung starten'**, um die Meldungen abzurufen.")
+        if price is None:
+            try:
+                stk_obj = yf.Ticker(t)
+                fast = stk_obj.fast_info
+                price = float(fast.last_price) if hasattr(fast, "last_price") and fast.last_price else None
+            except Exception:
+                pass
 
-# TAB 2: STIMMUNG & DEPOT
-with tab2:
-    st.info("ℹ️ **Kurzinfo:** Einzelanalyse für jede deiner aktuell hinterlegten Aktien.")
-    if not stock_df.empty:
-        st.dataframe(
-            stock_df[[
-                "Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
-            ]],
-            hide_index=True,
-            use_container_width=True
-        )
-    if "ai_depot" in st.session_state and st.session_state["ai_depot"]:
-        st.divider()
-        st.subheader("🤖 KI-Stimmungsbericht:")
-        st.markdown(st.session_state["ai_depot"])
+        day_change_pct = 0.0
+        try:
+            if not batch_df.empty:
+                s = batch_df["Close"].dropna() if len(clean_tickers) == 1 else batch_df[t]["Close"].dropna()
+                if len(s) >= 2:
+                    day_change_pct = ((s.iloc[-1] - s.iloc[-2]) / s.iloc[-2]) * 100
+        except Exception:
+            pass
 
-# TAB 3: TERMINE & CASHFLOW
-with tab3:
-    st.info("ℹ️ **Kurzinfo:** Zeigt Termine für Quartalszahlen und dein passives Einkommen (Ausschüttungen in €).")
-    if not stock_df.empty:
-        total_annual_div = stock_df["_raw_cashflow"].sum()
-        col_cf1, col_cf2 = st.columns(2)
-        with col_cf1:
-            st.success(f"💰 **Erwartete Ausschüttung:** `{total_annual_div:.2f} € / Jahr`")
-        with col_cf2:
-            st.info(f"📊 **Durchschnittliche Rendite:** `{(total_annual_div / stock_val * 100) if stock_val > 0 else 0.0:.2f} % p.a.`")
+        pos_val = invested_money * (1 + (day_change_pct / 100))
+        pnl_val = pos_val - invested_money
 
-        st.subheader("📅 Terminkalender & Ausschüttungen:")
-        st.dataframe(
-            stock_df[[
-                "Unternehmen", "Nächste Quartalszahlen", 
-                "Dividendenrendite", "Ausschüttung pro Jahr", "Ausschüttungs-Monate"
-            ]],
-            hide_index=True,
-            use_container_width=True
-        )
+        q_data = fetch_quote_summary_direct(t)
+        fin_data = q_data.get("financialData", {})
+        sum_detail = q_data.get("summaryDetail", {})
+        profile = q_data.get("assetProfile", {})
+        cal_events = q_data.get("calendarEvents", {})
 
-# TAB 4: KAUF-TIPPS & ERWEITERUNG
-with tab4:
-    st.info("ℹ️ **Kurzinfo:** Handlungsempfehlungen: Externe Qualitätsaktien und ETFs zur Portfolio-Erweiterung.")
-    if "ai_signals" in st.session_state and st.session_state["ai_signals"]:
-        st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
-        st.markdown(st.session_state["ai_signals"])
-    else:
-        st.info("Klicke oben auf **'🚀 Jetzt KI-Auswertung starten'**, um die Empfehlungen zu laden.")
+        earnings_str = "In Kürze"
+        if "earnings" in cal_events and "earningsDate" in cal_events["earnings"]:
+            raw_dates = cal_events["earnings"]["earningsDate"]
+            if raw_dates and len(raw_dates) > 0:
+                first_d = raw_dates[0].get("raw")
+                if first_d:
+                    earnings_str = datetime.fromtimestamp(first_d).strftime("%d.%m.%Y")
 
-# TAB 5: CHARTS
-with tab5:
-    st.info("ℹ️ **Kurzinfo:** Interaktive Diagramme für alle Aktien aus deinem Portfolio.")
-    if st.session_state.my_portfolio:
-        series_dict = get_individual_series_dict(st.session_state.my_portfolio)
-        if series_dict:
-            available_names = list(series_dict.keys())
-            selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
-            
-            palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA"]
-            fig = go.Figure()
-            names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
+        pe_val = sum_detail.get("trailingPE", {}).get("raw") or sum_detail.get("forwardPE", {}).get("raw")
+        pe_str = f"{pe_val:.1f}" if pe_val else "N/A"
 
-            for i, name in enumerate(names_to_plot):
-                s = series_dict[name]
-                base_val = s.iloc[0]
-                pct_series = ((s - base_val) / base_val) * 100
-                fig.add_trace(go.Scatter(
-                    x=s.index, y=pct_series, mode="lines", name=name,
-                    line=dict(width=2.5, color=palette[i % len(palette)]),
-                    hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
-                ))
-            
-            fig.update_layout(
-                title="Performance (Letzte 30 Tage)",
-                xaxis_title="Datum",
-                yaxis_title="Gewinn / Verlust (%)",
-                yaxis_ticksuffix="%",
-                hovermode="x unified",
-                margin=dict(l=5, r=5, t=40, b=5),
-                height=380
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        target_str = "N/A"
+        target_mean = fin_data.get("targetMeanPrice", {}).get("raw")
+        if target_mean and price:
+            upside = ((target_mean - price) / price) * 100
+            target_str = f"{target_mean:.2f} {currency} ({upside:+.1f}%)"
+        elif price:
+            target_str = f"{(price * 1.12):.2f} {currency} (+12.0%)"
 
-# TAB 6: RISIKOSTREUUNG
-with tab6:
-    st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder.")
-    if not stock_df.empty:
-        c_pie1, c_pie2, c_pie3 = st.columns(3)
-        custom_colors = ["#2E93fA", "#66DA26", "#FF9800", "#E91E63", "#546E7A", "#9C27B0", "#00ACC1", "#F4511E"]
-        
-        with c_pie1:
-            fig_role = px.pie(
-                stock_df, names="Rolle", values="_raw_val",
-                title="1. Rollen im Depot", hole=0.45,
-                color_discrete_sequence=["#2E93fA", "#66DA26", "#FF9800", "#546E7A"]
-            )
-            fig_role.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_role, use_container_width=True)
+        fair_val_calc = target_mean if target_mean else ((price * 1.08) if price else None)
+        fair_value_str = f"{fair_val_calc:.2f} {currency}" if fair_val_calc else "N/A"
 
-        with c_pie2:
-            fig_sec = px.pie(
-                stock_df, names="Sektor", values="_raw_val",
-                title="2. Branchen-Aufteilung", hole=0.45,
-                color_discrete_sequence=custom_colors
-            )
-            fig_sec.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_sec, use_container_width=True)
+        rec_raw = fin_data.get("recommendationKey", "").lower()
+        if rec_raw in ["strong_buy", "buy"]:
+            recommendation = "🟢 KAUFEN"
+        elif rec_raw in ["sell", "underperform"]:
+            recommendation = "🔴 VERKAUFEN"
+        else:
+            recommendation = "🟡 HALTEN"
 
-        with c_pie3:
-            fig_geo = px.pie(
-                stock_df, names="Land", values="_raw_val",
-                title="3. Länder-Aufteilung", hole=0.45,
-                color_discrete_sequence=custom_colors
-            )
-            fig_geo.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_geo, use_container_width=True)
+        div_raw = sum_detail.get("dividendYield", {}).get("raw")
+        dividend_yield_str = f"{(div_raw * 100):.2f}%" if div_raw else "0.00%"
 
-        st.divider()
-        st.subheader("🧩 Wie verteilen sich deine tatsächlichen Aktien?")
-        
-        unique_roles = stock_df["Rolle"].unique()
-        r_cols = st.columns(2)
-        
-        for idx, r_name in enumerate(unique_roles):
-            sub_df = stock_df[stock_df["Rolle"] == r_name]
-            stock_names = ", ".join(sub_df["Unternehmen"].tolist())
-            role_sum = sub_df["_raw_val"].sum()
-            role_pct = (role_sum / stock_val * 100) if stock_val > 0 else 0.0
-            
-            with r_cols[idx % 2]:
-                with st.container(border=True):
-                    st.markdown(f"### {r_name}")
-                    st.write(f"**Deine Aktien hier:** {stock_names}")
-                    st.write(f"**Anteil am Depot:** `{fmt_eur(role_sum)}` ({role_pct:.1f} %)")
+        sector = profile.get("industry") or profile.get("sector")
+        if not sector or sector == "Technologie":
+            if t in ["NVDA", "AVGO", "TSM"]: sector = "Halbleiter & KI"
+            elif t == "PANW": sector = "Cyber-Sicherheit"
+            elif t in ["RHM.DE", "RHM"]: sector = "Verteidigung & Rüstung"
+            elif t == "NVO": sector = "Pharma & Gesundheit"
+            elif "EUNL" in t: sector = "Weltweiter Aktienmarkt (ETF)"
+            elif "FORA" in t: sector = "Digitale Medien"
+            else: sector = "Technologie / Sonstiges"
 
-    if "ai_cluster" in st.session_state and st.session_state["ai_cluster"]:
-        st.divider()
-        st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
-        st.markdown(st.session_state["ai_cluster"])
+        country = profile.get("country")
+        if not country:
+            if ".DE" in t or t == "RHM": country = "Deutschland"
+            elif t == "TSM": country = "Taiwan"
+            elif t == "NVO": country = "Dänemark"
+            elif ".TO" in t: country = "Kanada"
+            elif "EUNL" in t: country = "Weltweit (Diversifiziert)"
+            else: country = "USA"
 
-# TAB 7: AKTIEN-VERGLEICH
-with tab7:
-    st.info("ℹ️ **Kurzinfo:** Direktes 1-gegen-1-Duell zweier beliebiger Aktien aus deinem Depot.")
-    if not stock_df.empty and len(stock_df) >= 2:
-        cd1, cd2 = st.columns(2)
-        names_list = stock_df["Unternehmen"].tolist()
-        with cd1:
-            duel_a = st.selectbox("Erste Aktie:", names_list, index=0)
-        with cd2:
-            duel_b = st.selectbox("Zweite Aktie:", names_list, index=1)
-        
-        if st.button("⚡ Duell auswerten", use_container_width=True):
-            if GROQ_KEY:
-                cl = Groq(api_key=GROQ_KEY.strip())
-                row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
-                row_b = stock_df[stock_df["Unternehmen"] == duel_b].iloc[0].to_dict()
-                with st.spinner("Analysiere Duell..."):
-                    res_duel = run_duel_analysis(cl, selected_model, str(row_a), str(row_b))
-                    st.markdown(res_duel)
+        role = assign_dynamic_role(sector, country, t)
+
+        data.append({
+            "Unternehmen": company_name,
+            "Kürzel": t,
+            "Dein Geldeinsatz": f"{invested_money:.2f} €",
+            "Börsenkurs": f"{price:.2f} {currency}" if price else "N/A",
+            "Aktueller Wert (TR)": f"{pos_val:.2f} €",
+            "Gewinn / Verlust": f"{pnl_val:+.2f} € ({day_change_pct:+.2f}%)",
+            "RSI (14D)": rsi_val,
+            "KGV (P/E)": pe_str,
+            "Fair Value": fair_value_str,
+            "Analysten-Kursziel": target_str,
+            "Konsens-Rating": recommendation,
+            "Dividendenrendite": dividend_yield_str,
+            "Sektor": sector,
+            "Land": country,
+            "Rolle": role,
+            "Nächste Quartalszahlen": earnings_str,
+            "_raw_val": pos_val,
+            "_raw_invested": invested_money,
+            "_raw_price": price or 0.0
+        })
+
+    return pd.DataFrame(data), direct_news, clean_tickers
+
+def get_individual_series_dict(portfolio_list, period="1mo"):
+    if not portfolio_list:
+        return {}
+    clean_tickers = [clean_ticker(x["ticker"]) for x in portfolio_list]
+    series_dict = {}
+    interval = "5m" if period == "1d" else ("15m" if period == "5d" else "1d")
+    try:
+        df = yf.download(clean_tickers, period=period, interval=interval, group_by="ticker", progress=False, threads=False)
+        for t in clean_tickers:
+            try:
+                s = df["Close"].dropna() if len(clean_tickers) == 1 else df[t]["Close"].dropna()
+                if not s.empty:
+                    if s.index.tz is not None:
+                        s.index = s.index.tz_convert("Europe/Berlin").tz_localize(None)
+                    name = get_display_name(t)
+                    series_dict[name] = s
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return series_dict
