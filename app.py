@@ -42,12 +42,13 @@ def fmt_eur(val):
     except Exception:
         return f"{val} €"
 
-# --- SEITENLEISTE: EINGABEN & PDF ---
+# --- SEITENLEISTE: KLAR STRUKTURIERT ---
 with st.sidebar:
-    st.header("💼 Depot & Trade Republic")
+    st.header("💼 Mein Trade Republic Depot")
     
-    with st.expander("📥 TR-Kontoauszug (PDF) hochladen"):
-        st.caption("Lade deinen Auszug hoch. Die echten Werte und Klarnamen überschreiben alle manuellen Eingaben.")
+    # 1. PDF-Import (Automatisch auslesen)
+    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
+        st.caption("Lade hier deinen PDF-Auszug hoch. Die App liest deine echten Aktien, Kaufwerte und dein Cash automatisch aus.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"])
         if tr_pdf:
             imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
@@ -56,26 +57,31 @@ with st.sidebar:
                 if imported_cash is not None:
                     st.session_state.tr_cash = imported_cash
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {len(imported_items)} Positionen aus TR-Auszug übernommen!")
+                st.success(f"✅ {len(imported_items)} Positionen aus Auszug übernommen!")
                 st.rerun()
 
+    # 2. Bargeld (Cash)
     st.session_state.tr_cash = st.number_input(
-        "💶 TR Guthaben (Cash in €):",
+        "💶 TR Bargeld-Guthaben (Cash in €):",
         min_value=0.0,
         value=float(st.session_state.tr_cash),
-        step=10.0
+        step=10.0,
+        help="Dein uninvestiertes Bargeld auf Trade Republic."
     )
 
     st.divider()
-    st.subheader("🔍 Aktie hinzufügen:")
-    search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Nvidia, Apple, Rheinmetall...")
+
+    # 3. Neue Aktie suchen & prüfen
+    st.subheader("🔍 Aktie suchen / hinzufügen:")
+    st.caption("Füge neue Aktien hinzu, um sie zu testen oder zu beobachten:")
+    search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Apple, Tesla, Rheinmetall...")
     if search_query:
         results = search_ticker_candidates(search_query)
         if results:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            in_money = st.number_input("Investierter Geldbetrag (€):", min_value=1.0, value=50.0, step=10.0)
+            in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=10.0)
             
-            if st.button("➕ Hinzufügen", use_container_width=True):
+            if st.button("➕ Zur Depot-Liste hinzufügen", use_container_width=True):
                 sym = clean_ticker(selected_cand)
                 disp_name = get_display_name(sym)
                 st.session_state.my_portfolio.append({
@@ -85,47 +91,36 @@ with st.sidebar:
                     "buy_price": float(in_money)
                 })
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"{disp_name} hinzugefügt!")
+                st.success(f"✅ {disp_name} hinzugefügt!")
                 st.rerun()
 
     st.divider()
-    st.subheader("📝 Geldbeträge anpassen:")
-    portfolio_changed = False
+
+    # 4. Übersicht der aktuellen Positionen mit Löschen-Funktion
+    st.subheader("📋 Aktive Depot-Positionen:")
     if st.session_state.my_portfolio:
-        for idx, item in enumerate(st.session_state.my_portfolio):
-            current_invested = float(item.get("buy_price", 0.0))
-            display_label = get_display_name(item.get("ticker", ""), item.get("name"))
-            col_a, col_b = st.columns([3, 1])
-            with col_a:
-                new_invested = st.number_input(
-                    f"💶 {display_label}:",
-                    min_value=0.0,
-                    value=float(current_invested),
-                    step=10.0,
-                    key=f"money_input_{idx}_{item['ticker']}"
-                )
-            with col_b:
-                st.write("")
-                st.write("")
-                if st.button("🗑️", key=f"del_{idx}_{item['ticker']}", help="Löschen"):
+        for idx, item in enumerate(list(st.session_state.my_portfolio)):
+            disp_name = get_display_name(item.get("ticker", ""), item.get("name"))
+            col_pos_a, col_pos_b = st.columns([3, 1])
+            with col_pos_a:
+                st.write(f"• **{disp_name}**")
+                st.caption(f"Einsatz: {fmt_eur(float(item.get('buy_price', 0.0)))}")
+            with col_pos_b:
+                if st.button("❌", key=f"del_item_{idx}_{item['ticker']}", help=f"{disp_name} entfernen"):
                     st.session_state.my_portfolio.pop(idx)
                     save_portfolio_to_file(st.session_state.my_portfolio)
                     st.rerun()
-
-            if new_invested != current_invested:
-                item["buy_price"] = float(new_invested)
-                item["name"] = display_label
-                portfolio_changed = True
         
-        if portfolio_changed or st.button("💾 Speichern", use_container_width=True):
+        st.write("")
+        if st.button("🗑️ Alle Positionen leeren", use_container_width=True):
+            st.session_state.my_portfolio = []
             save_portfolio_to_file(st.session_state.my_portfolio)
-            st.success("✅ Gespeichert & aktualisiert!")
             st.rerun()
     else:
-        st.info("Noch keine Positionen im Depot.")
+        st.info("Noch keine Positionen hinterlegt. Lade einen Auszug hoch oder suche eine Aktie.")
 
     st.divider()
-    st.header("🤖 Modell")
+    st.header("🤖 KI-Modell")
     if GROQ_KEY:
         available_models = get_account_models(GROQ_KEY)
         selected_model = st.selectbox("Auswahl:", available_models, index=0)
