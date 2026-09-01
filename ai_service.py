@@ -15,11 +15,11 @@ def get_account_models(api_key):
             m.id for m in models_data 
             if not any(x in m.id.lower() for x in ["whisper", "guard", "vision", "safeguard", "orpheus", "tts"])
         ]
-        preferred = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"]
+        preferred = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"]
         sorted_models = [m for m in preferred if m in valid_models] + [m for m in valid_models if m not in preferred]
         return sorted_models if sorted_models else [DEFAULT_MODEL]
     except Exception:
-        return [DEFAULT_MODEL, "llama-3.1-70b-versatile"]
+        return [DEFAULT_MODEL, "openai/gpt-oss-120b", "llama-3.1-8b-instant"]
 
 def extract_section(text, tag, next_tags):
     pattern = rf"(?:={2,5}\s*{tag}\s*={2,5}|\*\*\s*={2,5}\s*{tag}\s*={2,5}\s*\*\*|###\s*{tag})"
@@ -40,7 +40,7 @@ def extract_section(text, tag, next_tags):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnachrichten sowie das bestehende Depot des Nutzers und erstelle fundierte Empfehlungen.
+Du bist ein quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnachrichten sowie das bestehende Depot des Nutzers und erstelle fundierte Empfehlungen auf Deutsch.
 
 [AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
 {news_text[:1200]}
@@ -69,7 +69,7 @@ Kurzer Statusbericht zu den bestehenden Aktien des Nutzers:
 Wähle basierend auf den Nachrichten genau 5 konkrete Qualitätsaktien/ETFs (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
 
 1. **[Aktie 1]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?** (Konkreter Treiber)
+   - **Warum JETZT kaufen?** (Konkreter Treiber basierend auf Zinsen, Geopolitik oder Tech-Trends)
    - **Chance / Kurspotenzial:** z. B. +15 % bis +25 %
    - **Risikobewertung:** Gering / Mittel / Hoch
 
@@ -102,7 +102,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-8b-instant"]
     seen = set()
     models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
     
@@ -130,10 +130,10 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     if not full_text:
         err_msg = str(last_err) if last_err else "Unbekannter API-Fehler"
         return (
-            f"⚠️ **Fehler bei Groq API:** `{err_msg}`",
-            "Keine Daten.",
-            "Keine Daten.",
-            "Keine Daten."
+            f"⚠️ **Fehler bei Groq API:** `{err_msg}`\n\nBitte prüfe deinen `GROQ_API_KEY` in den Streamlit Secrets.",
+            "Keine Daten erhalten.",
+            "Keine Empfehlungen erhalten.",
+            "Keine Risikobewertung erhalten."
         )
 
     out_market = extract_section(full_text, "MARKT", ["DEPOT", "SIGNALE", "KLUMPEN"]) or full_text[:600]
