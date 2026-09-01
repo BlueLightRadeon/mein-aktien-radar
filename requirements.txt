@@ -5,3 +5,4 @@ groq
 pandas
 plotly
 requests
+pypdf
