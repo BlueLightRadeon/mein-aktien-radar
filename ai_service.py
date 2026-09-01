@@ -1,6 +1,5 @@
 import streamlit as st
 from groq import Groq
-import re
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
@@ -34,7 +33,7 @@ Du bist ein quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnach
 [DEPOT-AUFTEILUNG]
 {cluster_context}
 
-Erstelle deine Antwort strikt gegliedert nach diesen 4 Markern:
+Erstelle deine strukturierte Analyse exakt mit diesen 4 Markern (wichtig: exakt so schreiben!):
 
 ===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
@@ -116,40 +115,38 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
         err_display = f"⚠️ **Groq API Fehler:** `{last_err_msg}`\n\nBitte prüfe deinen API-Key in den Streamlit Secrets."
         return err_display, err_display, err_display, err_display
 
-    # Zerlegung nach den Markern
+    # Text bereinigen und zerlegen
+    clean_text = full_text.replace("**===MARKT===**", "===MARKT===").replace("**===DEPOT===**", "===DEPOT===").replace("**===SIGNALE===**", "===SIGNALE===").replace("**===KLUMPEN===**", "===KLUMPEN===")
+
     out_market = ""
     out_depot = ""
     out_signals = ""
     out_cluster = ""
 
-    # Normalisierung
-    clean_text = full_text.replace("**===MARKT===**", "===MARKT===").replace("**===DEPOT===**", "===DEPOT===").replace("**===SIGNALE===**", "===SIGNALE===").replace("**===KLUMPEN===**", "===KLUMPEN===")
-
     if "===MARKT===" in clean_text:
-        parts = clean_text.split("===MARKT===")[1]
-        if "===DEPOT===" in parts:
-            out_market, rest1 = parts.split("===DEPOT===", 1)
-            if "===SIGNALE===" in rest1:
-                out_depot, rest2 = rest1.split("===SIGNALE===", 1)
-                if "===KLUMPEN===" in rest2:
-                    out_signals, out_cluster = rest2.split("===KLUMPEN===", 1)
+        p_m = clean_text.split("===MARKT===")[1]
+        if "===DEPOT===" in p_m:
+            out_market, p_d = p_m.split("===DEPOT===", 1)
+            if "===SIGNALE===" in p_d:
+                out_depot, p_s = p_d.split("===SIGNALE===", 1)
+                if "===KLUMPEN===" in p_s:
+                    out_signals, out_cluster = p_s.split("===KLUMPEN===", 1)
                 else:
-                    out_signals = rest2
+                    out_signals = p_s
             else:
-                out_depot = rest1
+                out_depot = p_d
         else:
-            out_market = parts
+            out_market = p_m
     else:
-        # Falls Marker komplett fehlen: Ganzen Text im ersten Tab zeigen
         out_market = clean_text
-        out_depot = "Analyse im Reiter '🌍 Nachrichten' enthalten."
-        out_signals = "Analyse im Reiter '🌍 Nachrichten' enthalten."
-        out_cluster = "Analyse im Reiter '🌍 Nachrichten' enthalten."
+        out_depot = "Ausführliche Analyse unter '🌍 Nachrichten'."
+        out_signals = "Kaufempfehlungen unter '🌍 Nachrichten'."
+        out_cluster = "Risikobewertung unter '🌍 Nachrichten'."
 
     return (
         out_market.strip() or clean_text,
-        out_depot.strip() or "Depot-Check aktualisiert.",
-        out_signals.strip() or "Kaufempfehlungen aktualisiert.",
+        out_depot.strip() or "Depot-Auswertung geladen.",
+        out_signals.strip() or "Top-5-Kaufempfehlungen geladen.",
         out_cluster.strip() or "Risikostreuung berechnet."
     )
 
