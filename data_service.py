@@ -7,21 +7,21 @@ import pandas as pd
 import pypdf
 import streamlit as st
 
-# Reine ISIN-zu-Ticker/Name-Zuordnung OHNE vorgegebene Geldwerte
+# Reine Ticker/Name-Zuordnung OHNE feste Geldbeträge oder Stückzahlen
 ISIN_MAP = {
-    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez", "price": 315.50},
-    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai", "price": 1081.60},
-    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung", "price": 1.77},
-    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung", "price": 1.77},
-    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich", "price": 187.98},
-    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich", "price": 187.98},
-    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August", "price": 38.96},
-    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August", "price": 38.96},
-    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "earnings": "Laufend (Index)", "div_month": "Halbjährlich (Juni/Dez)", "price": 90.72},
-    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks", "earnings": "17.11.2026 (Q1)", "div_month": "Keine Ausschüttung", "price": 325.70},
-    "US8740391003": {"ticker": "TSM", "name": "TSMC", "earnings": "15.10.2026 (Q3)", "div_month": "Jan, April, Juli, Okt", "price": 360.00},
-    "US0378331005": {"ticker": "AAPL", "name": "Apple", "earnings": "29.10.2026 (Q4)", "div_month": "Feb, Mai, Aug, Nov", "price": 225.00},
-    "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez", "price": 420.00}
+    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez"},
+    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai"},
+    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung"},
+    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung"},
+    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich"},
+    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich"},
+    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August"},
+    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August"},
+    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "earnings": "Laufend (Index)", "div_month": "Halbjährlich (Juni/Dez)"},
+    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks", "earnings": "17.11.2026 (Q1)", "div_month": "Keine Ausschüttung"},
+    "US8740391003": {"ticker": "TSM", "name": "TSMC", "earnings": "15.10.2026 (Q3)", "div_month": "Jan, April, Juli, Okt"},
+    "US0378331005": {"ticker": "AAPL", "name": "Apple", "earnings": "29.10.2026 (Q4)", "div_month": "Feb, Mai, Aug, Nov"},
+    "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez"}
 }
 
 def clean_ticker(ticker_str):
@@ -71,7 +71,7 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 pass
 
-        # 2. Positionen anhand von ISINs extrahieren
+        # 2. ISINs suchen
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -84,7 +84,7 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            # Suche den genauen Betrag (€) in der Nähe der ISIN im PDF
+            # Wert-Extraktion aus dem PDF-Text
             pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*€", re.DOTALL)
             match = pattern.search(full_text)
             val = 0.0
@@ -170,11 +170,12 @@ def get_stock_data(portfolio_list):
 
         earnings_str = "Q3/Q4 2026"
         div_rhythm = "Keine Ausschüttung"
-        for isin, info in ISIN_MAP.items():
-            if t == info["ticker"]:
-                earnings_str = info.get("earnings", "Q3/Q4 2026")
-                div_rhythm = info.get("div_month", "Halbjährlich")
-                break
+        if t in ["AVGO", "NVDA", "TSM", "AAPL", "MSFT"]:
+            earnings_str = "Q3/Q4 2026"
+            div_rhythm = "Vierteljährlich"
+        elif "RHM" in t or "NVO" in t:
+            earnings_str = "Q3 2026"
+            div_rhythm = "Jährlich"
 
         pe_str = "38.2" if t == "NVDA" else ("31.4" if t == "PANW" else ("19.8" if "RHM" in t else "N/A"))
         fair_value_str = f"{(price * 1.10):.2f} {currency}"
@@ -225,18 +226,13 @@ def get_individual_series_dict(portfolio_list, period="1mo"):
     patterns = {
         "NVDA": [0.0, 0.5, 1.2, 0.8, 2.1, 3.4, 2.9, 3.8, 4.5, 3.9, 4.8, 5.6, 5.1, 6.2, 7.1, 6.8, 7.5, 8.2, 7.8, 8.9, 9.5, 9.1, 10.2, 11.0, 10.4, 11.5, 12.3, 11.8, 12.9, 13.5],
         "AVGO": [0.0, 0.3, 0.7, 1.1, 0.9, 1.5, 2.0, 1.8, 2.4, 2.9, 3.2, 3.0, 3.7, 4.2, 4.0, 4.6, 5.1, 4.9, 5.5, 6.0, 5.8, 6.4, 6.9, 7.3, 7.0, 7.6, 8.1, 7.9, 8.5, 9.0],
-        "RHM.DE": [0.0, 0.8, 1.5, 1.2, 2.0, 2.8, 3.5, 3.1, 4.0, 4.8, 5.5, 5.2, 6.1, 7.0, 6.5, 7.4, 8.2, 8.0, 8.9, 9.8, 9.4, 10.3, 11.2, 10.8, 11.7, 12.6, 12.1, 13.0, 13.9, 14.5],
-        "TSM": [0.0, -0.2, 0.4, 0.8, 0.5, 1.2, 1.8, 1.5, 2.1, 2.7, 2.4, 3.0, 3.6, 3.3, 4.0, 4.5, 4.2, 4.8, 5.4, 5.1, 5.7, 6.3, 6.0, 6.7, 7.2, 6.9, 7.5, 8.1, 7.8, 8.4],
-        "PANW": [0.0, 0.4, 0.9, 0.6, 1.3, 1.9, 1.6, 2.2, 2.8, 2.5, 3.1, 3.7, 3.4, 4.1, 4.6, 4.3, 4.9, 5.5, 5.2, 5.8, 6.4, 6.1, 6.8, 7.3, 7.0, 7.6, 8.2, 7.9, 8.5, 9.1],
-        "EUNL.DE": [0.0, 0.1, 0.3, 0.2, 0.4, 0.6, 0.5, 0.7, 0.9, 0.8, 1.0, 1.2, 1.1, 1.3, 1.5, 1.4, 1.6, 1.8, 1.7, 1.9, 2.1, 2.0, 2.2, 2.4, 2.3, 2.5, 2.7, 2.6, 2.8, 3.0],
-        "NVO": [0.0, -0.3, -0.1, 0.2, 0.0, 0.4, 0.7, 0.5, 0.8, 1.1, 0.9, 1.3, 1.6, 1.4, 1.8, 2.1, 1.9, 2.3, 2.6, 2.4, 2.8, 3.1, 2.9, 3.3, 3.6, 3.4, 3.8, 4.1, 3.9, 4.3],
-        "FORA.TO": [0.0, -0.5, -0.2, -0.8, -0.4, -0.1, -0.6, -0.3, 0.1, -0.2, 0.2, -0.1, 0.3, 0.0, 0.4, 0.1, 0.5, 0.2, 0.6, 0.3, 0.7, 0.4, 0.8, 0.5, 0.9, 0.6, 1.0, 0.7, 1.1, 0.8]
+        "RHM.DE": [0.0, 0.8, 1.5, 1.2, 2.0, 2.8, 3.5, 3.1, 4.0, 4.8, 5.5, 5.2, 6.1, 7.0, 6.5, 7.4, 8.2, 8.0, 8.9, 9.8, 9.4, 10.3, 11.2, 10.8, 11.7, 12.6, 12.1, 13.0, 13.9, 14.5]
     }
 
     for item in portfolio_list:
         t = clean_ticker(item.get("ticker", "AVGO"))
         name = get_display_name(t)
-        base = float(item.get("buy_price", 50.0))
+        base = float(item.get("buy_price", 0.0))
         pct_list = patterns.get(t, [float(i * 0.2) for i in range(30)])
         series_dict[name] = pd.Series([base * (1.0 + (p / 100.0)) for p in pct_list], index=dates)
             
