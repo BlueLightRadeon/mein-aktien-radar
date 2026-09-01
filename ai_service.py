@@ -5,7 +5,6 @@ import re
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 def get_account_models(api_key):
-    """Filtert die Modell-Liste streng nach reinen Text-/Chat-Modellen."""
     if not api_key:
         return [DEFAULT_MODEL]
     try:
@@ -30,13 +29,13 @@ def get_account_models(api_key):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein erfahrener Chef-Aktienanalyst. Formuliere eine vollständige, tiefgehende Finanzanalyse auf Deutsch. 
-WICHTIG: Verwende keine Platzhalter oder Mustertexte, sondern schreibe jeden einzelnen Punkt und jede Aktienanalyse vollständig und konkret aus!
+Du bist ein quantitativer Chef-Aktienanalyst und Portfoliomanager. Erstelle eine detaillierte, vollständige Analyse auf Deutsch. 
+Formuliere alle Analysen direkt und ohne Platzhalter aus.
 
 AKTUELLE NACHRICHTENLAGE:
 {news_text}
 
-BESTEHENDE DEPOTWERTE DES NUTZERS:
+BESTEHENDE DEPOTWERTE & HISTORISCHE DATEN DES NUTZERS:
 {metrics_summary}
 
 DEPOT-STRUKTUR:
@@ -46,33 +45,56 @@ Gliedere deine Antwort zwingend anhand der folgenden vier Trennmarkierungen:
 
 ===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
-Schreibe genau 10 konkrete, aussagekräftige Stichpunkte zu den aktuellen weltweiten Leitbörsen, Zinsentscheiden, Tech-Entwicklungen und makroökonomischen Trends.
+Formuliere 10 prägnante Stichpunkte zu globalen Leitbörsen, Notenbank-Zinsentscheiden, Tech-Investitionen und geopolitischen Einflussfaktoren.
 
 ### 🧭 Gesamtstimmung der Börse
-Bewerte die Gesamtlage eindeutig mit 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig und begründe dies in 3-4 Sätzen.
+Bewerte die Lage eindeutig mit 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig und begründe dies in 3-4 Sätzen.
 
 ===DEPOT===
-### 💼 KAUF- & VERKAUFSEMPFEHLUNGEN FÜR DEINE BESTEHENDEN AKTIEN
-Analysiere ausnahmslos JEDE im Depot vorhandene Aktie einzeln:
-- Gib für jede Aktie eine klare Empfehlung (🟢 KAUFEN / AUFSTOCKEN, 🟡 HALTEN oder 🔴 GEWINNE MITNEHMEN / VERKAUFEN).
-- Erläutere jeweils in 2-3 Sätzen die fundamentale Begründung (Chancen, Risiken, Kurspotenzial).
+### 💼 KAUF- & VERKAUFSEMPFEHLUNGEN FÜR DEINE BESTEHENDEN AKTIEN (KOMBINIERTE GESAMTANALYSE)
+Analysiere JEDE im Depot gehaltene Position ausführlich mit dem direkten Vorher-Nachher-Vergleich:
+
+Für jedes Unternehmen folgendes Format anwenden:
+---
+#### 📌 [Unternehmensname] ([Ticker]) | Wert im Depot: [Wert] €
+- **🟢/🟡/🔴 Aktuelle Empfehlung:** [KAUFEN / AUFSTOCKEN / HALTEN / VERKAUFEN]
+  - **Aktuelle Begründung:** Fundamentale Einschätzung (KGV, Fair Value, Auftragslage, Kurspotenzial).
+- **⏱️ Rückblick vor 3 Monaten:** [Damalige Empfehlung z. B. HALTEN]
+  - **Damalige Ausgangslage:** Welche Faktoren damals maßgeblich waren.
+- **📈 Trend & Fazit:** Wie sich die These in den letzten 3 Monaten entwickelt hat und welcher konkrete Schritt jetzt empfohlen wird.
 
 ===SIGNALE===
-### 🎯 TOP 5 NEUE KAUF-EMPFEHLUNGEN
-Empfehle 5 konkrete, kaufenswerte Qualitätsaktien oder ETFs zur Portfolio-Ergänzung (keine Werte, die schon im Depot liegen).
-Nenne jeweils:
-1. Name und Ticker
-2. Warum sich der Einstieg jetzt lohnt
-3. Kurspotenzial und Risiko
+### 🎯 TOP 5 NEUE KAUF-EMPFEHLUNGEN (Zur Portfolio-Erweiterung)
+Empfehle 5 konkrete, kaufenswerte Qualitätsaktien oder ETFs zur Diversifikation (keine Werte, die schon im Depot liegen):
+1. **[Aktie 1]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Chance / Kurspotenzial:**
+   - **Risiko:** Gering / Mittel / Hoch
+2. **[Aktie 2]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Chance / Kurspotenzial:**
+   - **Risiko:**
+3. **[Aktie 3]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Chance / Kurspotenzial:**
+   - **Risiko:**
+4. **[Aktie 4]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Chance / Kurspotenzial:**
+   - **Risiko:**
+5. **[Aktie 5]** (Ticker | Branche | Land)
+   - **Warum JETZT kaufen?**
+   - **Chance / Kurspotenzial:**
+   - **Risiko:**
 
 #### 🔴 AKTUELL MEIDEN
-Nenne 3 Branchen oder Anlagesegmente, die derzeit gemieden werden sollten.
+Nenne 3 Branchen oder Nischenwerte mit erhöhtem Abwärtsrisiko.
 
 ===KLUMPEN===
 ### 🛡️ Risikostreuung & Depot-Optimierung
-1. Risiko-Score von 1 (sehr sicher) bis 10 (sehr spekulativ).
-2. Ausführliche Bewertung der aktuellen Länder- und Branchenstreuung.
-3. Konkreter Ratschlag, wie das Portfolio noch krisenfester aufgestellt werden kann.
+1. **Risiko-Score**: 1 (sehr defensiv) bis 10 (sehr spekulativ).
+2. **Bewertung der aktuellen Schwerpunkte** (Tech, Rüstung, Healthcare etc.).
+3. **Konkrete Portfolio-Empfehlung** zur weiteren Absicherung.
 """
 
     duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
@@ -92,7 +114,7 @@ Nenne 3 Branchen oder Anlagesegmente, die derzeit gemieden werden sollten.
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=3000,
+                max_tokens=3200,
                 timeout=30.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
