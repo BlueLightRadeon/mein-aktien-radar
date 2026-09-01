@@ -33,7 +33,8 @@ if "my_portfolio" not in st.session_state:
 with st.sidebar:
     st.header("💼 Mein Depot & Trade Republic")
     
-    with st.expander("📥 Trade Republic Auszug importieren", help="Hier kannst du deinen PDF-Kontoauszug hochladen, um deine Aktien automatisch einzulesen."):
+    with st.expander("📥 Trade Republic Auszug importieren"):
+        st.caption("Lade hier deinen PDF-Kontoauszug hoch, um deine Aktien automatisch einzulesen.")
         tr_pdf = st.file_uploader("PDF-Kontoauszug hochladen", type=["pdf"])
         if tr_pdf:
             imported = parse_trade_republic_pdf(tr_pdf)
@@ -94,7 +95,7 @@ with st.sidebar:
     else:
         selected_model = "llama-3.3-70b-versatile"
 
-# 7 TABS MIT EINFACHER DEUTSCHER BESCHRIFTUNG
+# 7 TABS
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🌍 Welt-Nachrichten",
     "💼 Stimmung & Depot",
@@ -113,7 +114,6 @@ if st.session_state.my_portfolio:
     total_pnl = total_val - total_invested if total_invested > 0 else 0.0
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
 
-    # Depot-Gesamtübersicht ganz oben
     col_t1, col_t2, col_t3 = st.columns(3)
     with col_t1:
         st.metric("Gesamtwert Depot", f"{total_val:,.2f} €", help="So viel sind all deine Aktien aktuell zusammen wert.")
