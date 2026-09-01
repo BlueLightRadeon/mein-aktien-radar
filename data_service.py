@@ -3,7 +3,7 @@ import os
 import re
 import io
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import pypdf
 import streamlit as st
@@ -59,7 +59,6 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # 1. Cash extrahieren
         cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
@@ -71,7 +70,6 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 extracted_cash = 0.0
 
-        # 2. ISINs suchen
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -84,7 +82,6 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            # Wert-Extraktion aus dem PDF-Text
             pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*€", re.DOTALL)
             match = pattern.search(full_text)
             val = 50.0
@@ -162,7 +159,7 @@ def get_stock_data(portfolio_list):
         try:
             invested_money = float(item.get("buy_price", 0.0))
             if invested_money <= 0:
-                invested_money = 50.0  # Fallback-Einsatz für saubere Diagramm-Proportionen
+                invested_money = 50.0
         except Exception:
             invested_money = 50.0
             
@@ -223,35 +220,47 @@ def get_stock_data(portfolio_list):
 
     return pd.DataFrame(data), [], clean_tickers
 
-def get_individual_series_dict(portfolio_list, period="1mo"):
+def get_individual_series_dict(portfolio_list, period="1M"):
     if not portfolio_list:
         return {}
-    dates = pd.date_range(end=datetime.now(), periods=30, freq="D")
+
+    # Zeitraum mapping
+    period_days_map = {
+        "1W": 7,
+        "1M": 30,
+        "6M": 180,
+        "1J": 365,
+        "Max": 730
+    }
+    days = period_days_map.get(period, 30)
+    dates = pd.date_range(end=datetime.now(), periods=days, freq="D")
     series_dict = {}
-    
-    # 8 verschiedene, realistische Kursmuster für alle Aktien
-    patterns = {
-        "NVDA": [0.0, 0.8, 1.5, 1.1, 2.4, 3.8, 3.2, 4.5, 5.2, 4.8, 6.1, 7.3, 6.8, 8.2, 9.4, 9.0, 10.1, 11.2, 10.7, 12.0, 12.8, 12.2, 13.5, 14.6, 13.9, 15.2, 16.1, 15.6, 16.9, 17.5],
-        "AVGO": [0.0, 0.4, 0.9, 1.4, 1.1, 1.8, 2.4, 2.1, 2.9, 3.5, 3.8, 3.6, 4.4, 5.0, 4.8, 5.5, 6.1, 5.8, 6.6, 7.2, 6.9, 7.7, 8.3, 8.8, 8.4, 9.1, 9.7, 9.4, 10.2, 10.8],
-        "RHM.DE": [0.0, 1.1, 2.0, 1.6, 2.7, 3.8, 4.6, 4.1, 5.3, 6.4, 7.2, 6.8, 8.0, 9.1, 8.5, 9.7, 10.8, 10.4, 11.6, 12.8, 12.2, 13.4, 14.5, 14.0, 15.2, 16.3, 15.8, 17.0, 18.1, 18.9],
-        "TSM": [0.0, -0.3, 0.5, 1.0, 0.7, 1.5, 2.2, 1.9, 2.6, 3.4, 3.0, 3.8, 4.5, 4.1, 5.0, 5.6, 5.2, 6.0, 6.7, 6.3, 7.1, 7.8, 7.4, 8.3, 8.9, 8.5, 9.3, 10.0, 9.6, 10.5],
-        "PANW": [0.0, 0.5, 1.1, 0.8, 1.6, 2.3, 2.0, 2.7, 3.4, 3.1, 3.8, 4.6, 4.2, 5.0, 5.7, 5.3, 6.1, 6.8, 6.4, 7.2, 7.9, 7.5, 8.3, 9.0, 8.6, 9.4, 10.1, 9.7, 10.5, 11.2],
-        "EUNL.DE": [0.0, 0.1, 0.4, 0.3, 0.5, 0.8, 0.6, 0.9, 1.1, 1.0, 1.3, 1.5, 1.4, 1.7, 1.9, 1.8, 2.1, 2.3, 2.2, 2.5, 2.7, 2.6, 2.9, 3.1, 3.0, 3.3, 3.5, 3.4, 3.7, 4.0],
-        "NVO": [0.0, -0.4, -0.1, 0.3, 0.1, 0.6, 0.9, 0.7, 1.1, 1.5, 1.2, 1.7, 2.1, 1.8, 2.3, 2.7, 2.4, 2.9, 3.3, 3.0, 3.5, 3.9, 3.6, 4.1, 4.5, 4.2, 4.7, 5.1, 4.8, 5.4],
-        "FORA.TO": [0.0, -0.6, -0.3, -0.9, -0.5, -0.2, -0.7, -0.4, 0.1, -0.3, 0.2, -0.1, 0.4, 0.1, 0.6, 0.2, 0.7, 0.4, 0.9, 0.5, 1.0, 0.6, 1.1, 0.7, 1.2, 0.8, 1.4, 1.0, 1.5, 1.2]
+
+    growth_bias = {
+        "NVDA": 0.45, "AVGO": 0.32, "RHM.DE": 0.40, "TSM": 0.28,
+        "PANW": 0.25, "EUNL.DE": 0.10, "NVO": 0.12, "AAPL": 0.20,
+        "MSFT": 0.22, "FORA.TO": 0.05
     }
 
     for idx, item in enumerate(portfolio_list):
         t = clean_ticker(item.get("ticker", "AVGO"))
         name = get_display_name(t)
+        bias = growth_bias.get(t, 0.18 + (idx * 0.04))
         
-        # Dynamisches Muster, falls Aktie noch nicht in patterns
-        if t in patterns:
-            pct_list = patterns[t]
-        else:
-            seed_offset = (idx + 1) * 0.35
-            pct_list = [float((i * seed_offset) + (math.sin(i + idx) * 1.2)) for i in range(30)]
+        # Generiert glatte, realistische Kurven für jeden beliebigen Zeitraum
+        pct_values = []
+        for i in range(days):
+            progress = i / max(1, days - 1)
+            trend = progress * (bias * days * 0.15)
+            wave1 = math.sin(i * 0.4 + idx) * 1.5
+            wave2 = math.cos(i * 0.15 + (idx * 0.5)) * 0.8
+            val = trend + wave1 + wave2
+            pct_values.append(float(val))
             
-        series_dict[name] = pd.Series(pct_list, index=dates)
-            
+        # Auf 0% am Startpunkt normieren
+        start_val = pct_values[0]
+        norm_values = [round(v - start_val, 2) for v in pct_values]
+        
+        series_dict[name] = pd.Series(norm_values, index=dates)
+
     return series_dict
