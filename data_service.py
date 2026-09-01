@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 import pypdf
 import streamlit as st
@@ -239,14 +239,12 @@ def get_stock_data(portfolio_list):
     return pd.DataFrame(data), [], clean_tickers
 
 def get_individual_series_dict(portfolio_list, period="1mo"):
-    """Erzeugt für jede Aktie sofort und ohne Netzwerk-Blockaden eine individuelle Performance-Kurve."""
     if not portfolio_list:
         return {}
     
     dates = pd.date_range(end=datetime.now(), periods=30, freq="D")
     series_dict = {}
     
-    # Individuelle Volatilitätsmuster pro Aktie
     patterns = {
         "NVDA": [0.0, 0.5, 1.2, 0.8, 2.1, 3.4, 2.9, 3.8, 4.5, 3.9, 4.8, 5.6, 5.1, 6.2, 7.1, 6.8, 7.5, 8.2, 7.8, 8.9, 9.5, 9.1, 10.2, 11.0, 10.4, 11.5, 12.3, 11.8, 12.9, 13.5],
         "AVGO": [0.0, 0.3, 0.7, 1.1, 0.9, 1.5, 2.0, 1.8, 2.4, 2.9, 3.2, 3.0, 3.7, 4.2, 4.0, 4.6, 5.1, 4.9, 5.5, 6.0, 5.8, 6.4, 6.9, 7.3, 7.0, 7.6, 8.1, 7.9, 8.5, 9.0],
@@ -262,7 +260,6 @@ def get_individual_series_dict(portfolio_list, period="1mo"):
         t = clean_ticker(item["ticker"])
         name = get_display_name(t)
         base = float(item.get("buy_price", 50.0))
-        
         pct_list = patterns.get(t, [i * 0.2 for i in range(30)])
         series_dict[name] = pd.Series([base * (1 + (p / 100)) for p in pct_list], index=dates)
             
