@@ -11,16 +11,19 @@ import yfinance as yf
 
 PORTFOLIO_FILE = "portfolio.json"
 
+# Erweiterte, verlässliche Finanz- & Wirtschaftsquellen
 RSS_SOURCES = [
     "https://www.tagesschau.de/wirtschaft/index~rss2.xml",
-    "https://www.spiegel.de/wirtschaft/index.rss",
     "https://www.handelsblatt.com/contentexport/feed/top-themen",
+    "https://www.spiegel.de/wirtschaft/index.rss",
+    "https://www.finanzen.net/rss/news",
+    "https://www.deraktionaer.de/rss/feed",
+    "https://www.justetf.com/de/news/feed.rss",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
     "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "https://www.finanzen.net/rss/news"
+    "https://seekingalpha.com/market_currents.xml"
 ]
 
-# Exakte Stammdaten, Berichtszeiträume & Dividenden-Rhythmen
 ISIN_MAP = {
     "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "val": 75.18, "sh": 0.238273, "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez"},
     "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "val": 23.00, "sh": 0.021265, "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai"},
@@ -171,7 +174,7 @@ def fetch_all_headlines():
     headers = {"User-Agent": "Mozilla/5.0"}
     for url in RSS_SOURCES:
         try:
-            resp = requests.get(url, headers=headers, timeout=2)
+            resp = requests.get(url, headers=headers, timeout=2.0)
             if resp.status_code == 200:
                 feed = feedparser.parse(resp.content)
                 for entry in feed.entries[:2]:
@@ -181,7 +184,7 @@ def fetch_all_headlines():
                             headlines.append(f"- {t}")
         except Exception:
             continue
-    return headlines[:15]
+    return headlines[:20]
 
 def calculate_rsi(series, period=14):
     try:
@@ -280,7 +283,6 @@ def get_stock_data(portfolio_list):
         sum_detail = q_data.get("summaryDetail", {})
         profile = q_data.get("assetProfile", {})
 
-        # Termine & Ausschüttungs-Rhythmus
         earnings_str = "Q3/Q4 2026"
         div_rhythm = "Keine Ausschüttung"
         for isin, info in ISIN_MAP.items():
