@@ -26,55 +26,55 @@ st.title("📈 KI Markt- & Depot-Radar")
 
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# Initialisierung des Portfolios
 if "my_portfolio" not in st.session_state:
     st.session_state.my_portfolio = load_saved_portfolio()
 
 if "tr_cash" not in st.session_state:
     st.session_state.tr_cash = 0.0
 
-# Hilfsfunktion für sauberes deutsches Euro-Format (z. B. 1.250,50 €)
 def fmt_eur(val):
     try:
         return f"{val:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return f"{val} €"
 
-# --- SEITENLEISTE: EINFACHE GELDBETRAG-EINGABE ---
+# --- SEITENLEISTE: DIREKTE EINGABE & PDF-IMPORT ---
 with st.sidebar:
     st.header("💼 Mein Depot & Trade Republic")
     
-    # 1. Trade Republic Cash
+    # 1. Automatischer PDF-Import (Überschreibt die Musterdaten mit deinen echten Werten)
+    with st.expander("📥 TR-Kontoauszug (PDF) hochladen"):
+        st.caption("Lade hier deinen PDF-Depotauszug hoch. Die App liest deine echten Positionen und dein Cash aus und ersetzt die bisherigen Schätzwerte.")
+        tr_pdf = st.file_uploader("PDF hochladen", type=["pdf"])
+        if tr_pdf:
+            imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
+            if imported_items:
+                st.session_state.my_portfolio = imported_items
+                if imported_cash is not None:
+                    st.session_state.tr_cash = imported_cash
+                save_portfolio_to_file(st.session_state.my_portfolio)
+                st.success(f"✅ {len(imported_items)} echte Positionen erfolgreich importiert!")
+                st.rerun()
+
+    # 2. Trade Republic Cash
     st.session_state.tr_cash = st.number_input(
-        "💶 TR Guthaben auf Konto (Cash in €):",
+        "💶 TR Guthaben (Cash in €):",
         min_value=0.0,
         value=float(st.session_state.tr_cash),
         step=10.0,
         help="Dein uninvestiertes Bargeld auf Trade Republic."
     )
 
-    # 2. PDF-Import (optional)
-    with st.expander("📥 TR-Kontoauszug (PDF) hochladen"):
-        st.caption("Lade deinen Depotauszug hoch, um Werte automatisch einzulesen.")
-        tr_pdf = st.file_uploader("PDF hochladen", type=["pdf"])
-        if tr_pdf:
-            imported = parse_trade_republic_pdf(tr_pdf)
-            if imported:
-                st.session_state.my_portfolio = imported
-                save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"{len(imported)} Positionen übernommen!")
-                st.rerun()
-
     st.divider()
     
-    # 3. Neue Aktie suchen und Geldbetrag eintragen
+    # 3. Manuelle Neueingabe
     st.subheader("🔍 Aktie hinzufügen:")
-    search_query = st.text_input("Aktie suchen:", placeholder="z. B. Nvidia, Apple, Rheinmetall...")
+    search_query = st.text_input("Aktie suchen:", placeholder="z. B. Nvidia, Rheinmetall...")
     if search_query:
         results = search_ticker_candidates(search_query)
         if results:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            in_money = st.number_input("Wie viel Euro hast du investiert (€)?", min_value=1.0, value=50.0, step=10.0)
+            in_money = st.number_input("Investierter Geldbetrag (€):", min_value=1.0, value=50.0, step=10.0)
             
             if st.button("➕ Zum Depot hinzufügen", use_container_width=True):
                 sym = clean_ticker(selected_cand)
@@ -83,7 +83,7 @@ with st.sidebar:
                     "ticker": sym,
                     "name": name,
                     "shares": 1.0,
-                    "buy_price": float(in_money)  # Hier wird direkt dein Geldbetrag hinterlegt
+                    "buy_price": float(in_money)
                 })
                 save_portfolio_to_file(st.session_state.my_portfolio)
                 st.success(f"{sym} mit {fmt_eur(in_money)} hinzugefügt!")
@@ -91,18 +91,12 @@ with st.sidebar:
 
     st.divider()
     
-    # 4. DIREKTE GELDBETRAG-ANPASSUNG FÜR JEDE AKTIE
-    st.subheader("📝 Dein investiertes Geld anpassen:")
-    st.caption("Trage einfach ein, wie viel Euro du in welche Aktie gesteckt hast:")
-    
+    # 4. Geldbeträge anpassen
+    st.subheader("📝 Eingesetztes Geld anpassen:")
     portfolio_changed = False
     if st.session_state.my_portfolio:
         for idx, item in enumerate(st.session_state.my_portfolio):
-            # Berechne den aktuellen hinterlegten Gesamtbetrag
-            current_invested = float(item.get("buy_price", 50.0)) * float(item.get("shares", 1.0))
-            if current_invested <= 0:
-                current_invested = 50.0
-                
+            current_invested = float(item.get("buy_price", 50.0))
             col_a, col_b = st.columns([3, 1])
             with col_a:
                 new_invested = st.number_input(
@@ -110,8 +104,7 @@ with st.sidebar:
                     min_value=0.0,
                     value=float(current_invested),
                     step=10.0,
-                    key=f"money_{idx}_{item['ticker']}",
-                    help=f"Dein gesamter Geldeinsatz für {item.get('name', item['ticker'])} in Euro."
+                    key=f"money_{idx}_{item['ticker']}"
                 )
             with col_b:
                 st.write("")
@@ -121,18 +114,16 @@ with st.sidebar:
                     save_portfolio_to_file(st.session_state.my_portfolio)
                     st.rerun()
 
-            # Wenn der Betrag geändert wurde:
             if new_invested != current_invested:
                 item["buy_price"] = float(new_invested)
-                item["shares"] = 1.0  # Setzen wir sauber auf Basis 1x Geldbetrag
                 portfolio_changed = True
         
-        if portfolio_changed or st.button("💾 Geldbeträge speichern", use_container_width=True):
+        if portfolio_changed or st.button("💾 Speichern & Berechnen", use_container_width=True):
             save_portfolio_to_file(st.session_state.my_portfolio)
-            st.success("✅ Beträge gespeichert & Gesamtwert aktualisiert!")
+            st.success("✅ Gespeichert & aktualisiert!")
             st.rerun()
     else:
-        st.info("Noch keine Aktien eingetragen.")
+        st.info("Noch keine Positionen im Depot.")
 
     st.divider()
     st.header("🤖 KI-Modell")
@@ -154,23 +145,22 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "⚔️ Aktien-Vergleich"
 ])
 
-# Daten laden & Gesamtrechnung auf Basis deines echten Geldes
+# Datenberechnung
 if st.session_state.my_portfolio:
     stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
     
-    # Exakte Berechnung über Geldbeträge
-    total_invested = sum([float(x.get("buy_price", 0.0)) * float(x.get("shares", 1.0)) for x in st.session_state.my_portfolio])
+    total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
     stock_val = stock_df["_raw_val"].sum() if stock_df["_raw_val"].sum() > 0 else total_invested
     total_tr_account = stock_val + st.session_state.tr_cash
     stock_pnl = stock_val - total_invested
     stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
 
-    # Haupt-Banner ganz oben
+    # Header-Banner
     c_m1, c_m2, c_m3 = st.columns(3)
     with c_m1:
-        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Aktienwert + dein Bargeld auf Trade Republic")
+        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Aktueller Aktienwert + dein Bargeld")
     with c_m2:
-        st.metric("Dein eingezahltes Geld", fmt_eur(total_invested), help="Summe des Geldes, das du tatsächlich bezahlt hast")
+        st.metric("Dein eingezahltes Geld", fmt_eur(total_invested), help="Das Geld, das du für die Käufe bezahlt hast")
     with c_m3:
         st.metric("Dein Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 else:
@@ -181,17 +171,16 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# TAB 0: SPEZIELLER TRADE REPUBLIC KONTO TAB
+# TAB 0: TRADE REPUBLIC KONTO TAB
 with tab0:
     st.subheader("🏦 Mein Trade Republic Depot-Spiegel")
-    
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
         st.info(f"💶 **Bargeld auf Konto (Cash):** {fmt_eur(st.session_state.tr_cash)}")
     with col_tr2:
-        st.success(f"📈 **Wert deiner Aktien:** {fmt_eur(stock_val)}")
+        st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
         
-    st.write("### Deine echten Geldbeträge im Überblick:")
+    st.write("### Deine echten Positionen im Überblick:")
     if not stock_df.empty:
         st.dataframe(
             stock_df[[
@@ -204,7 +193,7 @@ with tab0:
             hide_index=True
         )
     else:
-        st.info("Trage in der linken Seitenleiste deine Geldbeträge ein.")
+        st.info("Lade oben links dein PDF hoch oder trage deine Beträge ein.")
 
 # TAB 5: Live-Charts
 with tab5:
