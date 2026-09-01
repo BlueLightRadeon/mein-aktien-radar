@@ -2,7 +2,7 @@ import streamlit as st
 from groq import Groq
 import re
 
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 @st.cache_data(ttl=3600)
 def get_account_models(api_key):
@@ -15,11 +15,11 @@ def get_account_models(api_key):
             m.id for m in models_data 
             if not any(x in m.id.lower() for x in ["whisper", "guard", "vision", "safeguard", "orpheus", "tts"])
         ]
-        preferred = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
+        preferred = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
         sorted_models = [m for m in preferred if m in valid_models] + [m for m in valid_models if m not in preferred]
         return sorted_models if sorted_models else [DEFAULT_MODEL]
     except Exception:
-        return [DEFAULT_MODEL, "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
+        return [DEFAULT_MODEL, "llama-3.1-8b-instant", "openai/gpt-oss-120b"]
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
@@ -87,7 +87,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     seen = set()
     models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
 
@@ -136,7 +136,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     out_signals = sections.get("SECTION_SIGNALE", "")
     out_cluster = sections.get("SECTION_KLUMPEN", "")
 
-    # Fallbacks: Niemals wieder "Keine Daten." anzeigen
+    # Fallbacks
     if not out_market:
         out_market = full_text
     if not out_depot:
