@@ -123,7 +123,7 @@ with st.sidebar:
         results = search_ticker_candidates(search_query)
         if results:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=10.0)
+            in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=5.0)
             
             if st.button("➕ Hinzufügen", width="stretch"):
                 sym = clean_ticker(selected_cand)
@@ -139,7 +139,7 @@ with st.sidebar:
                 st.rerun()
 
     st.divider()
-    st.subheader("📋 Eingelesene Positionen:")
+    st.subheader("📋 Eingelesene Positionen & Beträge:")
     portfolio_list = st.session_state.get("v_portfolio", [])
     if portfolio_list:
         for idx, item in enumerate(list(portfolio_list)):
@@ -147,7 +147,19 @@ with st.sidebar:
             col_pos_a, col_pos_b = st.columns([3, 1])
             with col_pos_a:
                 st.write(f"• **{disp_name}**")
-                st.caption(f"Einsatz: {fmt_eur(float(item.get('buy_price', 0.0)))}")
+                # Direkt editierbarer Geldeinsatz pro Position!
+                current_val = float(item.get("buy_price", 50.0))
+                new_val = st.number_input(
+                    f"Einsatz (€):", 
+                    min_value=0.5, 
+                    value=current_val, 
+                    step=5.0, 
+                    key=f"input_pos_{idx}_{item.get('ticker','')}",
+                    label_visibility="collapsed"
+                )
+                if new_val != current_val:
+                    st.session_state["v_portfolio"][idx]["buy_price"] = float(new_val)
+                    st.rerun()
             with col_pos_b:
                 if st.button("❌", key=f"del_item_{idx}_{item.get('ticker','')}"):
                     st.session_state["v_portfolio"].pop(idx)
