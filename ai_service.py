@@ -6,7 +6,8 @@ DEFAULT_MODEL = "llama-3.3-70b-versatile"
 STATIC_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
-    "openai/gpt-oss-120b"
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b"
 ]
 
 def get_account_models(api_key):
@@ -17,7 +18,7 @@ def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_tex
 Du bist ein quantitativer Chef-Anlagestratege. Analysiere das Depot und die aktuellen Marktnachrichten auf Deutsch.
 
 [AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
-{news_text[:1000]}
+{news_text[:1200]}
 
 [BESTEHENDE DEPOT-WERTE DES NUTZERS]
 {metrics_summary}
@@ -83,7 +84,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
     full_text = ""
-    last_err_msg = ""
+    last_err = None
 
     for target_model in models_to_try:
         try:
@@ -94,20 +95,21 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.2,
-                max_tokens=2000,
-                timeout=12.0
+                max_tokens=2500,
+                timeout=20.0
             )
-            if res.choices and res.choices[0].message and res.choices[0].message.content:
+            if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
                 break
         except Exception as e:
-            last_err_msg = str(e)
+            last_err = e
             continue
 
     if not full_text:
-        err_display = f"⚠️ Groq API Fehler: {last_err_msg}"
-        return err_display, err_display, err_display, err_display
+        err_msg = f"⚠️ **Groq API Fehler:** `{str(last_err)}`\n\nBitte prüfe deinen API-Key und das gewählte Modell."
+        return err_msg, err_msg, err_msg, err_msg
 
+    # Regex Trennung
     normalized_text = full_text
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*MARKT\s*={2,5}\*{0,2}|#{1,4}\s*MARKT)', '<<<SECTION_MARKT>>>', normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*DEPOT\s*={2,5}\*{0,2}|#{1,4}\s*DEPOT)', '<<<SECTION_DEPOT>>>', normalized_text, flags=re.IGNORECASE)
@@ -127,10 +129,11 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     out_signals = sections.get("SECTION_SIGNALE", "")
     out_cluster = sections.get("SECTION_KLUMPEN", "")
 
+    # Fallbacks für sauberes Rendering
     if not out_market:
         out_market = full_text
     if not out_depot:
-        out_depot = "Statusbericht liegt vor:\n\n" + full_text[:500]
+        out_depot = "Statusbericht zu den Depot-Werten:\n\n" + full_text[:600]
     if not out_signals:
         out_signals = full_text
     if not out_cluster:
@@ -153,8 +156,8 @@ Aktie B: {stock_b_info}
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
-            timeout=8.0
+            timeout=10.0
         )
         return res.choices[0].message.content
-    except Exception:
-        return "Duell-Analyse konnte nicht geladen werden."
+    except Exception as e:
+        return f"⚠️ Duell-Analyse Fehler: {str(e)}"
