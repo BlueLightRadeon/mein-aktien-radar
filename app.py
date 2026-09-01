@@ -141,8 +141,10 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# KI-AUSWERTUNGS BUTTON
-if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
+# KI-AUSWERTUNGS BUTTON (DIREKT & SICHER)
+start_analysis = st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary")
+
+if start_analysis:
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen API-Key in den Streamlit Secrets ein.")
     elif not st.session_state.my_portfolio:
@@ -168,7 +170,7 @@ if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type=
             st.session_state["ai_signals"] = out_s
             st.session_state["ai_cluster"] = out_c
             st.session_state["last_analysis_time"] = get_berlin_time_str()
-            st.rerun()
+            st.success("✅ Auswertung abgeschlossen! Die Ergebnisse sind in den Tabs geladen.")
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
