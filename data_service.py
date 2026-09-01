@@ -35,91 +35,88 @@ RSS_SOURCES = [
 def load_saved_portfolio():
   url_tickers = st.query_params.get("tickers", None)
   if url_tickers:
-    return url_tickers
+    return [t.strip() for t in url_tickers.split(",") if t.strip()]
   if os.path.exists(PORTFOLIO_FILE):
     try:
       with open(PORTFOLIO_FILE, "r") as f:
         saved = f.read().strip()
         if saved:
-          return saved
+          return [t.strip() for t in saved.split(",") if t.strip()]
     except Exception:
       pass
-  return "Apple, Microsoft, Nvidia, Tesla"
+  # Deine gewünschten 7 Werte als vorkonfigurierter Standard
+  return [
+      "PANW (Palo Alto Networks)",
+      "AVGO (Broadcom)",
+      "NVDA (NVIDIA)",
+      "TSM (TSMC)",
+      "FORA.TO (VerticalScope)",
+      "NVO (Novo Nordisk)",
+      "RHM.DE (Rheinmetall)",
+  ]
 
 
-def save_portfolio_to_file(tickers_str):
+def save_portfolio_to_file(tickers_list):
   try:
+    text_data = ", ".join(tickers_list)
     with open(PORTFOLIO_FILE, "w") as f:
-      f.write(tickers_str)
-    st.query_params["tickers"] = tickers_str
+      f.write(text_data)
+    st.query_params["tickers"] = text_data
     return True
   except Exception:
     return False
 
 
-def resolve_to_ticker(query):
+def search_ticker_candidates(query):
+  """Sucht online nach allen passenden Aktien/ETFs und gibt eine Auswahlliste zurück."""
   q = query.strip()
-  alias_map = {
-      "MERCEDES": "MBG.DE",
-      "MERCEDES-BENZ": "MBG.DE",
-      "MERCEDES BENZ": "MBG.DE",
-      "BMW": "BMW.DE",
-      "VOLKSWAGEN": "VOW3.DE",
-      "VW": "VOW3.DE",
-      "ALLIANZ": "ALV.DE",
-      "SIEMENS": "SIE.DE",
-      "TELEKOM": "DTE.DE",
-      "DEUTSCHE TELEKOM": "DTE.DE",
-      "SAP": "SAP.DE",
-      "BASF": "BAS.DE",
-      "BAYER": "BAYN.DE",
-      "DEUTSCHE BANK": "DBK.DE",
-      "COMMERZBANK": "CBK.DE",
-      "LUFTHANSA": "LHA.DE",
+  if not q:
+    return []
+
+  # Schnelle Direkt-Kürzel für bekannte Tippfehler
+  quick_map = {
+      "BROADCOMM": "AVGO",
+      "BROADCOM": "AVGO",
+      "PALO ALTO": "PANW",
+      "TSMC": "TSM",
+      "NOVO NORDDISK": "NVO",
+      "NOVO NORDISK": "NVO",
       "RHEINMETALL": "RHM.DE",
-      "AIRBUS": "AIR.DE",
-      "MSCI WORLD": "EUNL.DE",
-      "S&P 500": "VUAA.DE",
-      "SP500": "VUAA.DE",
-      "NASDAQ": "EQAC.DE",
-      "APPLE": "AAPL",
-      "MICROSOFT": "MSFT",
-      "NVIDIA": "NVDA",
-      "TESLA": "TSLA",
-      "AMAZON": "AMZN",
-      "ALPHABET": "GOOGL",
-      "GOOGLE": "GOOGL",
-      "META": "META",
-      "NETFLIX": "NFLX",
+      "VERTICALSCOPE": "FORA.TO",
   }
-
-  upper_q = q.upper()
-  if upper_q in alias_map:
-    return alias_map[upper_q]
-
-  if "." in q or (len(q) <= 5 and q.isalpha() and q.isupper()):
+  if q.upper() in quick_map:
+    target = quick_map[q.upper()]
     try:
-      test_stock = yf.Ticker(q)
-      if test_stock.fast_info.last_price is not None:
-        return q
+      stock = yf.Ticker(target)
+      name = stock.fast_info.get("shortName") or stock.info.get(
+          "shortName", target
+      )
+      return [f"{target} ({name})"]
     except Exception:
-      pass
+      return [f"{target} ({q.title()})"]
 
+  candidates = []
   try:
     headers = {"User-Agent": "Mozilla/5.0"}
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(q)}&quotesCount=3&newsCount=0"
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(q)}&quotesCount=6&newsCount=0"
     resp = requests.get(url, headers=headers, timeout=4)
     if resp.status_code == 200:
       quotes = resp.json().get("quotes", [])
-      if quotes:
-        for item in quotes:
-          sym = item.get("symbol", "")
-          if sym.endswith(".DE") or sym.endswith(".F"):
-            return sym
-        return quotes[0].get("symbol", q)
+      for item in quotes:
+        sym = item.get("symbol", "")
+        name = item.get("shortname") or item.get("longname") or sym
+        exch = item.get("exchDisp") or item.get("exchange") or ""
+        if sym:
+          candidates.append(f"{sym} ({name} - {exch})")
   except Exception:
     pass
-  return q
+
+  return candidates
+
+
+def clean_ticker(ticker_str):
+  """Extrahiert das reine Börsenkürzel aus Strings wie 'PANW (Palo Alto Networks)'."""
+  return ticker_str.split(" ")[0].strip().upper()
 
 
 def fetch_all_headlines():
@@ -150,14 +147,14 @@ def calculate_rsi(series, period=14):
     return "N/A"
 
 
-def get_stock_data(user_inputs):
+def get_stock_data(tickers_list):
   data = []
   direct_news = []
-  resolved_tickers_list = []
+  clean_tickers = []
 
-  for raw_input in user_inputs:
-    t = resolve_to_ticker(raw_input)
-    resolved_tickers_list.append(t)
+  for item_str in tickers_list:
+    t = clean_ticker(item_str)
+    clean_tickers.append(t)
 
     try:
       stock = yf.Ticker(t)
@@ -177,10 +174,9 @@ def get_stock_data(user_inputs):
 
       info = stock.info if hasattr(stock, "info") else {}
       company_name = (
-          info.get("shortName")
-          or info.get("longName")
-          or raw_input.capitalize()
+          info.get("shortName") or info.get("longName") or t
       )
+
       pe_ratio = info.get("trailingPE") or info.get("forwardPE")
       pe_str = f"{pe_ratio:.1f}" if pe_ratio else "N/A"
 
@@ -207,9 +203,11 @@ def get_stock_data(user_inputs):
 
       try:
         if stock.news:
-          for item in stock.news[:2]:
-            if "title" in item:
-              direct_news.append(f"[{company_name} / {t}] {item['title']}")
+          for news_item in stock.news[:2]:
+            if "title" in news_item:
+              direct_news.append(
+                  f"[{company_name} / {t}] {news_item['title']}"
+              )
       except Exception:
         pass
 
@@ -229,7 +227,7 @@ def get_stock_data(user_inputs):
       })
     except Exception:
       data.append({
-          "Name / Aktie": raw_input,
+          "Name / Aktie": t,
           "Ticker": t,
           "Kurs": "N/A",
           "RSI (14D)": "N/A",
@@ -239,14 +237,12 @@ def get_stock_data(user_inputs):
           "Nächste Earnings": "Nicht gefunden",
       })
 
-  return pd.DataFrame(data), direct_news, resolved_tickers_list
+  return pd.DataFrame(data), direct_news, clean_tickers
 
 
-def get_historical_chart_data(resolved_tickers, period="1mo"):
-  """Lädt historische Kurse, synchronisiert Zeitzonen (US/EU) und bereinigt NaN-Werte."""
+def get_historical_chart_data(tickers_list, period="1mo"):
   chart_dict = {}
 
-  # Optimierte Intervalle je nach gewähltem Zeitraum
   if period == "1d":
     interval = "5m"
   elif period == "5d":
@@ -256,19 +252,17 @@ def get_historical_chart_data(resolved_tickers, period="1mo"):
   else:
     interval = "1wk" if period == "5y" else "1d"
 
-  for t in resolved_tickers:
+  for item_str in tickers_list:
+    t = clean_ticker(item_str)
     try:
       stock = yf.Ticker(t)
       hist = stock.history(period=period, interval=interval)
       if not hist.empty and "Close" in hist:
         series = hist["Close"].copy()
-
-        # Zeitzone vereinheitlichen auf UTC-naive Daten (verhindert Chart-Fehler)
         if series.index.tz is not None:
           series.index = series.index.tz_convert("Europe/Berlin").tz_localize(
               None
           )
-
         chart_dict[t] = series
     except Exception:
       continue
@@ -277,8 +271,6 @@ def get_historical_chart_data(resolved_tickers, period="1mo"):
     return pd.DataFrame()
 
   df = pd.DataFrame(chart_dict)
-
-  # WICHTIG: Lücken durch Zeitverschiebung & Börsenfeiertage füllen
   df.ffill(inplace=True)
   df.bfill(inplace=True)
   df.dropna(how="all", inplace=True)
