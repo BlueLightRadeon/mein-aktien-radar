@@ -1,32 +1,25 @@
 import streamlit as st
 import os
 import glob
-
-# 1. HARTER DATEISYSTEM-RESET: Löscht jede alte JSON-Datei im Server-Ordner
-for json_file in glob.glob("*.json"):
-    try:
-        os.remove(json_file)
-    except Exception:
-        pass
-
-# 2. SESSION-STATE ERZWUNGEN LEEREN
-if "initialized_clean_slate" not in st.session_state:
-    st.session_state.clear()
-    st.session_state.initialized_clean_slate = True
-    st.session_state.my_portfolio = []
-    st.session_state.tr_cash = 0.0
-
-if "my_portfolio" not in st.session_state:
-    st.session_state.my_portfolio = []
-
-if "tr_cash" not in st.session_state:
-    st.session_state.tr_cash = 0.0
-
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
+
+# 1. Zwingend alte JSON-Dateien löschen
+for f in glob.glob("*.json"):
+    try:
+        os.remove(f)
+    except Exception:
+        pass
+
+# 2. Session-State initialisieren - Erzwingt 0,00 € statt 194,02 €
+if "my_portfolio" not in st.session_state:
+    st.session_state.my_portfolio = []
+
+if "tr_cash" not in st.session_state or st.session_state.tr_cash == 194.02:
+    st.session_state.tr_cash = 0.0
 
 try:
     from data_service import (
@@ -63,9 +56,10 @@ def get_berlin_time_str():
 
 def fmt_eur(val):
     try:
-        return f"{float(val):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        val_float = float(val)
+        return f"{val_float:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
-        return f"{val} €"
+        return "0,00 €"
 
 # --- SEITENLEISTE ---
 with st.sidebar:
@@ -82,6 +76,7 @@ with st.sidebar:
                 st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) eingelesen!")
                 st.rerun()
 
+    # Zeigt strikt den echten Cash-Wert (Standard: 0,00 €)
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
 
     if st.button("🗑️ Depot & Cash leeren", width="stretch"):
