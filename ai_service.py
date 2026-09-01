@@ -15,7 +15,7 @@ def get_account_models(api_key):
             m.id for m in models_data 
             if not any(x in m.id.lower() for x in ["whisper", "guard", "vision", "safeguard", "orpheus", "tts"])
         ]
-        preferred = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        preferred = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
         sorted_models = [m for m in preferred if m in valid_models] + [m for m in valid_models if m not in preferred]
         return sorted_models if sorted_models else [DEFAULT_MODEL]
     except Exception:
@@ -136,7 +136,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     out_signals = sections.get("SECTION_SIGNALE", "")
     out_cluster = sections.get("SECTION_KLUMPEN", "")
 
-    # Sicherheits-Fallbacks
+    # Fallbacks: Niemals wieder "Keine Daten." anzeigen
     if not out_market:
         out_market = full_text
     if not out_depot:
