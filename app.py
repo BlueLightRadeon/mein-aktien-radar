@@ -115,7 +115,7 @@ with st.sidebar:
         available_models = get_account_models(GROQ_KEY)
         selected_model = st.selectbox("Auswahl:", available_models, index=0)
     else:
-        selected_model = "llama-3.3-70b-versatile"
+        selected_model = "openai/gpt-oss-120b"
 
 # BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
@@ -145,9 +145,9 @@ if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type=
     elif not st.session_state.my_portfolio:
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
-        with st.spinner("Analysiere Weltlage, Makrodaten und Positionen mit Groq KI..."):
+        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
             try:
-                client = Groq(api_key=GROQ_KEY.strip())
+                client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
                 news_data = fetch_all_headlines()
                 news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
@@ -362,7 +362,7 @@ with tab7:
         
         if st.button("⚡ Duell auswerten", use_container_width=True):
             if GROQ_KEY:
-                cl = Groq(api_key=GROQ_KEY.strip())
+                cl = Groq(api_key=GROQ_KEY.strip(), timeout=8.0)
                 row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
                 row_b = stock_df[stock_df["Unternehmen"] == duel_b].iloc[0].to_dict()
                 with st.spinner("Analysiere Duell..."):
