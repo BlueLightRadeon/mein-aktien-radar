@@ -95,14 +95,13 @@ with st.sidebar:
         st.caption("Wähle deine PDF aus und klicke auf '📄 Auszug jetzt einlesen'.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         if tr_pdf is not None:
-            if st.button("📄 Auszug mit KI einlesen", width="stretch", type="primary"):
-                with st.spinner("🤖 KI liest Trade Republic PDF präzise aus..."):
-                    imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf, api_key=GROQ_KEY)
-                    st.session_state["v_portfolio"] = imported_items
-                    st.session_state["v_cash"] = float(imported_cash)
-                    st.session_state["last_auto_run_ts"] = 0.0
-                    st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) extrahiert!")
-                    st.rerun()
+            if st.button("📄 Auszug jetzt einlesen", width="stretch", type="primary"):
+                imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
+                st.session_state["v_portfolio"] = imported_items
+                st.session_state["v_cash"] = float(imported_cash)
+                st.session_state["last_auto_run_ts"] = 0.0
+                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) eingelesen!")
+                st.rerun()
 
     display_cash = float(st.session_state.get("v_cash", 0.0))
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
@@ -124,7 +123,7 @@ with st.sidebar:
         results = search_ticker_candidates(search_query)
         if results:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            in_money = st.number_input("Aktueller Wert (€):", min_value=1.0, value=35.0, step=5.0)
+            in_money = st.number_input("Aktueller Wert (€):", min_value=1.0, value=50.0, step=5.0)
             
             if st.button("➕ Hinzufügen", width="stretch"):
                 sym = clean_ticker(selected_cand)
@@ -148,10 +147,10 @@ with st.sidebar:
             col_pos_a, col_pos_b = st.columns([3, 1])
             with col_pos_a:
                 st.write(f"• **{disp_name}**")
-                current_val = float(item.get("buy_price", 35.0))
+                current_val = float(item.get("buy_price", 0.0))
                 new_val = st.number_input(
                     f"Wert (€):", 
-                    min_value=0.5, 
+                    min_value=0.0, 
                     value=current_val, 
                     step=5.0, 
                     key=f"input_pos_{idx}_{item.get('ticker','')}",
@@ -189,11 +188,11 @@ stock_pnl_pct = (stock_pnl / (stock_val - stock_pnl) * 100.0) if (stock_val - st
 # DIE 3 HAUPTKARTEN
 c_m1, c_m2, c_m3 = st.columns(3)
 with c_m1:
-    st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Gesamtwert deines Kontos: Aktienbestand + Verrechnungskonto (Cash)")
+    st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Gesamtwert deines Kontos: Brokerage + Cash")
 with c_m2:
-    st.metric("Aktueller Wert der Aktien", fmt_eur(stock_val), help="Gesamtwert aller deiner aktuell gehaltenen Wertpapiere")
+    st.metric("Aktueller Wert der Aktien", fmt_eur(stock_val), help="Gesamtwert aller deiner gehaltenen Wertpapiere")
 with c_m3:
-    st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
+    st.metric("Gewinn / Verlust (Tag)", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
 # AUTO-REFRESH LOGIK
 now_ts = time.time()
