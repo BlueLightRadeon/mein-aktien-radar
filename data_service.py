@@ -35,6 +35,42 @@ RSS_SOURCES = [
     "https://oilprice.com/rss/main",
 ]
 
+# Feste Klartext-Übersetzung für alle bekannten Ticker & ISINs
+CLEAN_NAME_MAP = {
+    "NVDA": "NVIDIA",
+    "PANW": "Palo Alto Networks",
+    "AVGO": "Broadcom",
+    "TSM": "TSMC",
+    "FORA.TO": "VerticalScope",
+    "FORA": "VerticalScope",
+    "NVO": "Novo Nordisk",
+    "RHM.DE": "Rheinmetall",
+    "RHM": "Rheinmetall",
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "AMZN": "Amazon",
+    "GOOGL": "Alphabet (Google)",
+    "GOOG": "Alphabet (Google)",
+    "META": "Meta Platforms",
+    "TSLA": "Tesla"
+}
+
+ISIN_MAP = {
+    "US67066G1040": ("NVDA", "NVIDIA"),
+    "US6974351057": ("PANW", "Palo Alto Networks"),
+    "US11135F1012": ("AVGO", "Broadcom"),
+    "US8740391003": ("TSM", "TSMC"),
+    "CA92536G1063": ("FORA.TO", "VerticalScope"),
+    "DK0062498333": ("NVO", "Novo Nordisk"),
+    "DE0007030009": ("RHM.DE", "Rheinmetall"),
+    "US0378331005": ("AAPL", "Apple"),
+    "US5949181045": ("MSFT", "Microsoft"),
+    "US0231351067": ("AMZN", "Amazon"),
+    "US02079K3059": ("GOOGL", "Alphabet (Google)"),
+    "US30303M1027": ("META", "Meta Platforms"),
+    "US88160R1014": ("TSLA", "Tesla")
+}
+
 DEFAULT_HOLDINGS = [
     {"ticker": "NVDA", "name": "NVIDIA", "shares": 1.0, "buy_price": 50.0},
     {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 1.0, "buy_price": 50.0},
@@ -45,25 +81,6 @@ DEFAULT_HOLDINGS = [
     {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 1.0, "buy_price": 100.0},
 ]
 
-def load_saved_portfolio():
-    if os.path.exists(PORTFOLIO_FILE):
-        try:
-            with open(PORTFOLIO_FILE, "r") as f:
-                data = json.load(f)
-                if data:
-                    return data
-        except Exception:
-            pass
-    return DEFAULT_HOLDINGS
-
-def save_portfolio_to_file(portfolio_list):
-    try:
-        with open(PORTFOLIO_FILE, "w") as f:
-            json.dump(portfolio_list, f, indent=2)
-        return True
-    except Exception:
-        return False
-
 def clean_ticker(ticker_str):
     s = str(ticker_str).strip()
     if "(" in s:
@@ -72,42 +89,49 @@ def clean_ticker(ticker_str):
 
 def get_display_name(ticker, fallback_name=None):
     sym = clean_ticker(ticker)
+    if sym in CLEAN_NAME_MAP:
+        return CLEAN_NAME_MAP[sym]
     if fallback_name and len(fallback_name) > 2 and not fallback_name.startswith("US") and not fallback_name.startswith("DE"):
         return fallback_name
-    
-    # Schnelle Erkennung bekannter Werte
-    quick_names = {
-        "NVDA": "NVIDIA", "PANW": "Palo Alto Networks", "AVGO": "Broadcom",
-        "TSM": "TSMC", "FORA.TO": "VerticalScope", "NVO": "Novo Nordisk",
-        "RHM.DE": "Rheinmetall", "AAPL": "Apple", "MSFT": "Microsoft",
-        "AMZN": "Amazon", "GOOGL": "Alphabet", "META": "Meta", "TSLA": "Tesla"
-    }
-    if sym in quick_names:
-        return quick_names[sym]
-    
+    return sym
+
+def load_saved_portfolio():
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            with open(PORTFOLIO_FILE, "r") as f:
+                data = json.load(f)
+                if data:
+                    for item in data:
+                        item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
+                    return data
+        except Exception:
+            pass
+    return DEFAULT_HOLDINGS
+
+def save_portfolio_to_file(portfolio_list):
     try:
-        t_obj = yf.Ticker(sym)
-        if hasattr(t_obj, "fast_info") and hasattr(t_obj.fast_info, "quote_type"):
-            return sym
+        # Immer saubere Namen speichern
+        for item in portfolio_list:
+            item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
+        with open(PORTFOLIO_FILE, "w") as f:
+            json.dump(portfolio_list, f, indent=2)
+        return True
     except Exception:
-        pass
-    return fallback_name or sym
+        return False
 
 def search_ticker_candidates(query):
     q = query.strip()
     if not q:
         return []
-    quick_map = {
-        "BROADCOMM": "AVGO", "BROADCOM": "AVGO", "PALO ALTO": "PANW",
-        "TSMC": "TSM", "NOVO NORDDISK": "NVO", "NOVO NORDISK": "NVO",
-        "RHEINMETALL": "RHM.DE", "VERTICALSCOPE": "FORA.TO",
-        "US67066G1040": "NVDA", "US6974351057": "PANW", "US11135F1012": "AVGO",
-        "US8740391003": "TSM", "CA92536G1063": "FORA.TO", "DK0062498333": "NVO",
-        "DE0007030009": "RHM.DE"
-    }
-    if q.upper() in quick_map:
-        target = quick_map[q.upper()]
-        return [f"{target} ({get_display_name(target)})"]
+    
+    q_up = q.upper()
+    if q_up in ISIN_MAP:
+        sym, name = ISIN_MAP[q_up]
+        return [f"{sym} ({name})"]
+        
+    for isin, (sym, name) in ISIN_MAP.items():
+        if q_up == sym or q_up in name.upper():
+            return [f"{sym} ({name})"]
 
     candidates = []
     try:
@@ -144,16 +168,21 @@ def parse_trade_republic_pdf(uploaded_file):
 
         isin_matches = re.findall(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b", full_text)
         unique_isins = list(dict.fromkeys(isin_matches))
+        
         for isin in unique_isins:
-            cand = search_ticker_candidates(isin)
-            sym = clean_ticker(cand[0]) if cand else isin
-            disp_name = get_display_name(sym)
+            if isin in ISIN_MAP:
+                sym, disp_name = ISIN_MAP[isin]
+            else:
+                cand = search_ticker_candidates(isin)
+                sym = clean_ticker(cand[0]) if cand else isin
+                disp_name = get_display_name(sym)
+                
             invested_val = 50.0
             
-            # Betrag suchen falls vorhanden
+            # Betrag im Umfeld der ISIN im PDF suchen
             isin_pos = full_text.find(isin)
             if isin_pos != -1:
-                snippet = full_text[max(0, isin_pos-100):min(len(full_text), isin_pos+150)]
+                snippet = full_text[max(0, isin_pos-120):min(len(full_text), isin_pos+180)]
                 amount_match = re.search(r"([\d.,]+)\s*(?:EUR|€)", snippet)
                 if amount_match:
                     try:
@@ -211,11 +240,11 @@ def fetch_quote_summary_direct(ticker):
 def assign_dynamic_role(sector, country, ticker):
     sec = str(sector).lower()
     t = str(ticker).upper()
-    if any(x in sec for x in ["semiconductor", "halbleiter", "chip", "electronic", "software", "tech", "hardware"]):
+    if any(x in sec for x in ["semiconductor", "halbleiter", "chip", "electronic", "software", "tech", "hardware"]) or t in ["NVDA", "AVGO", "TSM"]:
         return "🚀 Wachstums-Motoren (Tech & KI)"
-    elif any(x in sec for x in ["defense", "rüstung", "verteidigung", "aerospace", "health", "pharma", "gesundheit", "medical"]):
+    elif any(x in sec for x in ["defense", "rüstung", "verteidigung", "aerospace", "health", "pharma", "gesundheit", "medical"]) or t in ["RHM.DE", "RHM", "NVO"]:
         return "🛡️ Krisen-Puffer (Defensiv & Schutz)"
-    elif any(x in sec for x in ["cyber", "security", "telecom", "utility", "versorger"]):
+    elif any(x in sec for x in ["cyber", "security", "telecom", "utility", "versorger"]) or t == "PANW":
         return "🔒 Tech-Schutzschild (Stabile IT)"
     else:
         return "🎯 Nischenwert / Sonstiges"
@@ -232,16 +261,13 @@ def get_stock_data(portfolio_list):
 
     for item in portfolio_list:
         t = clean_ticker(item["ticker"])
-        invested_money = float(item.get("buy_price", 50.0))
-        if invested_money <= 0:
-            invested_money = 50.0
-
+        invested_money = float(item.get("buy_price", 0.0))
         company_name = get_display_name(t, item.get("name"))
+
         price = None
         currency = "EUR" if t.endswith(".DE") else "USD"
         rsi_val = "N/A"
         
-        # Kurs & RSI
         try:
             if not batch_df.empty:
                 close_s = batch_df["Close"].dropna() if len(clean_tickers) == 1 else batch_df[t]["Close"].dropna()
@@ -260,7 +286,6 @@ def get_stock_data(portfolio_list):
             except Exception:
                 pass
 
-        # Tages-Trend
         day_change_pct = 0.0
         try:
             if not batch_df.empty:
@@ -279,7 +304,6 @@ def get_stock_data(portfolio_list):
         profile = q_data.get("assetProfile", {})
         cal_events = q_data.get("calendarEvents", {})
 
-        # Dynamisches Quartalsdatum
         earnings_str = "In Kürze (Q2/Q3)"
         if "earnings" in cal_events and "earningsDate" in cal_events["earnings"]:
             raw_dates = cal_events["earnings"]["earningsDate"]
@@ -313,13 +337,20 @@ def get_stock_data(portfolio_list):
         div_raw = sum_detail.get("dividendYield", {}).get("raw")
         dividend_yield_str = f"{(div_raw * 100):.2f}%" if div_raw else "0.00%"
 
-        # Dynamischer Sektor & Land direkt aus Yahoo
-        sector = profile.get("industry") or profile.get("sector") or "Diversifiziert"
+        sector = profile.get("industry") or profile.get("sector")
+        if not sector or sector == "Technologie":
+            if t in ["NVDA", "AVGO", "TSM"]: sector = "Halbleiter & KI"
+            elif t == "PANW": sector = "Cyber-Sicherheit"
+            elif t in ["RHM.DE", "RHM"]: sector = "Verteidigung & Rüstung"
+            elif t == "NVO": sector = "Pharma & Gesundheit"
+            elif "FORA" in t: sector = "Digitale Medien"
+            else: sector = "Technologie / Sonstiges"
+
         country = profile.get("country")
         if not country:
-            if ".DE" in t: country = "Deutschland"
-            elif "TSM" in t: country = "Taiwan"
-            elif "NVO" in t: country = "Dänemark"
+            if ".DE" in t or t == "RHM": country = "Deutschland"
+            elif t == "TSM": country = "Taiwan"
+            elif t == "NVO": country = "Dänemark"
             elif ".TO" in t: country = "Kanada"
             else: country = "USA"
 
