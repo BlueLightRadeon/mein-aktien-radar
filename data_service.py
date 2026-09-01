@@ -160,57 +160,67 @@ def get_stock_data(portfolio_list):
         "AAPL": "USA", "MSFT": "USA"
     }
 
-    # Aktuelle Empfehlung vs. Empfehlung vor 3 Monaten
+    # 4 Datenpunkte pro Aktie: Aktuelle Empfehlung + Begründung vs. 3-Monats-Empfehlung + Begründung
     stock_analysis_map = {
         "NVDA": (
             "🟢 KAUFEN / AUFSTOCKEN",
+            "Monopolstellung bei KI-Chips, anhaltender Nachfrageüberhang der Hyperscaler, hohes Margenniveau.",
             "🟢 KAUFEN (Hohes Momentum)",
-            "Monopolstellung bei KI-Chips, ungebrochene Nachfrage der Cloud-Riesen, hohes Gewinnwachstum."
+            "Starke Quartalszahlen und Beginn des neuen Chip-Zyklus signalisierten massives Wachstum."
         ),
         "AVGO": (
             "🟢 KAUFEN / AUFSTOCKEN",
+            "VMware-Synergien greifen voll, führend bei maßgeschneiderten KI-Netzwerk-Chips (ASICs).",
             "🟡 HALTEN (Konsolidierung)",
-            "Starke Synergien durch VMware-Integration, führend bei maßgeschneiderten KI-Netzwerk-Chips."
+            "Hohe Integrationskosten nach Übernahme führten zunächst zu vorsichtiger Markterwartung."
         ),
         "RHM.DE": (
             "🟢 KAUFEN / AUFSTOCKEN",
+            "Rekord-Auftragsbestände der NATO-Staaten sichern mehrjährig planbare Umsatz- und Gewinnsteigerungen.",
             "🟢 KAUFEN (Auftragsboom)",
-            "Rekord-Auftragsbestände der NATO-Staaten sichern mehrjähriges, zweistelliges Umsatzwachstum."
+            "Geopolitische Weichenstellungen und Sondervermögen lösten die Neubewertung der Rüstungsbranche aus."
         ),
         "TSM": (
             "🟢 KAUFEN / AUFSTOCKEN",
+            "Weltweit unersetzlicher Halbleiter-Auftragsfertiger mit hoher Preissetzungsmacht bei Sub-3nm-Nodes.",
             "🟢 KAUFEN (Kapazitätsausbau)",
-            "Weltweit unersetzlicher Chip-Auftragsfertiger mit hoher Preissetzungsmacht bei modernsten Node-Größen."
+            "Hohe Auslastung der modernen Fabriken durch KI-Chiphersteller deutete auf Margenanstieg hin."
         ),
         "PANW": (
             "🟡 HALTEN",
+            "Führende Plattform-Strategie in Cyber-Security, aktuell jedoch anspruchsvoll bewertet.",
             "🟢 KAUFEN (Günstiger Einstieg)",
-            "Solide Position im IT-Security-Sektor, Plattform-Strategie greift, jedoch bereits anspruchsvoll bewertet."
+            "Plattform-Umstellung bot nach kurzfristigem Kursrücksetzer eine attraktive Einstiegschance."
         ),
         "EUNL.DE": (
             "🟡 HALTEN",
+            "Ideales Basis-Investment zur globalen Risikostreuung über mehr als 1.500 Unternehmen. Sparplan weiterführen.",
             "🟡 HALTEN (Basis-Sparplan)",
-            "Ideales Kern-Investment zur weltweiten Risikostreuung. Kontinuierlich besparen."
+            "Breite Marktabdeckung ohne akuten Handlungsbedarf, solider langfristiger Vermögensaufbau."
         ),
         "MSFT": (
             "🟡 HALTEN",
+            "Enormer Cashflow aus Cloud (Azure) und Software, Aktie befindet sich in gesunder Konsolidierung.",
             "🟢 KAUFEN (Cloud-Rallye)",
-            "Stabiler Cashflow aus Cloud (Azure) und Office, aktuell in einer fairen Konsolidierungsphase."
+            "Starke Copilot-Monetarisierung und Cloud-Wachstum trieben die Bewertung nach oben."
         ),
         "AAPL": (
             "🟡 HALTEN",
+            "Stabiler Dienstleistungssektor und treue Kundenbasis stützen den Kurs bei moderatem Hardware-Wachstum.",
             "🟡 HALTEN (Moderate Nachfrage)",
-            "Starker Dienstleistungssektor und treue Kundenbasis stützen den Kurs bei moderatem Hardware-Wachstum."
+            "Gemischte Smartphone-Absätze in Asien führten zu neutraler Einschätzung."
         ),
         "NVO": (
             "🟡 HALTEN",
+            "Weltmarktführer bei GLP-1/Abnehmmedikamenten, Nachfrage übersteigt trotz Kapazitätsausbau das Angebot.",
             "🟢 KAUFEN (GLP-1 Boom)",
-            "Weltmarktführer bei GLP-1/Abnehmpräparaten, starke Nachfrage bei vorübergehendem Produktionsausbau."
+            "Extremes Verschreibungswachstum bei Adipositas-Präparaten trieb die Gewinnprognosen massiv an."
         ),
         "FORA.TO": (
             "🔴 VERKAUFEN / UMSCHICHTEN",
+            "Anhaltender Margendruck im digitalen Werbemarkt. Kapital besser in stärkere Core-Werte umschichten.",
             "🟡 HALTEN (Abwarten)",
-            "Schwaches Momentum und Margendruck. Kapital besser in Core-Werte umschichten."
+            "Hoffnung auf Margenstabilisierung nach Restrukturierung, Trend blieb jedoch schwach."
         )
     }
 
@@ -241,10 +251,14 @@ def get_stock_data(portfolio_list):
         fair_value_str = f"{(price * 1.10):.2f} {currency}"
         target_str = f"{(price * 1.15):.2f} {currency} (+15.0%)"
         
-        # Duale Empfehlungen abrufen
-        rec_current, rec_3m, rec_reason = stock_analysis_map.get(
+        rec_current, reason_current, rec_3m, reason_3m = stock_analysis_map.get(
             t, 
-            ("🟡 HALTEN", "🟡 HALTEN", "Unternehmen behauptet seine Marktposition solide im aktuellen Marktumfeld.")
+            (
+                "🟡 HALTEN", 
+                "Solide Marktposition im Branchenumfeld.",
+                "🟡 HALTEN", 
+                "Unveränderte fundamentale Entwicklung."
+            )
         )
 
         div_pct = 1.8 if "RHM" in t else (1.45 if t == "AVGO" else (1.3 if t == "NVO" else (1.6 if "EUNL" in t else 0.5)))
@@ -259,8 +273,9 @@ def get_stock_data(portfolio_list):
             "Unternehmen": company_name,
             "Kürzel": t,
             "Aktuelle KI-Empfehlung": rec_current,
-            "Empfehlung (Basis vor 3 Monaten)": rec_3m,
-            "Begründung & Einschätzung": rec_reason,
+            "Aktuelle Begründung": reason_current,
+            "Empfehlung (vor 3 Monaten)": rec_3m,
+            "Begründung (vor 3 Monaten)": reason_3m,
             "Börsenkurs": f"{price:.2f} {currency}",
             "Aktueller Wert (TR)": f"{pos_val:.2f} €",
             "Gewinn / Verlust": f"{pnl_val:+.2f} € ({day_change_pct:+.2f}%)",
