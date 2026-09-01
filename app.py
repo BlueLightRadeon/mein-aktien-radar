@@ -130,14 +130,19 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# KI-AUSWERTUNGS BUTTON
+# BUTTON SETZT EINDEUTIGEN STATE-TRIGGER
 if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
+    st.session_state["do_analysis"] = True
+
+# AUSFÜHRUNG VOR DEM TABS-RENDERING
+if st.session_state.get("do_analysis", False):
+    st.session_state["do_analysis"] = False
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
     elif not st.session_state.my_portfolio:
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
-        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
+        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
             try:
                 client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
                 news_data = fetch_all_headlines()
@@ -158,9 +163,9 @@ if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"
                 st.session_state["ai_signals"] = out_s
                 st.session_state["ai_cluster"] = out_c
                 st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.success("✅ Auswertung abgeschlossen!")
+                st.rerun()
             except Exception as e:
-                st.error(f"Fehler: {str(e)}")
+                st.error(f"⚠️ Fehler beim Groq-Aufruf: {str(e)}")
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
