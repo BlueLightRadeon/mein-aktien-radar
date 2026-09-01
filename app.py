@@ -161,7 +161,7 @@ with st.sidebar:
     available_models = get_account_models(GROQ_KEY)
     selected_model = st.selectbox("KI-Modell:", available_models, index=0)
 
-# BERECHNUNG DER DEPOT-DATEN
+# BERECHNUNG DER DEPOT-DATEN (Exakt nach Realwerten)
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 
 if not stock_df.empty and "_raw_invested" in stock_df.columns:
