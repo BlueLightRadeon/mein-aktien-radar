@@ -17,18 +17,46 @@ st.title("📈 KI Markt- & Depot-Radar")
 # Key aus Streamlit Secrets laden
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# In der Seitenleiste Aktien verwalten
+
+@st.cache_data(ttl=3600)
+def get_account_models(api_key):
+  """Liest live alle tatsächlich für deinen Key freigeschalteten Modelle aus."""
+  try:
+    c = Groq(api_key=api_key.strip())
+    models_list = [m.id for m in c.models.list().data]
+    # Filtert reine Audio- und Guard-Modelle aus
+    text_models = [
+        m
+        for m in models_list
+        if not any(
+            x in m.lower()
+            for x in ["whisper", "guard", "orpheus", "vision", "safeguard"]
+        )
+    ]
+    return text_models if text_models else models_list
+  except Exception:
+    return ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
+
+
+# In der Seitenleiste Aktien & Modellauswahl
 with st.sidebar:
   st.header("💼 Mein Depot")
   portfolio_input = st.text_input(
       "Deine Aktien & ETFs (Ticker)", value="AAPL, MSFT, NVDA, TSLA"
   )
-  st.caption(
-      "Beispiele: AAPL, MSFT, SAP.DE, MBG.DE, CSPX.AS (S&P 500 ETF), EUNL.DE"
-      " (MSCI World)"
-  )
+  st.caption("Beispiele: AAPL, MSFT, SAP.DE, MBG.DE, CSPX.AS, EUNL.DE")
 
-# 45+ globale Feeds für Makro, Aktien, ETFs & Branchen
+  st.divider()
+  st.header("🤖 KI-Modell")
+  if GROQ_KEY:
+    available_models = get_account_models(GROQ_KEY)
+    selected_model = st.selectbox(
+        "Aktives Groq-Modell", available_models, index=0
+    )
+  else:
+    selected_model = "openai/gpt-oss-120b"
+
+# 45+ globale Feeds
 RSS_SOURCES = [
     # Global Macro & Weltpolitik
     "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
@@ -70,11 +98,10 @@ def fetch_all_headlines(sources):
             headlines.append(f"- {title}")
     except Exception:
       continue
-  return headlines[:35]
+  return headlines[:30]
 
 
 def calculate_rsi(series, period=14):
-  """Berechnet den 14-Tage RSI."""
   try:
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -158,51 +185,6 @@ def get_stock_data(tickers):
   return pd.DataFrame(data), direct_news
 
 
-def execute_llm_call(client, prompt):
-  """Probiert automatisch alle verfügbaren Standard-Chat-Modelle durch."""
-  # Liste gängiger Groq-Modelle in Prioritätsreihenfolge
-  candidate_models = [
-      "llama3-70b-8192",
-      "llama3-8b-8192",
-      "mixtral-8x7b-32768",
-      "gemma2-9b-it",
-      "llama-3.3-70b-versatile",
-      "llama-3.1-8b-instant",
-  ]
-
-  # Falls verfügbar, fügen wir dynamisch die echten IDs deines Accounts hinzu
-  try:
-    account_models = [
-        m.id
-        for m in client.models.list().data
-        if not any(x in m.lower() for x in ["whisper", "guard", "orpheus"])
-    ]
-    # Vorne anfügen
-    candidate_models = account_models + candidate_models
-  except Exception:
-    pass
-
-  # Deduplizieren
-  candidate_models = list(dict.fromkeys(candidate_models))
-
-  last_err = ""
-  for model in candidate_models:
-    try:
-      res = client.chat.completions.create(
-          model=model,
-          messages=[{"role": "user", "content": prompt}],
-          temperature=0.3,
-          max_tokens=900,
-      )
-      return res.choices[0].message.content, model
-    except Exception as e:
-      last_err = f"{model}: {str(e)}"
-      continue
-
-  raise RuntimeError(f"Kein Modell konnte antworten. Letzter Fehler: {last_err}")
-
-
-# Tabs beibehalten
 tab1, tab2, tab3 = st.tabs(
     ["🌍 Markt Top 10", "💼 Sentiment & Depot", "📅 Earnings-Kalender"]
 )
@@ -219,7 +201,9 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
         t.strip().upper() for t in portfolio_input.split(",") if t.strip()
     ]
 
-    with st.spinner("Scanne 45+ Quellen, Ticker-News, RSI & Fundamentaldaten..."):
+    with st.spinner(
+        f"Lade Daten & analysiere mit Modell '{selected_model}'..."
+    ):
       news_data = fetch_all_headlines(RSS_SOURCES)
       news_text = "\n".join(news_data)
       stock_df, ticker_news = get_stock_data(tickers)
@@ -234,7 +218,7 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
       ].to_string(index=False)
 
       prompt_market = f"""
-Aktuelle weltweite Wirtschaftsnachrichten (aus 45+ Quellen & ETF-Feeds):
+Aktuelle weltweite Wirtschaftsnachrichten (45+ Quellen & ETF-Feeds):
 {news_text}
 
 Fasse die **TOP 10 wichtigsten Markt-Informationen** prägnant auf Deutsch zusammen.
@@ -259,11 +243,24 @@ Erstelle für jeden Wert ({', '.join(tickers)}) eine fundierte Analyse:
 """
 
       try:
-        out_market, used_model = execute_llm_call(client, prompt_market)
-        out_depot, _ = execute_llm_call(client, prompt_depot)
+        res_market = client.chat.completions.create(
+            model=selected_model,
+            messages=[{"role": "user", "content": prompt_market}],
+            temperature=0.3,
+            max_tokens=900,
+        )
+        out_market = res_market.choices[0].message.content
+
+        res_depot = client.chat.completions.create(
+            model=selected_model,
+            messages=[{"role": "user", "content": prompt_depot}],
+            temperature=0.3,
+            max_tokens=1000,
+        )
+        out_depot = res_depot.choices[0].message.content
 
         with tab1:
-          st.caption(f"🤖 Verwendetes Modell: `{used_model}`")
+          st.caption(f"🤖 Verwendetes Modell: `{selected_model}`")
           st.markdown(out_market)
 
         with tab2:
@@ -288,4 +285,7 @@ Erstelle für jeden Wert ({', '.join(tickers)}) eine fundierte Analyse:
           )
 
       except Exception as e:
-        st.error(f"Fehler: {str(e)}")
+        st.error(
+            f"Fehler mit Modell '{selected_model}': {str(e)}\n\n👉 Wähle in der"
+            " Seitenleiste einfach ein anderes Modell aus dem Dropdown aus."
+        )
