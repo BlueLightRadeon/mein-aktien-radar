@@ -1,8 +1,8 @@
-streamlit
-yfinance
-feedparser
-groq
-pandas
-plotly
-requests
-pypdf
+streamlit>=1.35.0
+pandas>=2.0.0
+plotly>=5.18.0
+groq>=0.9.0
+pypdf>=4.0.0
+yfinance>=0.2.35
+feedparser>=6.0.10
+requests>=2.31.0
