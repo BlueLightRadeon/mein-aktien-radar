@@ -7,21 +7,20 @@ import pandas as pd
 import pypdf
 import streamlit as st
 
-# Reine Ticker/Name-Zuordnung OHNE feste Geldbeträge oder Stückzahlen
 ISIN_MAP = {
-    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez"},
-    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai"},
-    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung"},
-    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope", "earnings": "12.11.2026 (Q3)", "div_month": "Keine Ausschüttung"},
-    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich"},
-    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA", "earnings": "18.11.2026 (Q3)", "div_month": "Vierteljährlich"},
-    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August"},
-    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk", "earnings": "04.11.2026 (Q3)", "div_month": "April & August"},
-    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "earnings": "Laufend (Index)", "div_month": "Halbjährlich (Juni/Dez)"},
-    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks", "earnings": "17.11.2026 (Q1)", "div_month": "Keine Ausschüttung"},
-    "US8740391003": {"ticker": "TSM", "name": "TSMC", "earnings": "15.10.2026 (Q3)", "div_month": "Jan, April, Juli, Okt"},
-    "US0378331005": {"ticker": "AAPL", "name": "Apple", "earnings": "29.10.2026 (Q4)", "div_month": "Feb, Mai, Aug, Nov"},
-    "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez"}
+    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom"},
+    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall"},
+    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope"},
+    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope"},
+    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA"},
+    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA"},
+    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk"},
+    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk"},
+    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF"},
+    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks"},
+    "US8740391003": {"ticker": "TSM", "name": "TSMC"},
+    "US0378331005": {"ticker": "AAPL", "name": "Apple"},
+    "US5949181045": {"ticker": "MSFT", "name": "Microsoft"}
 }
 
 def clean_ticker(ticker_str):
@@ -59,7 +58,6 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # 1. Cash extrahieren
         cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
@@ -71,7 +69,6 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 pass
 
-        # 2. ISINs suchen
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -84,7 +81,6 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            # Wert-Extraktion aus dem PDF-Text
             pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*€", re.DOTALL)
             match = pattern.search(full_text)
             val = 0.0
