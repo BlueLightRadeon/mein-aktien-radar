@@ -2,11 +2,10 @@ import streamlit as st
 from groq import Groq
 import re
 
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 STATIC_MODELS = [
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile"
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant"
 ]
 
 def get_account_models(api_key):
@@ -14,7 +13,7 @@ def get_account_models(api_key):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein renommierter quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnachrichten sowie das bestehende Depot des Nutzers und erstelle fundierte Empfehlungen auf Deutsch.
+Du bist ein quantitativer Chef-Anlagestratege. Analysiere das Depot und die aktuellen Marktnachrichten auf Deutsch.
 
 [AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
 {news_text[:1000]}
@@ -36,7 +35,7 @@ Gliedere deine Antwort zwingend mit diesen 4 exakten Trennzeilen:
 
 ===DEPOT===
 ### 💼 Statusbericht zu deinen Depot-Positionen
-Analysiere die bestehenden 8 Aktien des Nutzers:
+Analysiere die bestehenden Aktien des Nutzers:
 - **[Unternehmen]**: Aktuelle Bewertung, Trend und worauf man jetzt achten muss.
 
 ===SIGNALE===
@@ -44,7 +43,7 @@ Analysiere die bestehenden 8 Aktien des Nutzers:
 Wähle basierend auf der aktuellen Lage genau 5 konkrete Qualitätsaktien oder ETFs (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
 
 1. **[Aktie 1]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?** (Konkreter Treiber: z. B. Energie-Infrastruktur, Zinsgewinner, Rüstung, Basiskonsum)
+   - **Warum JETZT kaufen?**
    - **Chance / Kurspotenzial:** z. B. +15 % bis +25 %
    - **Risikobewertung:** Gering / Mittel / Hoch
 
@@ -68,7 +67,7 @@ Wähle basierend auf der aktuellen Lage genau 5 konkrete Qualitätsaktien oder E
    - **Chance / Kurspotenzial:**
    - **Risikobewertung:**
 
-#### 🔴 AKTUELL MEIDEN (Verlierer der aktuellen Marktlage):
+#### 🔴 AKTUELL MEIDEN:
 Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 
 ===KLUMPEN===
@@ -78,7 +77,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -94,7 +93,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.2,
-                max_tokens=2200,
+                max_tokens=2000,
                 timeout=12.0
             )
             if res.choices and res.choices[0].message and res.choices[0].message.content:
@@ -105,7 +104,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             continue
 
     if not full_text:
-        err_display = f"⚠️ **Groq API Fehler:** `{last_err_msg}`\n\nBitte prüfe deinen API-Key in den Streamlit Secrets."
+        err_display = f"⚠️ Groq API Fehler: {last_err_msg}"
         return err_display, err_display, err_display, err_display
 
     normalized_text = full_text
