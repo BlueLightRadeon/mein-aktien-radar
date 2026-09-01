@@ -1,0 +1,80 @@
+Die 8 Tabs im Detail
+1. 🏦 Tab: Trade Republic Konto (Dein Depot-Spiegel)
+Was er macht: Er spiegelt dein echtes Trade-Republic-Konto wider.
+
+Inhalt:
+
+Zeigt separat dein Bargeld-Guthaben (Cash) und den Gesamtwert deiner Aktien.
+
+Eine übersichtliche Tabelle listet all deine Aktien mit deinem Geldeinsatz, dem aktuellen Börsenwert und dem jeweiligen Plus/Minus auf.
+
+2. 🌍 Tab: Welt-Nachrichten (Markt-Überblick)
+Was er macht: Er scannt über 45 weltweite Wirtschafts- und Finanznachrichtenquellen (u. a. Tagesschau, Handelsblatt, Spiegel, CNBC, Dow Jones).
+
+Inhalt:
+
+TOP 10 Markt-Fakten: Die zehn wichtigsten weltweiten Wirtschaftsereignisse des Tages, kompakt und ohne Fachchinesisch zusammengefasst.
+
+Börsenstimmung: Ein klares Fazit, ob an den globalen Märkten gerade Optimismus (🟢 Bullisch), Abwarten (🟡 Neutral) oder Vorsicht/Angst (🔴 Bärisch) herrscht.
+
+3. 💼 Tab: Stimmung & Depot (Einzelanalyse deiner Werte)
+Was er macht: Nimmt jede einzelne Aktie aus deinem Portfolio unter die Lupe.
+
+Inhalt:
+
+Die KI analysiert für jeden deiner Werte die aktuelle Stimmung, den Zustand des Kurses (ob die Aktie gerade stark gefragt ist oder schwächelt) und die Bewertung (ob das Preisschild aktuell teuer oder günstig ist).
+
+Gibt einen kurzen Ausblick, worauf du in den nächsten Tagen bei diesem Unternehmen achten solltest.
+
+4. 📅 Tab: Termine & Dividenden (Cashflow & Kalender)
+Was er macht: Informiert dich über anstehende Firmenberichte und passive Einnahmen.
+
+Inhalt:
+
+Gewinnausschüttung (% p.a. / Dividende): Zeigt dir, wie viel Prozent Zinsen/Dividende dir ein Unternehmen jährlich regelmäßig auf dein Verrechnungskonto auszahlt.
+
+Nächster Geschäftsbericht: Wann das Unternehmen seine nächsten Quartalszahlen vorlegt (wichtig, weil Kurse an solchen Tagen oft stark schwanken).
+
+5. 🎯 Tab: Kauf- / Verkauf-Tipps & Faire Bewertung (KI-Signale)
+Was er macht: Liefert dir konkrete Entscheidungshilfen für jede Aktie.
+
+Inhalt:
+
+Faire Wertschätzung (Fair Value): Was die Aktie rechnerisch anhand ihrer Gewinne und Substanz wert sein sollte. Liegt der Börsenkurs darunter, gilt sie als Schnäppchen.
+
+Experten-Kursziel & Konsens: Was die Profi-Analysten großer Banken für die nächsten 12 Monate prognostizieren.
+
+KI-Signal: Ein klares 🟢 KAUFEN, 🟡 HALTEN oder 🔴 VERKAUFEN mit verständlicher Begründung, Risikostufe und empfohlenem Anlagehorizont.
+
+6. 📊 Tab: Kurs-Diagramme (Live-Charts & Performance)
+Was er macht: Macht die Kursbewegungen all deiner Aktien als interaktive Kurven sichtbar.
+
+Inhalt:
+
+Zeiträume frei wählbar: 1 Tag (Live heute), 5 Tage, 1 Monat, 6 Monate, 1 Jahr oder 5 Jahre.
+
+Zwei Modi:
+
+Wertentwicklung in %: Vergleicht alle Aktien ab 0 % – du siehst sofort, wer der Gewinner und wer der Verlierer im Zeitraum war.
+
+Preis pro Aktie: Zeigt den exakten Kurspreis in Geld an.
+
+Beim Antippen/Hovern siehst du die genauen Zahlen auf Deutsch.
+
+7. 🥧 Tab: Risikostreuung (Diversifikation & Klumpenrisiko)
+Was er macht: Schützt dich davor, „alle Eier in einen Korb“ zu legen.
+
+Inhalt:
+
+Zwei Donut-Diagramme: Zeigen dir grafisch, wie viel Prozent deines Geldes in welchen Branchen (z. B. Halbleiter, Verteidigung, Gesundheit) und in welchen Ländern (z. B. USA, Deutschland) stecken.
+
+KI-Klumpenrisiko-Gutachten: Die KI gibt deinem Depot eine Risikonote von 1 bis 10, warnt dich vor gefährlichen Abhängigkeiten (z. B. wenn 80 % nur an US-Tech hängen) und schlägt passende Branchen zur Absicherung vor.
+
+8. ⚔️ Tab: Aktien-Vergleich (Das 1-gegen-1-Duell)
+Was er macht: Lässt zwei beliebige Aktien aus deinem Depot direkt gegeneinander antreten (z. B. Nvidia vs. TSMC oder Palo Alto vs. Broadcom).
+
+Inhalt:
+
+Du wählst zwei Aktien aus und klickst auf „⚡ Wer ist aktuell der bessere Kauf?“.
+
+Die KI vergleicht Bewertung, Kurspotenzial und Chancen/Risiken beider Titel und kürt in einfachen Worten den klaren Sieger für dein Geld.
