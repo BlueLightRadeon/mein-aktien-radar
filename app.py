@@ -5,9 +5,11 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# Seitenkonfiguration für Smartphone-Displays optimiert
+# Smartphone-optimierte Seitenkonfiguration
 st.set_page_config(
-    page_title="Aktien & Makro Radar Pro", page_icon="📈", layout="centered"
+    page_title="KI Markt- & Depot-Radar (Free)",
+    page_icon="📈",
+    layout="centered",
 )
 
 st.title("📈 KI Markt- & Depot-Radar")
@@ -15,13 +17,18 @@ st.title("📈 KI Markt- & Depot-Radar")
 # Seitenleiste für Einstellungen
 with st.sidebar:
   st.header("⚙️ Einstellungen")
-  api_key = st.text_input("OpenAI API Key", type="password")
+  # Liest den Key aus Streamlit Secrets ODER per Eingabe
+  groq_key = st.secrets.get("GROQ_API_KEY") or st.text_input(
+      "Groq API Key (100% kostenlos)",
+      type="password",
+      help="Hol dir deinen Key auf console.groq.com",
+  )
   portfolio_input = st.text_input(
       "Deine Aktien (Ticker mit Komma getrennt)", value="AAPL, MSFT, NVDA, TSLA"
   )
-  st.caption("Beispiele: AAPL (Apple), MSFT (Microsoft), SAP.DE (SAP)")
+  st.caption("Beispiele: AAPL, MSFT, SAP.DE, MBG.DE")
 
-# Umfassende Liste von RSS-Feeds (Makro, Tech, Krypto & Börse)
+# 40+ Quellen (Auszug starker Feeds)
 RSS_SOURCES = [
     "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
@@ -59,8 +66,6 @@ def get_stock_data(tickers):
     try:
       stock = yf.Ticker(t)
       price = stock.fast_info.last_price
-
-      # Nächstes Earnings-Datum ermitteln
       earnings_date = "Unbekannt"
       try:
         cal = stock.calendar
@@ -73,67 +78,68 @@ def get_stock_data(tickers):
 
       data.append({
           "Ticker": t,
-          "Kurs (USD/EUR)": (
-              f"{price:.2f}" if price is not None else "N/A"
-          ),
-          "Nächste Quartalszahlen": earnings_date,
+          "Kurs": f"{price:.2f}" if price is not None else "N/A",
+          "Nächste Earnings": earnings_date,
       })
     except Exception:
-      data.append({
-          "Ticker": t,
-          "Kurs (USD/EUR)": "N/A",
-          "Nächste Quartalszahlen": "Fehler",
-      })
+      data.append(
+          {"Ticker": t, "Kurs": "N/A", "Nächste Earnings": "Nicht gefunden"}
+      )
   return pd.DataFrame(data)
 
 
 tab1, tab2, tab3 = st.tabs(
-    ["🌍 Markt Top 10", "💼 Sentiment & Depot", "📅 Quartalszahlen-Kalender"]
+    ["🌍 Markt Top 10", "💼 Sentiment & Depot", "📅 Earnings-Kalender"]
 )
 
-if st.button("🚀 Vollständige KI-Analyse starten", use_container_width=True):
-  if not api_key:
-    st.error("⚠️ Bitte gib zuerst deinen OpenAI API-Key in der Seitenleiste ein!")
+if st.button("🚀 Kostenlose KI-Analyse starten", use_container_width=True):
+  if not groq_key:
+    st.error(
+        "⚠️ Bitte trage deinen kostenlosen Groq-Key (console.groq.com) in der"
+        " Seitenleiste ein!"
+    )
   else:
-    client = OpenAI(api_key=api_key)
+    # Verbindung zu Groq über OpenAI-kompatible Schnittstelle
+    client = OpenAI(
+        base_url="https://api.groq.com/openai/v1", api_key=groq_key
+    )
+
     tickers = [
         t.strip().upper() for t in portfolio_input.split(",") if t.strip()
     ]
 
-    with st.spinner("Scanne 40+ Quellen, Kurse & Earnings-Termine..."):
-      # 1. Daten aggregieren
+    with st.spinner("Lese Nachrichten und analysiere Daten per KI..."):
       news_data = fetch_all_headlines(RSS_SOURCES)
       news_text = "\n".join(news_data)
       stock_df = get_stock_data(tickers)
 
-      # 2. KI Prompt für Gesamtmarkt
       prompt_market = f"""
-            Hier sind Live-Schlagzeilen aus über 40 globalen Finanz- und Wirtschaftsmedien:
+            Hier sind weltweite Wirtschaftsnachrichten:
             {news_text}
             
-            Erstelle die **TOP 10 wichtigsten Markt-Informationen** des Tages für Anleger.
-            Bewerte abschließend die globale Stimmung (Bullisch / Neutral / Bärisch) in einem Satz.
+            Fasse die **TOP 10 wichtigsten Markt-Informationen** prägnant auf Deutsch zusammen.
+            Bewerte am Ende kurz die weltweite Marktstimmung (Bullisch / Neutral / Bärisch).
             """
 
-      # 3. KI Prompt für Depot mit Sentiment-Ampel
       prompt_depot = f"""
-            Gehaltene Aktien: {', '.join(tickers)}
-            Aktuelle Marktnachrichten:
+            Depot-Aktien: {', '.join(tickers)}
+            Wirtschaftsnachrichten:
             {news_text}
             
-            Erstelle für JEDE Aktie einzeln:
-            1. **Sentiment-Ampel**: 🟢 Bullisch, 🟡 Neutral oder 🔴 Bärisch (basierend auf aktuellen Trends/News).
-            2. **Konkrete Auswirkungen**: Welche News oder Branchentrends betreffen diese Aktie aktuell direkt?
-            3. **Handlungsempfehlung/Fokus**: Worauf sollte man in den nächsten Tagen bei dieser Aktie achten?
+            Erstelle für jede Aktie einzeln:
+            1. **Sentiment**: 🟢 Bullisch, 🟡 Neutral oder 🔴 Bärisch
+            2. **Fokus/News**: Relevante Trends oder Neuigkeiten dazu.
+            3. **Tipp für Anleger**: Worauf die nächsten Tage geachtet werden sollte.
             """
 
+      # Kostenloses High-End-Modell: Llama 3.3 70B
       res_market = client.chat.completions.create(
-          model="gpt-4o-mini",
+          model="llama-3.3-70b-versatile",
           messages=[{"role": "user", "content": prompt_market}],
       )
 
       res_depot = client.chat.completions.create(
-          model="gpt-4o-mini",
+          model="llama-3.3-70b-versatile",
           messages=[{"role": "user", "content": prompt_depot}],
       )
 
@@ -141,15 +147,11 @@ if st.button("🚀 Vollständige KI-Analyse starten", use_container_width=True):
       st.markdown(res_market.choices[0].message.content)
 
     with tab2:
-      st.subheader("Depot-Übersicht")
-      st.dataframe(stock_df[["Ticker", "Kurs (USD/EUR)"]], hide_index=True)
+      st.subheader("Aktuelle Kurse")
+      st.dataframe(stock_df[["Ticker", "Kurs"]], hide_index=True)
       st.divider()
       st.markdown(res_depot.choices[0].message.content)
 
     with tab3:
-      st.subheader("📅 Anstehende Quartalsberichte (Earnings)")
+      st.subheader("📅 Anstehende Quartalszahlen")
       st.dataframe(stock_df, hide_index=True)
-      st.caption(
-          "Hinweis: Daten werden direkt über offizielle Börsenkalender"
-          " bezogen."
-      )
