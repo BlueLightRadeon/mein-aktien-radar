@@ -23,7 +23,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Alte Cache-Dateien sofort vom Server löschen, falls vorhanden
+# Säubere alte Festplatten-Dateien restlos
 if os.path.exists("portfolio.json"):
     try:
         os.remove("portfolio.json")
