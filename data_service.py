@@ -11,31 +11,16 @@ import yfinance as yf
 
 PORTFOLIO_FILE = "portfolio.json"
 
+# Kompakte, blitzschnelle RSS-Quellen mit Timeouts
 RSS_SOURCES = [
-    "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
-    "https://feeds.bbci.co.uk/news/business/rss.xml",
-    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
     "https://www.tagesschau.de/wirtschaft/index~rss2.xml",
     "https://www.spiegel.de/wirtschaft/index.rss",
     "https://www.handelsblatt.com/contentexport/feed/top-themen",
-    "https://rss.politico.com/economy.xml",
-    "https://feeds.content.dowjones.io/public/rss/mw_topstories",
-    "https://www.investing.com/rss/news_25.rss",
-    "https://seekingalpha.com/market_currents.xml",
-    "https://www.fool.com/a/feeds/foolwatch",
-    "https://www.benzinga.com/feeds/news/markets",
-    "https://www.finanzen.net/rss/news",
-    "https://www.deraktionaer.de/rss/feed",
-    "https://etfdb.com/feed/",
-    "https://www.etftrends.com/feed/",
-    "https://www.justetf.com/de/news/feed.rss",
-    "https://techcrunch.com/category/fintech/feed/",
-    "https://cointelegraph.com/rss",
-    "https://www.coindesk.com/arc/outboundfeeds/rss/",
-    "https://oilprice.com/rss/main",
+    "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "https://www.finanzen.net/rss/news"
 ]
 
-# Exakte Stammdaten & Fallbacks
 ISIN_MAP = {
     "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "val": 75.18, "sh": 0.238273},
     "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "val": 23.00, "sh": 0.021265},
@@ -123,7 +108,7 @@ def search_ticker_candidates(query):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(q)}&quotesCount=6&newsCount=0"
-        resp = requests.get(url, headers=headers, timeout=4)
+        resp = requests.get(url, headers=headers, timeout=2)
         if resp.status_code == 200:
             quotes = resp.json().get("quotes", [])
             for item in quotes:
@@ -137,15 +122,12 @@ def search_ticker_candidates(query):
     return candidates
 
 def parse_trade_republic_pdf(uploaded_file):
-    """Liest die Trade Republic Vermögensübersicht fehlerfrei und ohne Spaltenversatz ein."""
     found_items = []
-    extracted_cash = 194.02  # TR Cash Standardwert
-    
+    extracted_cash = 194.02
     try:
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # Cash parsen
         cash_match = re.search(r"(?:Cashkonto|Cash)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
@@ -155,11 +137,8 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 pass
 
-        # Geordnete Extraktion aller ISINs
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
-        
-        # Duplikate filtern, Reihenfolge beibehalten
         seen = set()
         ordered_isins = [x for x in all_isins_in_doc if not (x in seen or seen.add(x))]
 
@@ -177,45 +156,32 @@ def parse_trade_republic_pdf(uploaded_file):
                 invested_val = 50.0
                 shares = 1.0
 
-            # Exakten Kurswert aus dem Dokumenten-Kontext nach der ISIN verifizieren
-            isin_pos = full_text.find(isin)
-            if isin_pos != -1:
-                # Text direkt hinter der ISIN prüfen
-                after_text = full_text[isin_pos:isin_pos + 120]
-                val_after = re.search(r"\d{2}\.\d{2}\.\d{4}\s*\|\s*([\d.,]+)", after_text)
-                if val_after:
-                    try:
-                        v = float(val_after.group(1).replace(".", "").replace(",", "."))
-                        if 0.5 <= v < 400.0:
-                            invested_val = v
-                    except Exception:
-                        pass
-
             found_items.append({
                 "ticker": sym,
                 "name": disp_name,
                 "shares": shares,
                 "buy_price": invested_val
             })
-            
     except Exception as e:
         st.error(f"Fehler beim Auslesen des PDFs: {e}")
-        
     return found_items, extracted_cash
 
 def fetch_all_headlines():
     headlines = []
+    headers = {"User-Agent": "Mozilla/5.0"}
     for url in RSS_SOURCES:
         try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:2]:
-                if hasattr(entry, "title") and entry.title:
-                    title = entry.title.strip()
-                    if title and title not in headlines:
-                        headlines.append(f"- {title}")
+            resp = requests.get(url, headers=headers, timeout=2)
+            if resp.status_code == 200:
+                feed = feedparser.parse(resp.content)
+                for entry in feed.entries[:2]:
+                    if hasattr(entry, "title") and entry.title:
+                        t = entry.title.strip()
+                        if t and t not in headlines:
+                            headlines.append(f"- {t}")
         except Exception:
             continue
-    return headlines[:30]
+    return headlines[:15]
 
 def calculate_rsi(series, period=14):
     try:
@@ -230,10 +196,10 @@ def calculate_rsi(series, period=14):
         return "N/A"
 
 def fetch_quote_summary_direct(ticker):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    headers = {"User-Agent": "Mozilla/5.0"}
     url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=financialData,summaryDetail,defaultKeyStatistics,assetProfile,calendarEvents"
     try:
-        r = requests.get(url, headers=headers, timeout=5)
+        r = requests.get(url, headers=headers, timeout=2.5)
         if r.status_code == 200:
             res = r.json().get("quoteSummary", {}).get("result", [])
             if res:
@@ -287,14 +253,6 @@ def get_stock_data(portfolio_list):
                         rsi_val = calculate_rsi(close_s)
         except Exception:
             pass
-
-        if price is None:
-            try:
-                stk_obj = yf.Ticker(t)
-                fast = stk_obj.fast_info
-                price = float(fast.last_price) if hasattr(fast, "last_price") and fast.last_price else None
-            except Exception:
-                pass
 
         day_change_pct = 0.0
         try:
