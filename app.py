@@ -144,35 +144,31 @@ else:
 # KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen API-Key in den Streamlit Secrets ein.")
     elif not st.session_state.my_portfolio:
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
         with st.spinner("Analysiere Weltlage, Makrodaten und Positionen mit Groq KI..."):
-            try:
-                client = Groq(api_key=GROQ_KEY.strip())
-                news_data = fetch_all_headlines()
-                news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
+            client = Groq(api_key=GROQ_KEY.strip())
+            news_data = fetch_all_headlines()
+            news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
-                metrics_summary = stock_df[[
-                    "Unternehmen", "Börsenkurs", "RSI (14D)", 
-                    "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
-                ]].to_string(index=False)
+            metrics_summary = stock_df[[
+                "Unternehmen", "Börsenkurs", "RSI (14D)", 
+                "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
+            ]].to_string(index=False)
 
-                cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
+            cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
 
-                out_m, out_d, out_s, out_c = run_analysis(
-                    client, selected_model, news_text, metrics_summary, "", cluster_context
-                )
-                st.session_state["ai_market"] = out_m
-                st.session_state["ai_depot"] = out_d
-                st.session_state["ai_signals"] = out_s
-                st.session_state["ai_cluster"] = out_c
-                st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.success("✅ Auswertung erfolgreich abgeschlossen!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Fehler bei der KI-Analyse: {str(e)}")
+            out_m, out_d, out_s, out_c = run_analysis(
+                client, selected_model, news_text, metrics_summary, "", cluster_context
+            )
+            st.session_state["ai_market"] = out_m
+            st.session_state["ai_depot"] = out_d
+            st.session_state["ai_signals"] = out_s
+            st.session_state["ai_cluster"] = out_c
+            st.session_state["last_analysis_time"] = get_berlin_time_str()
+            st.rerun()
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -210,7 +206,7 @@ with tab0:
 with tab1:
     st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
     if "ai_market" in st.session_state and st.session_state["ai_market"]:
-        st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
+        st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
     else:
         st.info("Klicke oben auf den Button **'🚀 Jetzt KI-Auswertung starten'**, um die Meldungen abzurufen.")
@@ -309,4 +305,65 @@ with tab6:
                 color_discrete_sequence=["#2E93fA", "#66DA26", "#FF9800", "#546E7A"]
             )
             fig_role.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_role, use_container_width=
+            st.plotly_chart(fig_role, use_container_width=True)
+
+        with c_pie2:
+            fig_sec = px.pie(
+                stock_df, names="Sektor", values="_raw_val",
+                title="2. Branchen-Aufteilung", hole=0.45,
+                color_discrete_sequence=custom_colors
+            )
+            fig_sec.update_traces(textposition="inside", textinfo="percent+label")
+            st.plotly_chart(fig_sec, use_container_width=True)
+
+        with c_pie3:
+            fig_geo = px.pie(
+                stock_df, names="Land", values="_raw_val",
+                title="3. Länder-Aufteilung", hole=0.45,
+                color_discrete_sequence=custom_colors
+            )
+            fig_geo.update_traces(textposition="inside", textinfo="percent+label")
+            st.plotly_chart(fig_geo, use_container_width=True)
+
+        st.divider()
+        st.subheader("🧩 Wie verteilen sich deine tatsächlichen Aktien?")
+        
+        unique_roles = stock_df["Rolle"].unique()
+        r_cols = st.columns(2)
+        
+        for idx, r_name in enumerate(unique_roles):
+            sub_df = stock_df[stock_df["Rolle"] == r_name]
+            stock_names = ", ".join(sub_df["Unternehmen"].tolist())
+            role_sum = sub_df["_raw_val"].sum()
+            role_pct = (role_sum / stock_val * 100) if stock_val > 0 else 0.0
+            
+            with r_cols[idx % 2]:
+                with st.container(border=True):
+                    st.markdown(f"### {r_name}")
+                    st.write(f"**Deine Aktien hier:** {stock_names}")
+                    st.write(f"**Anteil am Depot:** `{fmt_eur(role_sum)}` ({role_pct:.1f} %)")
+
+    if "ai_cluster" in st.session_state and st.session_state["ai_cluster"]:
+        st.divider()
+        st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
+        st.markdown(st.session_state["ai_cluster"])
+
+# TAB 7: AKTIEN-VERGLEICH
+with tab7:
+    st.info("ℹ️ **Kurzinfo:** Direktes 1-gegen-1-Duell zweier beliebiger Aktien aus deinem Depot.")
+    if not stock_df.empty and len(stock_df) >= 2:
+        cd1, cd2 = st.columns(2)
+        names_list = stock_df["Unternehmen"].tolist()
+        with cd1:
+            duel_a = st.selectbox("Erste Aktie:", names_list, index=0)
+        with cd2:
+            duel_b = st.selectbox("Zweite Aktie:", names_list, index=1)
+        
+        if st.button("⚡ Duell auswerten", use_container_width=True):
+            if GROQ_KEY:
+                cl = Groq(api_key=GROQ_KEY.strip())
+                row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
+                row_b = stock_df[stock_df["Unternehmen"] == duel_b].iloc[0].to_dict()
+                with st.spinner("Analysiere Duell..."):
+                    res_duel = run_duel_analysis(cl, selected_model, str(row_a), str(row_b))
+                    st.markdown(res_duel)
