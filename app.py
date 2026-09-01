@@ -24,7 +24,6 @@ st.set_page_config(
 
 st.title("📈 KI Markt- & Depot-Radar")
 
-# Universelle Secret-Erkennung
 def get_groq_key():
     for k in ["GROQ_API_KEY", "groq_api_key", "GROQ_KEY", "groq_key"]:
         if k in st.secrets:
@@ -60,17 +59,17 @@ with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
     with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=False):
-        st.caption("Lade deinen Auszug hoch. Positionen, Kurswerte und Cash werden vollautomatisch eingelesen.")
+        st.caption("Lade deinen Auszug hoch und klicke auf 'Auszug jetzt einlesen'.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         if tr_pdf is not None:
-            if st.session_state.get("last_uploaded_pdf_name") != tr_pdf.name:
+            if st.button("📄 Auszug jetzt einlesen", width="stretch"):
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
                 if imported_items:
                     st.session_state.my_portfolio = imported_items
                     st.session_state.tr_cash = float(imported_cash)
-                    st.session_state["last_uploaded_pdf_name"] = tr_pdf.name
                     save_portfolio_to_file(st.session_state.my_portfolio)
                     st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) übernommen!")
+                    st.rerun()
 
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
 
