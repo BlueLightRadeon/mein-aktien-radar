@@ -1,11 +1,10 @@
 from datetime import datetime
 import feedparser
-from openai import OpenAI
+from groq import Groq
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# Smartphone-optimierte Seitenkonfiguration
 st.set_page_config(
     page_title="KI Markt- & Depot-Radar (Free)",
     page_icon="📈",
@@ -14,21 +13,19 @@ st.set_page_config(
 
 st.title("📈 KI Markt- & Depot-Radar")
 
-# Seitenleiste für Einstellungen
+# Seitenleiste
 with st.sidebar:
   st.header("⚙️ Einstellungen")
-  # Liest den Key aus Streamlit Secrets ODER per Eingabe
   groq_key = st.secrets.get("GROQ_API_KEY") or st.text_input(
-      "Groq API Key (100% kostenlos)",
+      "Groq API Key (Kostenlos)",
       type="password",
-      help="Hol dir deinen Key auf console.groq.com",
+      help="Erstelle deinen Key kostenlos auf console.groq.com",
   )
   portfolio_input = st.text_input(
       "Deine Aktien (Ticker mit Komma getrennt)", value="AAPL, MSFT, NVDA, TSLA"
   )
   st.caption("Beispiele: AAPL, MSFT, SAP.DE, MBG.DE")
 
-# 40+ Quellen (Auszug starker Feeds)
 RSS_SOURCES = [
     "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
@@ -99,16 +96,13 @@ if st.button("🚀 Kostenlose KI-Analyse starten", use_container_width=True):
         " Seitenleiste ein!"
     )
   else:
-    # Verbindung zu Groq über OpenAI-kompatible Schnittstelle
-    client = OpenAI(
-        base_url="https://api.groq.com/openai/v1", api_key=groq_key
-    )
-
+    # Direkter, nativer Groq-Client
+    client = Groq(api_key=groq_key.strip())
     tickers = [
         t.strip().upper() for t in portfolio_input.split(",") if t.strip()
     ]
 
-    with st.spinner("Lese Nachrichten und analysiere Daten per KI..."):
+    with st.spinner("Lese 40+ Quellen und erstelle Auswertung per Groq-KI..."):
       news_data = fetch_all_headlines(RSS_SOURCES)
       news_text = "\n".join(news_data)
       stock_df = get_stock_data(tickers)
@@ -118,7 +112,7 @@ if st.button("🚀 Kostenlose KI-Analyse starten", use_container_width=True):
             {news_text}
             
             Fasse die **TOP 10 wichtigsten Markt-Informationen** prägnant auf Deutsch zusammen.
-            Bewerte am Ende kurz die weltweite Marktstimmung (Bullisch / Neutral / Bärisch).
+            Bewerte am Ende kurz die Marktstimmung (Bullisch / Neutral / Bärisch).
             """
 
       prompt_depot = f"""
@@ -132,7 +126,7 @@ if st.button("🚀 Kostenlose KI-Analyse starten", use_container_width=True):
             3. **Tipp für Anleger**: Worauf die nächsten Tage geachtet werden sollte.
             """
 
-      # Kostenloses High-End-Modell: Llama 3.3 70B
+      # Robustes, kostenloses Groq-Modell
       res_market = client.chat.completions.create(
           model="llama-3.3-70b-versatile",
           messages=[{"role": "user", "content": prompt_market}],
