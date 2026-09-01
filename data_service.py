@@ -7,6 +7,7 @@ import pandas as pd
 import pypdf
 import streamlit as st
 
+# Reine ISIN-zu-Ticker/Name-Zuordnung OHNE vorgegebene Geldwerte
 ISIN_MAP = {
     "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez", "price": 315.50},
     "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai", "price": 1081.60},
@@ -76,7 +77,6 @@ def parse_trade_republic_pdf(uploaded_file):
         seen = set()
         ordered_isins = [x for x in all_isins_in_doc if not (x in seen or seen.add(x))]
 
-        # Betragssuche für jede gefundene ISIN im Text
         for isin in ordered_isins:
             disp_name = isin
             sym = isin
@@ -84,15 +84,15 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            # Sucht nach Euro-Beträgen in der Nähe der ISIN
+            # Suche den genauen Betrag (€) in der Nähe der ISIN im PDF
             pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*€", re.DOTALL)
             match = pattern.search(full_text)
-            val = 50.0
+            val = 0.0
             if match:
                 try:
                     val = float(match.group(1).replace(".", "").replace(",", "."))
                 except Exception:
-                    val = 50.0
+                    val = 0.0
 
             found_items.append({
                 "ticker": sym,
