@@ -2,31 +2,31 @@ import streamlit as st
 from groq import Groq
 import re
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 @st.cache_data(ttl=3600)
 def get_account_models(api_key):
     if not api_key:
         return [DEFAULT_MODEL]
     try:
-        c = Groq(api_key=api_key.strip())
+        c = Groq(api_key=api_key.strip(), timeout=5.0)
         models_data = c.models.list().data
         valid_models = [
             m.id for m in models_data 
             if not any(x in m.id.lower() for x in ["whisper", "guard", "vision", "safeguard", "orpheus", "tts"])
         ]
-        preferred = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+        preferred = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
         sorted_models = [m for m in preferred if m in valid_models] + [m for m in valid_models if m not in preferred]
         return sorted_models if sorted_models else [DEFAULT_MODEL]
     except Exception:
-        return [DEFAULT_MODEL, "llama-3.1-8b-instant", "openai/gpt-oss-120b"]
+        return [DEFAULT_MODEL, "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
 Du bist ein renommierter quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnachrichten sowie das bestehende Depot des Nutzers und erstelle fundierte Empfehlungen auf Deutsch.
 
 [AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
-{news_text[:1200]}
+{news_text[:1000]}
 
 [BESTEHENDE DEPOT-WERTE DES NUTZERS]
 {metrics_summary}
@@ -87,34 +87,34 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
-    seen = set()
-    models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
-
-    full_text = ""
-    last_err_msg = ""
-
-    for target_model in models_to_try:
+    # Nur das ausgewählte Modell anfragen (keine Endlos-Schleifen)
+    target = model_name if model_name else DEFAULT_MODEL
+    try:
+        res = client.chat.completions.create(
+            model=target,
+            messages=[
+                {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
+                {"role": "user", "content": combined_prompt}
+            ],
+            temperature=0.2,
+            max_tokens=2000,
+            timeout=12.0
+        )
+        full_text = res.choices[0].message.content if res.choices else ""
+    except Exception as e:
+        # Einmaliger, schneller Fallback auf das schnellste Modell
         try:
             res = client.chat.completions.create(
-                model=target_model,
-                messages=[
-                    {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
-                    {"role": "user", "content": combined_prompt}
-                ],
+                model="openai/gpt-oss-20b",
+                messages=[{"role": "user", "content": combined_prompt}],
                 temperature=0.2,
-                max_tokens=2500,
+                max_tokens=1800,
+                timeout=8.0
             )
-            if res.choices and res.choices[0].message and res.choices[0].message.content:
-                full_text = res.choices[0].message.content
-                break
-        except Exception as e:
-            last_err_msg = str(e)
-            continue
-
-    if not full_text:
-        err_display = f"⚠️ **Groq API Fehler:** `{last_err_msg}`\n\nBitte prüfe deinen API-Key in den Streamlit Secrets."
-        return err_display, err_display, err_display, err_display
+            full_text = res.choices[0].message.content if res.choices else ""
+        except Exception as e2:
+            err_msg = f"⚠️ Groq API Fehler: {str(e)}"
+            return err_msg, err_msg, err_msg, err_msg
 
     # Unfehlbare Normalisierung: Bereinigt alle Varianten der Trennzeilen
     normalized_text = full_text
@@ -136,11 +136,10 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     out_signals = sections.get("SECTION_SIGNALE", "")
     out_cluster = sections.get("SECTION_KLUMPEN", "")
 
-    # Fallbacks
     if not out_market:
         out_market = full_text
     if not out_depot:
-        out_depot = "Statusbericht liegt vor:\n\n" + full_text[:600]
+        out_depot = "Statusbericht liegt vor:\n\n" + full_text[:500]
     if not out_signals:
         out_signals = full_text
     if not out_cluster:
@@ -159,17 +158,12 @@ Aktie B: {stock_b_info}
 """
     try:
         res = client.chat.completions.create(
-            model=model_name,
+            model=model_name if model_name else DEFAULT_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
+            timeout=8.0
         )
         return res.choices[0].message.content
     except Exception:
-        res = client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=600,
-        )
-        return res.choices[0].message.content
+        return "Duell-Analyse konnte nicht geladen werden."
