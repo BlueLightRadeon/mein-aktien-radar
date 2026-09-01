@@ -113,8 +113,8 @@ def parse_trade_republic_pdf(uploaded_file):
                 info = ISIN_MAP[isin]
                 sym = info["ticker"]
                 disp_name = info["name"]
-                invested_val = info["val"]
-                shares = info["sh"]
+                invested_val = float(info["val"])
+                shares = float(info["sh"])
             else:
                 sym = isin
                 disp_name = isin
@@ -124,8 +124,8 @@ def parse_trade_republic_pdf(uploaded_file):
             found_items.append({
                 "ticker": sym,
                 "name": disp_name,
-                "shares": shares,
-                "buy_price": invested_val
+                "shares": float(shares),
+                "buy_price": float(invested_val)
             })
     except Exception as e:
         st.error(f"Fehler beim Auslesen des PDFs: {e}")
@@ -133,7 +133,7 @@ def parse_trade_republic_pdf(uploaded_file):
     if not found_items:
         found_items = list(DEFAULT_HOLDINGS)
         
-    return found_items, extracted_cash
+    return found_items, float(extracted_cash)
 
 def fetch_all_headlines():
     return [
@@ -159,7 +159,7 @@ def assign_dynamic_role(ticker):
 
 def get_stock_data(portfolio_list):
     active_list = portfolio_list if portfolio_list else DEFAULT_HOLDINGS
-    clean_tickers = [clean_ticker(x["ticker"]) for x in active_list]
+    clean_tickers = [clean_ticker(x.get("ticker", "")) for x in active_list]
     data = []
 
     default_prices = {
@@ -181,16 +181,20 @@ def get_stock_data(portfolio_list):
     }
 
     for item in active_list:
-        t = clean_ticker(item.get("ticker", "UNBEKANNT"))
-        invested_money = float(item.get("buy_price", 50.0))
+        t = clean_ticker(item.get("ticker", "AVGO"))
+        try:
+            invested_money = float(item.get("buy_price", 50.0))
+        except Exception:
+            invested_money = 50.0
+            
         company_name = get_display_name(t, item.get("name"))
 
-        price = default_prices.get(t, 50.0)
+        price = float(default_prices.get(t, 50.0))
         currency = "EUR" if t.endswith(".DE") else "USD"
-        day_change_pct = default_changes.get(t, 0.25)
+        day_change_pct = float(default_changes.get(t, 0.25))
 
-        pos_val = invested_money * (1 + (day_change_pct / 100))
-        pnl_val = pos_val - invested_money
+        pos_val = float(invested_money * (1.0 + (day_change_pct / 100.0)))
+        pnl_val = float(pos_val - invested_money)
 
         earnings_str = "Q3/Q4 2026"
         div_rhythm = "Keine Ausschüttung"
@@ -207,7 +211,7 @@ def get_stock_data(portfolio_list):
 
         div_pct = 1.8 if "RHM" in t else (1.45 if t == "AVGO" else (1.3 if t == "NVO" else (1.6 if "EUNL" in t else 0.0)))
         dividend_yield_str = f"{div_pct:.2f}%"
-        annual_cashflow = pos_val * (div_pct / 100)
+        annual_cashflow = float(pos_val * (div_pct / 100.0))
 
         sector = default_sectors.get(t, "Technologie")
         country = default_countries.get(t, "USA")
@@ -232,10 +236,10 @@ def get_stock_data(portfolio_list):
             "Land": country,
             "Rolle": role,
             "Nächste Quartalszahlen": earnings_str,
-            "_raw_val": pos_val,
-            "_raw_invested": invested_money,
-            "_raw_cashflow": annual_cashflow,
-            "_raw_price": price
+            "_raw_val": float(pos_val),
+            "_raw_invested": float(invested_money),
+            "_raw_cashflow": float(annual_cashflow),
+            "_raw_price": float(price)
         })
 
     return pd.DataFrame(data), [], clean_tickers
@@ -257,10 +261,10 @@ def get_individual_series_dict(portfolio_list, period="1mo"):
     }
 
     for item in active_list:
-        t = clean_ticker(item.get("ticker", "UNBEKANNT"))
+        t = clean_ticker(item.get("ticker", "AVGO"))
         name = get_display_name(t)
         base = float(item.get("buy_price", 50.0))
-        pct_list = patterns.get(t, [i * 0.2 for i in range(30)])
-        series_dict[name] = pd.Series([base * (1 + (p / 100)) for p in pct_list], index=dates)
+        pct_list = patterns.get(t, [float(i * 0.2) for i in range(30)])
+        series_dict[name] = pd.Series([base * (1.0 + (p / 100.0)) for p in pct_list], index=dates)
             
     return series_dict
