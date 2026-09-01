@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 import feedparser
 from groq import Groq
 import pandas as pd
@@ -17,14 +18,47 @@ st.title("📈 KI Markt- & Depot-Radar")
 # Key aus Streamlit Secrets laden
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
+# --- FUNKTIONEN ZUM DAUERHAFTEN SPEICHERN ---
+PORTFOLIO_FILE = "portfolio.txt"
+
+
+def load_saved_portfolio():
+  # Prüfe zuerst URL-Parameter, dann Textdatei, sonst Standard-Werte
+  url_tickers = st.query_params.get("tickers", None)
+  if url_tickers:
+    return url_tickers
+  if os.path.exists(PORTFOLIO_FILE):
+    try:
+      with open(PORTFOLIO_FILE, "r") as f:
+        saved = f.read().strip()
+        if saved:
+          return saved
+    except Exception:
+      pass
+  return "AAPL, MSFT, NVDA, TSLA"
+
+
+def save_portfolio_to_file(tickers_str):
+  try:
+    with open(PORTFOLIO_FILE, "w") as f:
+      f.write(tickers_str)
+    # URL synchronisieren, damit der Home-Bildschirm-Link die Daten behält
+    st.query_params["tickers"] = tickers_str
+    return True
+  except Exception:
+    return False
+
+
+# Standardmäßig deine gespeicherten Werte laden
+default_tickers = load_saved_portfolio()
+
 
 @st.cache_data(ttl=3600)
 def get_account_models(api_key):
-  """Liest live alle tatsächlich für deinen Key freigeschalteten Modelle aus."""
+  """Liest live alle für deinen Key freigeschalteten Modelle aus."""
   try:
     c = Groq(api_key=api_key.strip())
     models_list = [m.id for m in c.models.list().data]
-    # Filtert reine Audio- und Guard-Modelle aus
     text_models = [
         m
         for m in models_list
@@ -35,15 +69,22 @@ def get_account_models(api_key):
     ]
     return text_models if text_models else models_list
   except Exception:
-    return ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
+    return ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"]
 
 
 # In der Seitenleiste Aktien & Modellauswahl
 with st.sidebar:
   st.header("💼 Mein Depot")
+
   portfolio_input = st.text_input(
-      "Deine Aktien & ETFs (Ticker)", value="AAPL, MSFT, NVDA, TSLA"
+      "Deine Aktien & ETFs (Ticker)", value=default_tickers
   )
+
+  # Speicher-Button für dein Depot
+  if st.button("💾 Depot dauerhaft speichern"):
+    if save_portfolio_to_file(portfolio_input):
+      st.success("✅ Gespeichert! Bleibt beim nächsten Öffnen erhalten.")
+
   st.caption("Beispiele: AAPL, MSFT, SAP.DE, MBG.DE, CSPX.AS, EUNL.DE")
 
   st.divider()
@@ -54,7 +95,7 @@ with st.sidebar:
         "Aktives Groq-Modell", available_models, index=0
     )
   else:
-    selected_model = "openai/gpt-oss-120b"
+    selected_model = "llama-3.3-70b-versatile"
 
 # 45+ globale Feeds
 RSS_SOURCES = [
@@ -196,6 +237,9 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
         " Settings -> Secrets eintragen."
     )
   else:
+    # Automatisch im Hintergrund auch beim Klick auf Analyse speichern
+    save_portfolio_to_file(portfolio_input)
+
     client = Groq(api_key=GROQ_KEY.strip())
     tickers = [
         t.strip().upper() for t in portfolio_input.split(",") if t.strip()
