@@ -344,16 +344,17 @@ with tab5:
 
       st.plotly_chart(fig, use_container_width=True)
 
-# TAB 6: RISIKOSTREUUNG
+# TAB 6: RISIKOSTREUUNG (ERWEITERT UM AUSFÜHRLICHE ERKLÄRUNG)
 with tab6:
-  st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Branchen und Länder, warnt vor Klumpenrisiken und schlägt Absicherungen vor.")
+  st.info("ℹ️ **Kurzinfo:** Prüft, wie dein Geld auf verschiedene Branchen und Länder verteilt ist. Ziel ist es, nicht das gesamte Vermögen an einen einzigen Sektor zu binden.")
+  
   if not stock_df.empty:
     col_d1, col_d2 = st.columns(2)
     custom_colors = ["#2E93fA", "#66DA26", "#546E7A", "#E91E63", "#FF9800", "#9C27B0", "#00ACC1"]
     with col_d1:
       fig_sec = px.pie(
           stock_df, names="Sektor", values="_raw_val",
-          title="Branchen-Aufteilung", hole=0.4,
+          title="Branchen-Aufteilung (Sektoren)", hole=0.4,
           color_discrete_sequence=custom_colors
       )
       fig_sec.update_traces(textposition="inside", textinfo="percent+label")
@@ -361,16 +362,46 @@ with tab6:
     with col_d2:
       fig_geo = px.pie(
           stock_df, names="Land", values="_raw_val",
-          title="Länder-Aufteilung", hole=0.4,
+          title="Länder-Aufteilung (Regionen)", hole=0.4,
           color_discrete_sequence=custom_colors
       )
       fig_geo.update_traces(textposition="inside", textinfo="percent+label")
       st.plotly_chart(fig_geo, use_container_width=True)
-      
+
+    # AUSFÜHRLICHE ERKLÄRUNG UNTERHALB DER DIAGRAMME
+    st.divider()
+    st.subheader("📖 Was sagen diese Ringdiagramme über dein Depot aus?")
+    
+    st.markdown("""
+    Die beiden Ringdiagramme zeigen deine **Risikoverteilung (Diversifikation)**:
+
+    1. **Linker Ring (Branchen-Aufteilung):**
+       * Zeigt, in welchen Wirtschaftszweigen dein Geld arbeitet.
+       * **Deine Zuordnung:** 
+         * *Halbleiter & KI / Chipherstellung:* **NVIDIA**, **Broadcom**, **TSMC** (ca. 40–50 % deines Depots)
+         * *Cyber-Sicherheit:* **Palo Alto Networks**
+         * *Verteidigung & Rüstung:* **Rheinmetall**
+         * *Pharma & Gesundheit:* **Novo Nordisk**
+         * *Digitale Medien:* **VerticalScope**
+
+    2. **Rechter Ring (Länder-Aufteilung):**
+       * Zeigt, welchen Währungen und regionalen Märkten du ausgesetzt bist.
+       * **Deine Zuordnung:** Ein großer Teil deines Geldes liegt in den **USA** (NVIDIA, Palo Alto, Broadcom) und wird in US-Dollar bewertet. Dazu kommen **Deutschland** (Rheinmetall), **Dänemark** (Novo Nordisk), **Taiwan** (TSMC) und **Kanada** (VerticalScope).
+
+    ---
+
+    ### ⚖️ Was bedeutet das für dein Risiko?
+    * **Klumpenrisiko im Tech-/KI-Sektor:** Da NVIDIA, Broadcom und TSMC alle an der weltweiten Chip- und KI-Nachfrage hängen, bewegen sie sich oft im Gleichschritt. Fällt der Halbleitermarkt, spürst du das direkt in mehreren Werten gleichzeitig.
+    * **Starke Gegengewichte:** Mit **Rheinmetall** (profitiert von Rüstungsbudgets unabhängig von Tech) und **Novo Nordisk** (krisenfester Gesundheitssektor) hast du bereits zwei solide Gegengewichte im Portfolio, die dein Gesamtrisiko dämpfen.
+    * **Währungseinfluss:** Bei deinen US-Aktien beeinflusst auch der Euro/Dollar-Wechselkurs deine Rendite.
+    """)
+
   if "ai_cluster" in st.session_state:
     st.divider()
-    st.subheader("🛡️ KI-Gutachten & Erklärung zur Risikostreuung:")
+    st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
     st.markdown(st.session_state["ai_cluster"])
+  else:
+    st.caption("Klicke oben auf **'🚀 Gesamte KI-Auswertung starten'**, um das KI-Risikogutachten abzurufen.")
 
 # TAB 7: AKTIEN-VERGLEICH
 with tab7:
