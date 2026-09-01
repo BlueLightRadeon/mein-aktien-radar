@@ -26,38 +26,52 @@ st.title("📈 KI Markt- & Depot-Radar")
 
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
+# Initialisierung des Portfolios
 if "my_portfolio" not in st.session_state:
     st.session_state.my_portfolio = load_saved_portfolio()
 
-# --- SEITENLEISTE ---
+if "tr_cash" not in st.session_state:
+    st.session_state.tr_cash = 500.0  # Standard-Verrechnungskonto Cash
+
+# --- SEITENLEISTE: TRADE REPUBLIC VERWALTUNG ---
 with st.sidebar:
-    st.header("💼 Mein Depot & Trade Republic")
+    st.header("🏦 Trade Republic Setup")
     
-    with st.expander("📥 Trade Republic Auszug importieren"):
-        st.caption("Lade hier deinen PDF-Kontoauszug hoch, um deine Aktien automatisch einzulesen.")
-        tr_pdf = st.file_uploader("PDF-Kontoauszug hochladen", type=["pdf"])
+    # 1. Trade Republic Cash-Bestand
+    st.session_state.tr_cash = st.number_input(
+        "💶 TR Verrechnungskonto (Cash):",
+        min_value=0.0,
+        value=float(st.session_state.tr_cash),
+        step=50.0,
+        help="Dein uninvestiertes Guthaben bei Trade Republic (erhält 3,75% Zinsen)."
+    )
+
+    # 2. PDF-Import
+    with st.expander("📥 TR-Kontoauszug (PDF) importieren"):
+        st.caption("Lade hier deinen PDF-Depotauszug hoch, um echte Werte automatisch zu übernehmen.")
+        tr_pdf = st.file_uploader("PDF hochladen", type=["pdf"])
         if tr_pdf:
             imported = parse_trade_republic_pdf(tr_pdf)
             if imported:
-                for it in imported:
-                    if not any(x["ticker"] == it["ticker"] for x in st.session_state.my_portfolio):
-                        st.session_state.my_portfolio.append(it)
+                st.session_state.my_portfolio = imported
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"{len(imported)} Positionen übernommen!")
+                st.success(f"{len(imported)} Positionen aus TR importiert!")
                 st.rerun()
 
-    search_query = st.text_input("🔍 Aktie suchen:", placeholder="z. B. Novo Nordisk, Rheinmetall...")
+    st.divider()
+    st.subheader("🔍 Aktie hinzufügen:")
+    search_query = st.text_input("Aktie/ETF suchen:", placeholder="z. B. Novo Nordisk, Rheinmetall...")
     if search_query:
         results = search_ticker_candidates(search_query)
         if results:
-            selected_cand = st.selectbox("Gefundene Treffer:", results, key="side_search_select")
+            selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
             col_s1, col_s2 = st.columns(2)
             with col_s1:
-                in_shares = st.number_input("Stückzahl", min_value=0.01, value=1.0, step=1.0, help="Wie viele Anteile dieser Aktie besitzt du?")
+                in_shares = st.number_input("Stückzahl", min_value=0.01, value=1.0, step=1.0)
             with col_s2:
-                in_buy = st.number_input("Dein Kaufkurs (€/$)", min_value=0.0, value=0.0, step=10.0, help="Zu welchem Preis pro Aktie hast du damals gekauft?")
+                in_buy = st.number_input("Kaufkurs (€)", min_value=0.0, value=0.0, step=10.0)
             
-            if st.button("➕ Zum Depot hinzufügen", use_container_width=True):
+            if st.button("➕ Zu TR-Depot hinzufügen", use_container_width=True):
                 sym = clean_ticker(selected_cand)
                 name = selected_cand.split("(")[1].replace(")", "") if "(" in selected_cand else sym
                 st.session_state.my_portfolio.append({
@@ -71,32 +85,33 @@ with st.sidebar:
                 st.rerun()
 
     st.divider()
-    st.subheader("Aktuell im Depot:")
+    st.subheader("Aktuelle TR-Positionen:")
     if st.session_state.my_portfolio:
         for idx, item in enumerate(list(st.session_state.my_portfolio)):
             with st.container():
                 c_a, c_b = st.columns([4, 1])
                 with c_a:
                     st.write(f"• **{item.get('name', item['ticker'])}** ({item['ticker']})")
-                    st.caption(f"Anzahl: {item.get('shares', 1.0):.1f} Stk. | Kauf: {item.get('buy_price', 0.0):.2f} €")
+                    st.caption(f"Anzahl: {item.get('shares', 1.0):.2f} Stk. | Kauf: {item.get('buy_price', 0.0):.2f} €")
                 with c_b:
-                    if st.button("❌", key=f"del_btn_{idx}", help="Diese Aktie aus deiner Liste löschen"):
+                    if st.button("❌", key=f"del_btn_{idx}"):
                         st.session_state.my_portfolio.pop(idx)
                         save_portfolio_to_file(st.session_state.my_portfolio)
                         st.rerun()
     else:
-        st.info("Dein Depot ist aktuell leer.")
+        st.info("Noch keine Positionen im Depot.")
 
     st.divider()
-    st.header("🤖 KI-Gehirn")
+    st.header("🤖 KI-Modell")
     if GROQ_KEY:
         available_models = get_account_models(GROQ_KEY)
-        selected_model = st.selectbox("Aktives KI-Modell", available_models, index=0, help="Das Modell, das die Auswertungen für dich schreibt.")
+        selected_model = st.selectbox("Modell", available_models, index=0)
     else:
         selected_model = "llama-3.3-70b-versatile"
 
-# 7 TABS
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+# TAB-AUFTEILUNG (Jetzt inklusive Tab 0: Trade Republic Live-Konto)
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "🏦 Trade Republic Konto",
     "🌍 Welt-Nachrichten",
     "💼 Stimmung & Depot",
     "📅 Termine & Dividenden",
@@ -109,33 +124,52 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 # Daten laden
 if st.session_state.my_portfolio:
     stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
-    total_val = stock_df["_raw_val"].sum()
+    stock_val = stock_df["_raw_val"].sum()
     total_invested = stock_df["_raw_invested"].sum()
-    total_pnl = total_val - total_invested if total_invested > 0 else 0.0
-    total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
+    total_tr_account = stock_val + st.session_state.tr_cash
+    stock_pnl = stock_val - total_invested if total_invested > 0 else 0.0
+    stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
 
-    col_t1, col_t2, col_t3 = st.columns(3)
-    with col_t1:
-        st.metric("Gesamtwert Depot", f"{total_val:,.2f} €", help="So viel sind all deine Aktien aktuell zusammen wert.")
-    with col_t2:
-        st.metric("Eingezahltes Geld", f"{total_invested:,.2f} €", help="So viel eigenes Geld hast du insgesamt für die Käufe bezahlt.")
-    with col_t3:
-        st.metric("Dein Gewinn / Verlust", f"{total_pnl:+,.2f} €", delta=f"{total_pnl_pct:+.2f}%", help="Dein tatsächlicher Gewinn oder Verlust seit dem Kauf.")
+    # Haupt-Kopfzeile
+    c_m1, c_m2, c_m3 = st.columns(3)
+    with c_m1:
+        st.metric("TR Gesamtkonto", f"{total_tr_account:,.2f} €", help="Aktienwert + uninvestiertes Cash-Guthaben")
+    with c_m2:
+        st.metric("Investiert in Aktien", f"{stock_val:,.2f} €", help="Aktueller Wert deiner Aktien")
+    with c_m3:
+        st.metric("Aktien-Rendite", f"{stock_pnl:+,.2f} €", delta=f"{stock_pnl_pct:+.2f}%")
 else:
     stock_df = pd.DataFrame()
     ticker_news = []
     resolved_tickers = []
+    stock_val = 0.0
+    total_tr_account = st.session_state.tr_cash
 
-# TAB 5: Kurs-Diagramme
+# TAB 0: SPEZIELLER TRADE REPUBLIC KONTO TAB
+with tab0:
+    st.subheader("🏦 Mein Trade Republic Depot-Spiegel")
+    
+    col_tr1, col_tr2 = st.columns(2)
+    with col_tr1:
+        st.info(f"💶 **Verrechnungskonto (Cash):** {st.session_state.tr_cash:,.2f} €")
+    with col_tr2:
+        st.success(f"📈 **Aktienbestand (Marktwert):** {stock_val:,.2f} €")
+        
+    st.write("### Deine Trade Republic Positionen:")
+    if not stock_df.empty:
+        st.dataframe(
+            stock_df[[
+                "Name / Aktie", "Ticker", "Stückzahl", "Kaufkurs", 
+                "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"
+            ]],
+            hide_index=True
+        )
+    else:
+        st.info("Füge in der Seitenleiste deine echten Aktien und Stückzahlen ein.")
+
+# TAB 5: Live-Charts
 with tab5:
     st.subheader("📊 Kursentwicklung & Performance")
-    
-    with st.expander("ℹ️ Was bedeuten die Optionen hier?"):
-        st.write("""
-        - **Wertentwicklung in %**: Alle Aktien starten bei 0 %. Du siehst sofort, welche Aktie am stärksten gestiegen oder gefallen ist.
-        - **Preis pro Aktie**: Zeigt den tatsächlichen Geld-Betrag (in € oder $), den eine einzelne Aktie kostet.
-        """)
-
     c1, c2 = st.columns([1, 1])
     with c1:
         timeframe = st.selectbox(
@@ -143,12 +177,8 @@ with tab5:
             options=["1d", "5d", "1mo", "6mo", "1y", "5y"],
             index=2,
             format_func=lambda x: {
-                "1d": "1 Tag (Live heute)",
-                "5d": "5 Tage",
-                "1mo": "1 Monat",
-                "6mo": "6 Monate",
-                "1y": "1 Jahr",
-                "5y": "5 Jahre"
+                "1d": "1 Tag (Live heute)", "5d": "5 Tage", "1mo": "1 Monat",
+                "6mo": "6 Monate", "1y": "1 Jahr", "5y": "5 Jahre"
             }[x]
         )
     with c2:
@@ -208,7 +238,6 @@ with tab5:
 # TAB 6: Risikostreuung
 with tab6:
     st.subheader("🥧 Risikostreuung & Einseitigkeit (Klumpenrisiko)")
-    st.caption("Ein gutes Depot verteilt das Geld auf verschiedene Branchen und Länder, damit ein Branchen-Crash dich nicht hart trifft.")
     if not stock_df.empty:
         col_d1, col_d2 = st.columns(2)
         with col_d1:
@@ -223,7 +252,6 @@ with tab6:
 # TAB 7: Aktien-Vergleich
 with tab7:
     st.subheader("⚔️ Direktes Aktien-Duell (1 gegen 1)")
-    st.caption("Vergleiche zwei deiner Aktien direkt miteinander. Die KI kürt die aktuell attraktivere Aktie.")
     if not stock_df.empty and len(stock_df) >= 2:
         cd1, cd2 = st.columns(2)
         with cd1:
@@ -250,7 +278,7 @@ if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
         save_portfolio_to_file(st.session_state.my_portfolio)
         client = Groq(api_key=GROQ_KEY.strip())
 
-        with st.spinner("Analysiere Nachrichten, Kurse, Preisschilder und Trends verständlich auf Deutsch..."):
+        with st.spinner("Analysiere Nachrichten, Kurse und Trends verständlich auf Deutsch..."):
             news_data = fetch_all_headlines()
             news_text = "\n".join(news_data)
             ticker_news_text = "\n".join(ticker_news) if ticker_news else "Keine aktuellen Sondermeldungen."
@@ -282,8 +310,6 @@ if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
 
                 with tab3:
                     st.subheader("📅 Termine & Gewinnausschüttungen")
-                    with st.expander("ℹ️ Was bedeutet Dividendenrendite?"):
-                        st.write("Die **Dividende** ist der Gewinnanteil, den ein Unternehmen regelmäßig (meist quartalsweise oder jährlich) bar auf dein Verrechnungskonto überweist. 3 % bedeutet: Bei 1.000 € Anlage bekommst du 30 € pro Jahr.")
                     st.dataframe(
                         stock_df[["Name / Aktie", "Ticker", "Dividendenrendite", "Nächste Quartalszahlen"]].rename(columns={
                             "Dividendenrendite": "Gewinnausschüttung (% p.a.)",
@@ -294,13 +320,6 @@ if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
 
                 with tab4:
                     st.subheader("🎯 Kauf- / Verkauf-Tipps & Faire Bewertung")
-                    with st.expander("ℹ️ Erklärung zu den Bewertungs-Kennzahlen"):
-                        st.write("""
-                        - **Aktueller Kurs**: Was 1 Aktie gerade an der Börse kostet.
-                        - **Faire Wertschätzung (Fair Value)**: Was die Aktie rechnerisch anhand von Gewinn und Substanz wert sein sollte. Liegt der Kurs deutlich darunter, gilt sie als günstig.
-                        - **Experten-Kursziel**: Wo Analysten großer Banken die Aktie in 12 Monaten sehen.
-                        - **Experten-Empfehlung**: Die Mehrheitseinschätzung der Profis (Kaufen, Halten oder Verkaufen).
-                        """)
                     st.dataframe(
                         stock_df[["Name / Aktie", "Ticker", "Aktueller Kurs", "Fair Value", "Analysten-Kursziel", "Konsens-Rating"]].rename(columns={
                             "Fair Value": "Faire Wertschätzung",
