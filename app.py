@@ -157,11 +157,6 @@ if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"
             except Exception as e:
                 st.error(f"Fehler: {str(e)}")
 
-# DIREKTE ERGEBNIS-BOX ÜBER DEN TABS
-if st.session_state.get("ai_signals"):
-    with st.expander(f"✨ **Aktuelle KI-Auswertung (Stand: {st.session_state.get('last_analysis_time', '')})**", expanded=True):
-        st.markdown(st.session_state["ai_signals"])
-
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
@@ -188,10 +183,10 @@ with tab0:
         disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
 
-    if st.session_state.get("ai_depot"):
+    if st.session_state.get("ai_signals"):
         st.divider()
-        st.subheader("🤖 KI-Statusbericht zu deinen Positionen:")
-        st.markdown(st.session_state["ai_depot"])
+        st.subheader("🎯 Schnelle Übersicht: Top 5 Kaufkandidaten")
+        st.markdown(st.session_state["ai_signals"])
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
