@@ -4,12 +4,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
+import time
 
 if "v_portfolio" not in st.session_state:
     st.session_state["v_portfolio"] = []
 
 if "v_cash" not in st.session_state:
     st.session_state["v_cash"] = 0.0
+
+if "last_auto_run_ts" not in st.session_state:
+    st.session_state["last_auto_run_ts"] = 0
 
 try:
     from data_service import (
@@ -50,6 +54,38 @@ def fmt_eur(val):
         return f"{val_float:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return "0,00 €"
+
+def execute_ai_analysis(portfolio_items, current_stock_df, model_to_use):
+    """Zentrale Ausführungsfunktion für manuelle und automatische KI-Updates"""
+    if not GROQ_KEY or not portfolio_items:
+        return False
+    try:
+        client = Groq(api_key=GROQ_KEY)
+        news_data = fetch_all_headlines()
+        news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
+
+        if not current_stock_df.empty and "Unternehmen" in current_stock_df.columns:
+            summary_cols = [c for c in ["Unternehmen", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"] if c in current_stock_df.columns]
+            metrics_summary = current_stock_df[summary_cols].to_string(index=False)
+            cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in current_stock_df.columns]
+            cluster_context = current_stock_df[cluster_cols].to_string(index=False)
+        else:
+            metrics_summary = "Keine Einzelwerte hinterlegt."
+            cluster_context = "Keine Sektoraufteilung vorhanden."
+
+        out_m, out_d, out_s, out_c = run_analysis(
+            client, model_to_use, news_text, metrics_summary, "", cluster_context
+        )
+        st.session_state["ai_market"] = out_m
+        st.session_state["ai_depot"] = out_d
+        st.session_state["ai_signals"] = out_s
+        st.session_state["ai_cluster"] = out_c
+        st.session_state["last_analysis_time"] = get_berlin_time_str()
+        st.session_state["last_auto_run_ts"] = time.time()
+        return True
+    except Exception as e:
+        st.error(f"⚠️ Groq Fehler: {str(e)}")
+        return False
 
 # --- SEITENLEISTE ---
 with st.sidebar:
@@ -117,9 +153,10 @@ with st.sidebar:
         st.info("Noch kein Auszug geladen (0 Positionen).")
 
     st.divider()
-    st.header("🤖 KI-Modell")
+    st.header("🤖 KI & Automatisierung")
+    auto_refresh_active = st.toggle("🔄 Auto-Update alle 10 Min.", value=True, help="Aktualisiert die Marktanalyse alle 10 Minuten automatisch im Hintergrund.")
     available_models = get_account_models(GROQ_KEY)
-    selected_model = st.selectbox("Auswahl:", available_models, index=0)
+    selected_model = st.selectbox("KI-Modell:", available_models, index=0)
 
 # BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
@@ -137,39 +174,36 @@ with c_m2:
 with c_m3:
     st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
-# KI-AUSWERTUNGS BUTTON
-if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
-    if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
-    elif not portfolio_list:
-        st.warning("⚠️ Bitte lade zuerst deinen Trade Republic PDF-Auszug in der linken Seitenleiste hoch.")
-    else:
-        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
-            try:
-                client = Groq(api_key=GROQ_KEY)
-                news_data = fetch_all_headlines()
-                news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
+# AUTOMATISCHER 10-MINUTEN TIMER (600 Sekunden)
+now_ts = time.time()
+ten_minutes_in_sec = 600
 
-                if not stock_df.empty and "Unternehmen" in stock_df.columns:
-                    summary_cols = [c for c in ["Unternehmen", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"] if c in stock_df.columns]
-                    metrics_summary = stock_df[summary_cols].to_string(index=False)
-                    cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in stock_df.columns]
-                    cluster_context = stock_df[cluster_cols].to_string(index=False)
-                else:
-                    metrics_summary = "Keine Einzelwerte hinterlegt."
-                    cluster_context = "Keine Sektoraufteilung vorhanden."
+if auto_refresh_active and portfolio_list and GROQ_KEY:
+    if (now_ts - st.session_state["last_auto_run_ts"]) >= ten_minutes_in_sec:
+        with st.spinner("🔄 Automatisches 10-Minuten KI-Update läuft..."):
+            if execute_ai_analysis(portfolio_list, stock_df, selected_model):
+                st.rerun()
 
-                out_m, out_d, out_s, out_c = run_analysis(
-                    client, selected_model, news_text, metrics_summary, "", cluster_context
-                )
-                st.session_state["ai_market"] = out_m
-                st.session_state["ai_depot"] = out_d
-                st.session_state["ai_signals"] = out_s
-                st.session_state["ai_cluster"] = out_c
-                st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.success("✅ Auswertung erfolgreich abgeschlossen!")
-            except Exception as e:
-                st.error(f"⚠️ Groq Fehler: {str(e)}")
+# MANUELLER AUSWERTUNGS-BUTTON
+col_btn, col_timer = st.columns([3, 2])
+with col_btn:
+    if st.button("🚀 Jetzt sofort KI-Auswertung starten", width="stretch", type="primary"):
+        if not GROQ_KEY:
+            st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
+        elif not portfolio_list:
+            st.warning("⚠️ Bitte lade zuerst deinen Trade Republic PDF-Auszug in der linken Seitenleiste hoch.")
+        else:
+            with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
+                if execute_ai_analysis(portfolio_list, stock_df, selected_model):
+                    st.success("✅ Auswertung erfolgreich abgeschlossen!")
+                    st.rerun()
+
+with col_timer:
+    if st.session_state.get("last_analysis_time"):
+        st.caption(f"🕒 Letztes Update: **{st.session_state['last_analysis_time']}**")
+        if auto_refresh_active:
+            seconds_left = max(0, int(ten_minutes_in_sec - (now_ts - st.session_state["last_auto_run_ts"])))
+            st.caption(f"⏳ Nächstes Auto-Update in ca. **{seconds_left // 60}m {seconds_left % 60}s**")
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -206,7 +240,7 @@ with tab1:
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
     else:
-        st.info("Klicke oben auf den Button **'🚀 Jetzt KI-Auswertung starten'**, um die Meldungen abzurufen.")
+        st.info("Klicke oben auf den Button **'🚀 Jetzt sofort KI-Auswertung starten'**, um die Meldungen abzurufen.")
 
 # TAB 2: STIMMUNG & DEPOT
 with tab2:
@@ -245,9 +279,9 @@ with tab4:
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_signals"])
     else:
-        st.info("Klicke oben auf **'🚀 Jetzt KI-Auswertung starten'**, um die 5 neuen Kaufkandidaten zu laden.")
+        st.info("Klicke oben auf **'🚀 Jetzt sofort KI-Auswertung starten'**, um die 5 neuen Kaufkandidaten zu laden.")
 
-# TAB 5: CHARTS (Individuelle, bunte Kurven für jede Aktie)
+# TAB 5: CHARTS
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive 30-Tage Performance-Verläufe für alle Aktien in deinem Depot.")
     if portfolio_list:
@@ -281,14 +315,13 @@ with tab5:
     else:
         st.info("Lade deinen TR-Kontoauszug hoch, um die Performance-Diagramme anzuzeigen.")
 
-# TAB 6: RISIKOSTREUUNG (Garantiert immer gerenderte 3 Kreisdiagramme)
+# TAB 6: RISIKOSTREUUNG
 with tab6:
     st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder.")
     if not stock_df.empty:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
         custom_colors = ["#2E93fA", "#66DA26", "#FF9800", "#E91E63", "#546E7A", "#9C27B0", "#00ACC1", "#F4511E"]
         
-        # Sicherstellen, dass die Werte niemals 0 sind für Plotly
         pie_df = stock_df.copy()
         if pie_df["_raw_val"].sum() <= 0:
             pie_df["_raw_val"] = 1.0
