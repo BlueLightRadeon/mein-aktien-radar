@@ -61,7 +61,7 @@ def load_saved_portfolio():
                     return data
         except Exception:
             pass
-    return list(DEFAULT_HOLDINGS)
+    return [dict(x) for x in DEFAULT_HOLDINGS]
 
 def save_portfolio_to_file(portfolio_list):
     try:
@@ -89,6 +89,7 @@ def parse_trade_republic_pdf(uploaded_file):
     found_items = []
     extracted_cash = 194.02
     try:
+        uploaded_file.seek(0)
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
@@ -131,7 +132,7 @@ def parse_trade_republic_pdf(uploaded_file):
         st.error(f"Fehler beim Auslesen des PDFs: {e}")
     
     if not found_items:
-        found_items = list(DEFAULT_HOLDINGS)
+        found_items = [dict(x) for x in DEFAULT_HOLDINGS]
         
     return found_items, float(extracted_cash)
 
@@ -158,7 +159,7 @@ def assign_dynamic_role(ticker):
         return "🎯 Nischenwert / Sonstiges"
 
 def get_stock_data(portfolio_list):
-    active_list = portfolio_list if portfolio_list else DEFAULT_HOLDINGS
+    active_list = portfolio_list if (portfolio_list and len(portfolio_list) > 0) else DEFAULT_HOLDINGS
     clean_tickers = [clean_ticker(x.get("ticker", "")) for x in active_list]
     data = []
 
@@ -245,7 +246,7 @@ def get_stock_data(portfolio_list):
     return pd.DataFrame(data), [], clean_tickers
 
 def get_individual_series_dict(portfolio_list, period="1mo"):
-    active_list = portfolio_list if portfolio_list else DEFAULT_HOLDINGS
+    active_list = portfolio_list if (portfolio_list and len(portfolio_list) > 0) else DEFAULT_HOLDINGS
     dates = pd.date_range(end=datetime.now(), periods=30, freq="D")
     series_dict = {}
     
