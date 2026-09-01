@@ -13,7 +13,7 @@ if "v_cash" not in st.session_state:
     st.session_state["v_cash"] = 0.0
 
 if "last_auto_run_ts" not in st.session_state:
-    st.session_state["last_auto_run_ts"] = 0
+    st.session_state["last_auto_run_ts"] = 0.0
 
 try:
     from data_service import (
@@ -55,10 +55,10 @@ def fmt_eur(val):
     except Exception:
         return "0,00 €"
 
-def execute_ai_analysis(portfolio_items, current_stock_df, model_to_use):
-    """Zentrale Ausführungsfunktion für manuelle und automatische KI-Updates"""
+def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
     if not GROQ_KEY or not portfolio_items:
         return False
+
     try:
         client = Groq(api_key=GROQ_KEY)
         news_data = fetch_all_headlines()
@@ -84,7 +84,7 @@ def execute_ai_analysis(portfolio_items, current_stock_df, model_to_use):
         st.session_state["last_auto_run_ts"] = time.time()
         return True
     except Exception as e:
-        st.error(f"⚠️ Groq Fehler: {str(e)}")
+        st.error(f"⚠️ Groq API Fehler: {str(e)}")
         return False
 
 # --- SEITENLEISTE ---
@@ -99,6 +99,7 @@ with st.sidebar:
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
                 st.session_state["v_portfolio"] = imported_items
                 st.session_state["v_cash"] = float(imported_cash)
+                st.session_state["last_auto_run_ts"] = 0.0
                 st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) eingelesen!")
                 st.rerun()
 
@@ -112,6 +113,7 @@ with st.sidebar:
         st.session_state.pop("ai_market", None)
         st.session_state.pop("ai_depot", None)
         st.session_state.pop("ai_cluster", None)
+        st.session_state["last_auto_run_ts"] = 0.0
         st.rerun()
 
     st.divider()
@@ -132,6 +134,7 @@ with st.sidebar:
                     "shares": 1.0,
                     "buy_price": float(in_money)
                 })
+                st.session_state["last_auto_run_ts"] = 0.0
                 st.success(f"✅ {disp_name} hinzugefügt!")
                 st.rerun()
 
@@ -153,8 +156,8 @@ with st.sidebar:
         st.info("Noch kein Auszug geladen (0 Positionen).")
 
     st.divider()
-    st.header("🤖 KI & Automatisierung")
-    auto_refresh_active = st.toggle("🔄 Auto-Update alle 10 Min.", value=True, help="Aktualisiert die Marktanalyse alle 10 Minuten automatisch im Hintergrund.")
+    st.header("🤖 KI-Einstellungen")
+    auto_refresh_active = st.toggle("🔄 Auto-Update alle 10 Min.", value=True)
     available_models = get_account_models(GROQ_KEY)
     selected_model = st.selectbox("KI-Modell:", available_models, index=0)
 
@@ -174,36 +177,35 @@ with c_m2:
 with c_m3:
     st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
-# AUTOMATISCHER 10-MINUTEN TIMER (600 Sekunden)
+# AUTO-REFRESH LOGIK
 now_ts = time.time()
-ten_minutes_in_sec = 600
+last_ts = st.session_state.get("last_auto_run_ts", 0.0)
+ten_mins = 600.0
 
-if auto_refresh_active and portfolio_list and GROQ_KEY:
-    if (now_ts - st.session_state["last_auto_run_ts"]) >= ten_minutes_in_sec:
-        with st.spinner("🔄 Automatisches 10-Minuten KI-Update läuft..."):
-            if execute_ai_analysis(portfolio_list, stock_df, selected_model):
+if portfolio_list and GROQ_KEY and auto_refresh_active:
+    if (now_ts - last_ts) >= ten_mins:
+        with st.spinner("🔄 KI-Radar analysiert Marktlage & Portfolio..."):
+            trigger_ai_run(portfolio_list, stock_df, selected_model)
+            now_ts = time.time()
+            last_ts = st.session_state.get("last_auto_run_ts", now_ts)
+
+col_btn, col_info = st.columns([3, 2])
+with col_btn:
+    if st.button("🚀 Jetzt sofort manuell aktualisieren", width="stretch", type="primary"):
+        with st.spinner("Analysiere Markt & Portfolio mit Groq KI..."):
+            if trigger_ai_run(portfolio_list, stock_df, selected_model):
+                st.success("✅ Auswertung erfolgreich aktualisiert!")
                 st.rerun()
 
-# MANUELLER AUSWERTUNGS-BUTTON
-col_btn, col_timer = st.columns([3, 2])
-with col_btn:
-    if st.button("🚀 Jetzt sofort KI-Auswertung starten", width="stretch", type="primary"):
-        if not GROQ_KEY:
-            st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
-        elif not portfolio_list:
-            st.warning("⚠️ Bitte lade zuerst deinen Trade Republic PDF-Auszug in der linken Seitenleiste hoch.")
-        else:
-            with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
-                if execute_ai_analysis(portfolio_list, stock_df, selected_model):
-                    st.success("✅ Auswertung erfolgreich abgeschlossen!")
-                    st.rerun()
-
-with col_timer:
+with col_info:
     if st.session_state.get("last_analysis_time"):
-        st.caption(f"🕒 Letztes Update: **{st.session_state['last_analysis_time']}**")
+        st.write(f"🕒 Stand: **{st.session_state['last_analysis_time']}**")
         if auto_refresh_active:
-            seconds_left = max(0, int(ten_minutes_in_sec - (now_ts - st.session_state["last_auto_run_ts"])))
-            st.caption(f"⏳ Nächstes Auto-Update in ca. **{seconds_left // 60}m {seconds_left % 60}s**")
+            elapsed = now_ts - last_ts
+            remaining = max(0, int(ten_mins - elapsed))
+            st.caption(f"⏳ Nächstes Auto-Update in ca. **{remaining // 60}m {remaining % 60:02d}s**")
+    else:
+        st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -240,7 +242,7 @@ with tab1:
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
     else:
-        st.info("Klicke oben auf den Button **'🚀 Jetzt sofort KI-Auswertung starten'**, um die Meldungen abzurufen.")
+        st.info("Lade dein Depot hoch, um die Marktanalyse automatisch zu laden.")
 
 # TAB 2: STIMMUNG & DEPOT
 with tab2:
@@ -253,7 +255,7 @@ with tab2:
         st.subheader("🤖 KI-Stimmungsbericht:")
         st.markdown(st.session_state["ai_depot"])
     else:
-        st.info("Klicke oben auf den Button, um den Stimmungsbericht zu laden.")
+        st.info("Keine Daten geladen.")
 
 # TAB 3: TERMINE & CASHFLOW
 with tab3:
@@ -279,31 +281,39 @@ with tab4:
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_signals"])
     else:
-        st.info("Klicke oben auf **'🚀 Jetzt sofort KI-Auswertung starten'**, um die 5 neuen Kaufkandidaten zu laden.")
+        st.info("Lade ein Depot ein, um die Kaufempfehlungen zu sehen.")
 
-# TAB 5: CHARTS
+# TAB 5: CHARTS (Mit Zeitraum- & Fokus-Auswahl)
 with tab5:
-    st.info("ℹ️ **Kurzinfo:** Interaktive 30-Tage Performance-Verläufe für alle Aktien in deinem Depot.")
+    st.info("ℹ️ **Kurzinfo:** Interaktive Performance-Verläufe deiner Aktien im gewählten Zeitraum.")
     if portfolio_list:
-        series_dict = get_individual_series_dict(portfolio_list)
+        col_chart_focus, col_chart_period = st.columns([3, 2])
+        
+        series_names = [get_display_name(x.get("ticker", ""), x.get("name")) for x in portfolio_list]
+        with col_chart_focus:
+            selected_view = st.selectbox("Fokus-Ansicht:", ["Alle Aktien gleichzeitig"] + series_names, index=0)
+            
+        with col_chart_period:
+            selected_period = st.radio("Zeitraum:", ["1W", "1M", "6M", "1J", "Max"], index=1, horizontal=True)
+
+        series_dict = get_individual_series_dict(portfolio_list, period=selected_period)
         if series_dict:
             available_names = list(series_dict.keys())
-            selected_view = st.selectbox("Fokus-Ansicht:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
-            
             palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA", "#00E676"]
             fig = go.Figure()
             names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
 
             for i, name in enumerate(names_to_plot):
-                s = series_dict[name]
-                fig.add_trace(go.Scatter(
-                    x=s.index, y=s.values, mode="lines", name=name,
-                    line=dict(width=2.5, color=palette[i % len(palette)]),
-                    hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
-                ))
+                if name in series_dict:
+                    s = series_dict[name]
+                    fig.add_trace(go.Scatter(
+                        x=s.index, y=s.values, mode="lines", name=name,
+                        line=dict(width=2.5, color=palette[i % len(palette)]),
+                        hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
+                    ))
             
             fig.update_layout(
-                title="Performance-Entwicklung (Letzte 30 Tage)",
+                title=f"Performance-Entwicklung ({selected_period})",
                 xaxis_title="Datum",
                 yaxis_title="Rendite / Entwicklung (%)",
                 yaxis_ticksuffix="%",
