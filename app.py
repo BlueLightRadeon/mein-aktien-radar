@@ -65,7 +65,7 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
         if not current_stock_df.empty and "Unternehmen" in current_stock_df.columns:
-            summary_cols = [c for c in ["Unternehmen", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"] if c in current_stock_df.columns]
+            summary_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Dividendenrendite"] if c in current_stock_df.columns]
             metrics_summary = current_stock_df[summary_cols].to_string(index=False)
             cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in current_stock_df.columns]
             cluster_context = current_stock_df[cluster_cols].to_string(index=False)
@@ -161,14 +161,22 @@ with st.sidebar:
     available_models = get_account_models(GROQ_KEY)
     selected_model = st.selectbox("KI-Modell:", available_models, index=0)
 
-# BERECHNUNG DER DEPOT-DATEN
+# BERECHNUNG DER DEPOT-DATEN (Exakt nach Realwerten)
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
-total_invested = sum([float(x.get("buy_price", 0.0)) for x in portfolio_list])
-stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
+
+if not stock_df.empty and "_raw_invested" in stock_df.columns:
+    total_invested = stock_df["_raw_invested"].sum()
+    stock_val = stock_df["_raw_val"].sum()
+    stock_pnl = stock_df["_raw_pnl"].sum()
+else:
+    total_invested = sum([float(x.get("buy_price", 0.0)) for x in portfolio_list])
+    stock_val = total_invested
+    stock_pnl = 0.0
+
 total_tr_account = stock_val + display_cash
-stock_pnl = stock_val - total_invested
 stock_pnl_pct = (stock_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
 
+# METRIKEN OBEN
 c_m1, c_m2, c_m3 = st.columns(3)
 with c_m1:
     st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld (aus Auszug) + Gesamtwert deiner Aktien")
@@ -211,7 +219,7 @@ with col_info:
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
     "🌍 Nachrichten",
-    "💼 Stimmung",
+    "💼 Stimmung & Empfehlungen",
     "📅 Termine & Cashflow",
     "🎯 Top 5 Kaufempfehlungen",
     "📊 Charts",
@@ -230,7 +238,7 @@ with tab0:
         
     st.subheader("Deine Positionen im Überblick:")
     if not stock_df.empty:
-        disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
+        disp_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
     else:
         st.info("📂 Lade deinen Trade Republic Kontoauszug (PDF) in der linken Seitenleiste hoch, um deine Werte hier zu sehen.")
@@ -244,15 +252,15 @@ with tab1:
     else:
         st.info("Lade dein Depot hoch, um die Marktanalyse automatisch zu laden.")
 
-# TAB 2: STIMMUNG & DEPOT
+# TAB 2: STIMMUNG & EMPFEHLUNGEN FÜR BESTEHENDE AKTIEN
 with tab2:
-    st.info("ℹ️ **Kurzinfo:** Einzelanalyse für jede deiner aktuell hinterlegten Aktien.")
+    st.info("ℹ️ **Kurzinfo:** Einzelanalyse & konkrete Kauf-/Verkaufsempfehlungen für jede deiner bestehenden Aktien.")
     if not stock_df.empty:
-        disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
+        disp_cols = [c for c in ["Unternehmen", "Handelsempfehlung", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
     if st.session_state.get("ai_depot"):
         st.divider()
-        st.subheader("🤖 KI-Stimmungsbericht:")
+        st.subheader("🤖 KI-Handelsempfehlungen für dein Depot:")
         st.markdown(st.session_state["ai_depot"])
     else:
         st.info("Keine Daten geladen.")
@@ -283,7 +291,7 @@ with tab4:
     else:
         st.info("Lade ein Depot ein, um die Kaufempfehlungen zu sehen.")
 
-# TAB 5: CHARTS (SOFORTIGE AKTUALISIERUNG BEI AUSWAHL)
+# TAB 5: CHARTS
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Performance-Verläufe deiner Aktien im gewählten Zeitraum.")
     if portfolio_list:
@@ -312,38 +320,32 @@ with tab5:
                         mode="lines", 
                         name=name,
                         line=dict(width=2.5, color=palette[i % len(palette)]),
-                        hovertemplate=f"<b>{name}</b> (%{{x|%d.%m.%Y}}): %{{y:+.2f}}%<extra></extra>"
+                        hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
                     ))
             
-            # Autorange & dynamischer Datumsbereich erzwingt Live-Skalierung
             fig.update_layout(
                 title=f"Performance-Entwicklung ({selected_period})",
-                xaxis=dict(
-                    title="Datum",
-                    type="date",
-                    autorange=True
-                ),
-                yaxis=dict(
-                    title="Rendite / Entwicklung (%)",
-                    ticksuffix="%",
-                    autorange=True
-                ),
+                xaxis=dict(title="Datum", type="date", autorange=True),
+                yaxis=dict(title="Rendite / Entwicklung (%)", ticksuffix="%", autorange=True),
                 hovermode="x unified",
                 margin=dict(l=5, r=5, t=40, b=5),
                 height=420,
                 uirevision=f"{selected_period}_{selected_view}"
             )
-            # Eindeutiger Key erzwingt das sofortige Neurendern in Streamlit
             st.plotly_chart(fig, width="stretch", key=f"plotly_chart_perf_{selected_period}_{selected_view}")
     else:
         st.info("Lade deinen TR-Kontoauszug hoch, um die Performance-Diagramme anzuzeigen.")
 
-# TAB 6: RISIKOSTREUUNG
+# TAB 6: RISIKOSTREUUNG (Mit eigenständigen Farbwelten)
 with tab6:
-    st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder.")
+    st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines realen Geldes auf Rollen, Branchen und Länder.")
     if not stock_df.empty:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
-        custom_colors = ["#2E93fA", "#66DA26", "#FF9800", "#E91E63", "#546E7A", "#9C27B0", "#00ACC1", "#F4511E"]
+        
+        # 3 VÖLLIG GETRENNTE FARBWELTEN
+        colors_role = ["#2563EB", "#0284C7", "#0D9488", "#64748B", "#3B82F6"]  # Blau/Cyan/Grau
+        colors_sector = ["#059669", "#10B981", "#34D399", "#14B8A6", "#047857", "#6EE7B7", "#065F46"]  # Smaragd/Grün
+        colors_geo = ["#D97706", "#F59E0B", "#8B5CF6", "#EC4899", "#6366F1", "#FB923C", "#A855F7"]  # Amber/Violett/Pink
         
         pie_df = stock_df.copy()
         if pie_df["_raw_val"].sum() <= 0:
@@ -353,7 +355,7 @@ with tab6:
             fig_role = px.pie(
                 pie_df, names="Rolle", values="_raw_val",
                 title="1. Rollen im Depot", hole=0.45,
-                color_discrete_sequence=["#2E93fA", "#66DA26", "#FF9800", "#546E7A"]
+                color_discrete_sequence=colors_role
             )
             fig_role.update_traces(textposition="inside", textinfo="percent+label")
             st.plotly_chart(fig_role, width="stretch", key="pie_role")
@@ -362,7 +364,7 @@ with tab6:
             fig_sec = px.pie(
                 pie_df, names="Sektor", values="_raw_val",
                 title="2. Branchen-Aufteilung", hole=0.45,
-                color_discrete_sequence=custom_colors
+                color_discrete_sequence=colors_sector
             )
             fig_sec.update_traces(textposition="inside", textinfo="percent+label")
             st.plotly_chart(fig_sec, width="stretch", key="pie_sec")
@@ -371,7 +373,7 @@ with tab6:
             fig_geo = px.pie(
                 pie_df, names="Land", values="_raw_val",
                 title="3. Länder-Aufteilung", hole=0.45,
-                color_discrete_sequence=custom_colors
+                color_discrete_sequence=colors_geo
             )
             fig_geo.update_traces(textposition="inside", textinfo="percent+label")
             st.plotly_chart(fig_geo, width="stretch", key="pie_geo")
