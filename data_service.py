@@ -1,4 +1,5 @@
 import os
+import re
 import feedparser
 import pandas as pd
 import requests
@@ -44,7 +45,6 @@ def load_saved_portfolio():
           return [t.strip() for t in saved.split(",") if t.strip()]
     except Exception:
       pass
-  # Deine gewünschten 7 Werte als vorkonfigurierter Standard
   return [
       "PANW (Palo Alto Networks)",
       "AVGO (Broadcom)",
@@ -67,13 +67,20 @@ def save_portfolio_to_file(tickers_list):
     return False
 
 
+def clean_ticker(ticker_str):
+  """Extrahiert sicher den reinen Börsenticker (z. B. 'FORA.TO' aus 'FORA.TO (VerticalScope)')."""
+  s = ticker_str.strip()
+  if "(" in s:
+    s = s.split("(")[0].strip()
+  # Bereinigt Whitespaces
+  return s.split(" ")[0].strip().upper()
+
+
 def search_ticker_candidates(query):
-  """Sucht online nach allen passenden Aktien/ETFs und gibt eine Auswahlliste zurück."""
   q = query.strip()
   if not q:
     return []
 
-  # Schnelle Direkt-Kürzel für bekannte Tippfehler
   quick_map = {
       "BROADCOMM": "AVGO",
       "BROADCOM": "AVGO",
@@ -112,11 +119,6 @@ def search_ticker_candidates(query):
     pass
 
   return candidates
-
-
-def clean_ticker(ticker_str):
-  """Extrahiert das reine Börsenkürzel aus Strings wie 'PANW (Palo Alto Networks)'."""
-  return ticker_str.split(" ")[0].strip().upper()
 
 
 def fetch_all_headlines():
@@ -240,8 +242,9 @@ def get_stock_data(tickers_list):
   return pd.DataFrame(data), direct_news, clean_tickers
 
 
-def get_historical_chart_data(tickers_list, period="1mo"):
-  chart_dict = {}
+def get_individual_series_dict(tickers_list, period="1mo"):
+  """Lädt historische Daten für jeden Ticker einzeln und stellt saubere Zeitzonen sicher."""
+  series_dict = {}
 
   if period == "1d":
     interval = "5m"
@@ -258,20 +261,13 @@ def get_historical_chart_data(tickers_list, period="1mo"):
       stock = yf.Ticker(t)
       hist = stock.history(period=period, interval=interval)
       if not hist.empty and "Close" in hist:
-        series = hist["Close"].copy()
-        if series.index.tz is not None:
-          series.index = series.index.tz_convert("Europe/Berlin").tz_localize(
-              None
-          )
-        chart_dict[t] = series
+        s = hist["Close"].dropna()
+        if not s.empty:
+          # Zeitzone vereinheitlichen
+          if s.index.tz is not None:
+            s.index = s.index.tz_convert("Europe/Berlin").tz_localize(None)
+          series_dict[t] = s
     except Exception:
       continue
 
-  if not chart_dict:
-    return pd.DataFrame()
-
-  df = pd.DataFrame(chart_dict)
-  df.ffill(inplace=True)
-  df.bfill(inplace=True)
-  df.dropna(how="all", inplace=True)
-  return df
+  return series_dict
