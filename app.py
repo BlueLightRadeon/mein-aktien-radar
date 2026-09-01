@@ -127,17 +127,16 @@ if st.button("🚀 Kostenlose KI-Analyse starten", use_container_width=True):
             """
 
       # Robustes, kostenloses Groq-Modell
-      res_market = client.chat.completions.create(
-          model="llama-3.3-70b-versatile",
-          messages=[{"role": "user", "content": prompt_market}],
-      )
+     # Ändere das Modell von llama-3.3-70b-versatile auf llama-3.1-8b-instant:
+res_market = client.chat.completions.create(
+    model="llama-3.1-8b-instant",
+    messages=[{"role": "user", "content": prompt_market}],
+)
 
-      res_depot = client.chat.completions.create(
-          model="llama-3.3-70b-versatile",
-          messages=[{"role": "user", "content": prompt_depot}],
-      )
-
-    with tab1:
+res_depot = client.chat.completions.create(
+    model="llama-3.1-8b-instant",
+    messages=[{"role": "user", "content": prompt_depot}],
+)
       st.markdown(res_market.choices[0].message.content)
 
     with tab2:
