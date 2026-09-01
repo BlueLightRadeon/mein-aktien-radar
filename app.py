@@ -42,7 +42,7 @@ if "tr_cash" not in st.session_state:
 
 def fmt_eur(val):
     try:
-        return f"{val:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{float(val):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return f"{val} €"
 
@@ -52,16 +52,17 @@ with st.sidebar:
     
     with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=False):
         st.caption("Lade deinen Auszug hoch. Positionen, Kurswerte und Cash werden vollautomatisch eingelesen.")
-        tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_uploader")
+        tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         if tr_pdf is not None:
-            imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
-            if imported_items:
-                st.session_state.my_portfolio = imported_items
-                if imported_cash is not None and imported_cash > 0:
-                    st.session_state.tr_cash = imported_cash
-                save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) übernommen!")
-                st.rerun()
+            # Hash-Check, um Mehrfachausführung bei jedem Rerun zu verhindern
+            if st.session_state.get("last_uploaded_name") != tr_pdf.name:
+                imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
+                if imported_items:
+                    st.session_state.my_portfolio = imported_items
+                    st.session_state.tr_cash = float(imported_cash)
+                    st.session_state["last_uploaded_name"] = tr_pdf.name
+                    save_portfolio_to_file(st.session_state.my_portfolio)
+                    st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) übernommen!")
 
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
 
@@ -115,7 +116,7 @@ total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.m
 stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
 total_tr_account = stock_val + st.session_state.tr_cash
 stock_pnl = stock_val - total_invested
-stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
+stock_pnl_pct = (stock_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
 
 c_m1, c_m2, c_m3 = st.columns(3)
 with c_m1:
@@ -125,14 +126,14 @@ with c_m2:
 with c_m3:
     st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
-# KI-AUSWERTUNG DIREKT AUSFÜHREN
+# KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
     else:
         with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
             try:
-                client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
+                client = Groq(api_key=GROQ_KEY.strip())
                 news_data = fetch_all_headlines()
                 news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
@@ -214,7 +215,7 @@ with tab3:
         with col_cf1:
             st.success(f"💰 **Erwartete Ausschüttung:** `{total_annual_div:.2f} € / Jahr`")
         with col_cf2:
-            st.info(f"📊 **Durchschnittliche Rendite:** `{(total_annual_div / stock_val * 100) if stock_val > 0 else 0.0:.2f} % p.a.`")
+            st.info(f"📊 **Durchschnittliche Rendite:** `{(total_annual_div / stock_val * 100.0) if stock_val > 0 else 0.0:.2f} % p.a.`")
 
         st.subheader("📅 Terminkalender & Ausschüttungen:")
         disp_cols = [c for c in ["Unternehmen", "Nächste Quartalszahlen", "Dividendenrendite", "Ausschüttung pro Jahr", "Ausschüttungs-Monate"] if c in stock_df.columns]
@@ -244,7 +245,7 @@ with tab5:
         for i, name in enumerate(names_to_plot):
             s = series_dict[name]
             base_val = s.iloc[0]
-            pct_series = ((s - base_val) / base_val) * 100
+            pct_series = ((s - base_val) / base_val) * 100.0
             fig.add_trace(go.Scatter(
                 x=s.index, y=pct_series, mode="lines", name=name,
                 line=dict(width=2.5, color=palette[i % len(palette)]),
@@ -306,7 +307,7 @@ with tab6:
             sub_df = stock_df[stock_df["Rolle"] == r_name]
             stock_names = ", ".join(sub_df["Unternehmen"].tolist())
             role_sum = sub_df["_raw_val"].sum()
-            role_pct = (role_sum / stock_val * 100) if stock_val > 0 else 0.0
+            role_pct = (role_sum / stock_val * 100.0) if stock_val > 0 else 0.0
             
             with r_cols[idx % 2]:
                 with st.container(border=True):
