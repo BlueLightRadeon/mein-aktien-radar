@@ -97,7 +97,7 @@ def resolve_to_ticker(query):
   if upper_q in alias_map:
     return alias_map[upper_q]
 
-  if "." in q or len(q) <= 5 and q.isalpha() and q.isupper():
+  if "." in q or (len(q) <= 5 and q.isalpha() and q.isupper()):
     try:
       test_stock = yf.Ticker(q)
       if test_stock.fast_info.last_price is not None:
@@ -243,16 +243,33 @@ def get_stock_data(user_inputs):
 
 
 def get_historical_chart_data(resolved_tickers, period="1mo"):
-  """Lädt historische Kurse für Diagramme und berechnet relative Performance (%)."""
+  """Lädt historische Kurse, synchronisiert Zeitzonen (US/EU) und bereinigt NaN-Werte."""
   chart_dict = {}
+
+  # Optimierte Intervalle je nach gewähltem Zeitraum
+  if period == "1d":
+    interval = "5m"
+  elif period == "5d":
+    interval = "15m"
+  elif period in ["1mo", "6mo"]:
+    interval = "1d"
+  else:
+    interval = "1wk" if period == "5y" else "1d"
+
   for t in resolved_tickers:
     try:
       stock = yf.Ticker(t)
-      # Bei 1d nutzen wir 5m-Intervall für Live-Tagesverlauf
-      interval = "5m" if period == "1d" else "1d"
       hist = stock.history(period=period, interval=interval)
       if not hist.empty and "Close" in hist:
-        chart_dict[t] = hist["Close"]
+        series = hist["Close"].copy()
+
+        # Zeitzone vereinheitlichen auf UTC-naive Daten (verhindert Chart-Fehler)
+        if series.index.tz is not None:
+          series.index = series.index.tz_convert("Europe/Berlin").tz_localize(
+              None
+          )
+
+        chart_dict[t] = series
     except Exception:
       continue
 
@@ -260,5 +277,9 @@ def get_historical_chart_data(resolved_tickers, period="1mo"):
     return pd.DataFrame()
 
   df = pd.DataFrame(chart_dict)
+
+  # WICHTIG: Lücken durch Zeitverschiebung & Börsenfeiertage füllen
+  df.ffill(inplace=True)
+  df.bfill(inplace=True)
   df.dropna(how="all", inplace=True)
   return df
