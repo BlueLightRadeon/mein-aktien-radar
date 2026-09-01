@@ -6,6 +6,7 @@ DEFAULT_MODEL = "openai/gpt-oss-120b"
 STATIC_MODELS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
+    "llama-3.3-70b-versatile",
     "qwen/qwen3.6-27b"
 ]
 
@@ -82,8 +83,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     full_text = ""
     last_err_msg = ""
 
-    # Schneller Request an die aktiven Groq-Modelle
-    for model_to_try in [target, "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]:
+    for model_to_try in [target, "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]:
         try:
             res = client.chat.completions.create(
                 model=model_to_try,
