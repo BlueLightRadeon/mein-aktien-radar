@@ -33,24 +33,29 @@ if "my_portfolio" not in st.session_state:
 if "tr_cash" not in st.session_state:
     st.session_state.tr_cash = 0.0
 
-# --- SEITENLEISTE: DIREKTE EINGABE & ANPASSUNG ---
+# Hilfsfunktion für sauberes deutsches Euro-Format (z. B. 1.250,50 €)
+def fmt_eur(val):
+    try:
+        return f"{val:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return f"{val} €"
+
+# --- SEITENLEISTE: EINFACHE GELDBETRAG-EINGABE ---
 with st.sidebar:
     st.header("💼 Mein Depot & Trade Republic")
     
     # 1. Trade Republic Cash
-    new_cash = st.number_input(
-        "💶 TR Verrechnungskonto (Cash in €):",
+    st.session_state.tr_cash = st.number_input(
+        "💶 TR Guthaben auf Konto (Cash in €):",
         min_value=0.0,
         value=float(st.session_state.tr_cash),
-        step=50.0,
-        help="Dein uninvestiertes Bargeld auf dem Verrechnungskonto."
+        step=10.0,
+        help="Dein uninvestiertes Bargeld auf Trade Republic."
     )
-    if new_cash != st.session_state.tr_cash:
-        st.session_state.tr_cash = new_cash
 
     # 2. PDF-Import (optional)
-    with st.expander("📥 TR-Kontoauszug (PDF) importieren"):
-        st.caption("Lade hier deinen PDF-Depotauszug hoch, um Werte automatisch einzulesen.")
+    with st.expander("📥 TR-Kontoauszug (PDF) hochladen"):
+        st.caption("Lade deinen Depotauszug hoch, um Werte automatisch einzulesen.")
         tr_pdf = st.file_uploader("PDF hochladen", type=["pdf"])
         if tr_pdf:
             imported = parse_trade_republic_pdf(tr_pdf)
@@ -62,18 +67,14 @@ with st.sidebar:
 
     st.divider()
     
-    # 3. Neue Aktie suchen und hinzufügen
-    st.subheader("🔍 Neue Aktie hinzufügen:")
-    search_query = st.text_input("Aktie/ETF suchen:", placeholder="z. B. Novo Nordisk, Rheinmetall...")
+    # 3. Neue Aktie suchen und Geldbetrag eintragen
+    st.subheader("🔍 Aktie hinzufügen:")
+    search_query = st.text_input("Aktie suchen:", placeholder="z. B. Nvidia, Apple, Rheinmetall...")
     if search_query:
         results = search_ticker_candidates(search_query)
         if results:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-            c_add1, c_add2 = st.columns(2)
-            with c_add1:
-                add_shares = st.number_input("Stückzahl", min_value=0.01, value=1.0, step=1.0, key="add_shares_input")
-            with c_add2:
-                add_buy = st.number_input("Kaufkurs (€)", min_value=0.0, value=0.0, step=10.0, key="add_buy_input")
+            in_money = st.number_input("Wie viel Euro hast du investiert (€)?", min_value=1.0, value=50.0, step=10.0)
             
             if st.button("➕ Zum Depot hinzufügen", use_container_width=True):
                 sym = clean_ticker(selected_cand)
@@ -81,62 +82,57 @@ with st.sidebar:
                 st.session_state.my_portfolio.append({
                     "ticker": sym,
                     "name": name,
-                    "shares": float(add_shares),
-                    "buy_price": float(add_buy)
+                    "shares": 1.0,
+                    "buy_price": float(in_money)  # Hier wird direkt dein Geldbetrag hinterlegt
                 })
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"{sym} hinzugefügt!")
+                st.success(f"{sym} mit {fmt_eur(in_money)} hinzugefügt!")
                 st.rerun()
 
     st.divider()
     
-    # 4. DIREKTE ANPASSUNG ALLER BESTEHENDEN POSITIONEN
-    st.subheader("📝 Bestände & Geldbeträge anpassen:")
-    st.caption("Passe Stückzahlen und Kaufkurse jederzeit an. Die Gesamtsummen berechnen sich sofort neu.")
+    # 4. DIREKTE GELDBETRAG-ANPASSUNG FÜR JEDE AKTIE
+    st.subheader("📝 Dein investiertes Geld anpassen:")
+    st.caption("Trage einfach ein, wie viel Euro du in welche Aktie gesteckt hast:")
     
     portfolio_changed = False
     if st.session_state.my_portfolio:
         for idx, item in enumerate(st.session_state.my_portfolio):
-            with st.expander(f"📌 {item.get('name', item['ticker'])} ({item['ticker']})", expanded=False):
-                col_inp1, col_inp2 = st.columns(2)
-                with col_inp1:
-                    updated_shares = st.number_input(
-                        "Anzahl Anteile:",
-                        min_value=0.0,
-                        value=float(item.get("shares", 1.0)),
-                        step=0.5,
-                        key=f"sh_{idx}_{item['ticker']}"
-                    )
-                with col_inp2:
-                    updated_buy = st.number_input(
-                        "Kaufkurs (€/Stk):",
-                        min_value=0.0,
-                        value=float(item.get("buy_price", 0.0)),
-                        step=5.0,
-                        key=f"bp_{idx}_{item['ticker']}"
-                    )
+            # Berechne den aktuellen hinterlegten Gesamtbetrag
+            current_invested = float(item.get("buy_price", 50.0)) * float(item.get("shares", 1.0))
+            if current_invested <= 0:
+                current_invested = 50.0
                 
-                # Gesamt investierter Betrag als Info
-                invested_calc = updated_shares * updated_buy
-                st.write(f"👉 **Investiert:** `{invested_calc:,.2f} €`")
-                
-                # Prüfen auf Änderungen
-                if updated_shares != item.get("shares") or updated_buy != item.get("buy_price"):
-                    item["shares"] = float(updated_shares)
-                    item["buy_price"] = float(updated_buy)
-                    portfolio_changed = True
-                
-                if st.button("🗑️ Diese Aktie löschen", key=f"del_{idx}_{item['ticker']}"):
+            col_a, col_b = st.columns([3, 1])
+            with col_a:
+                new_invested = st.number_input(
+                    f"💶 {item.get('name', item['ticker'])}:",
+                    min_value=0.0,
+                    value=float(current_invested),
+                    step=10.0,
+                    key=f"money_{idx}_{item['ticker']}",
+                    help=f"Dein gesamter Geldeinsatz für {item.get('name', item['ticker'])} in Euro."
+                )
+            with col_b:
+                st.write("")
+                st.write("")
+                if st.button("🗑️", key=f"del_{idx}_{item['ticker']}", help="Löschen"):
                     st.session_state.my_portfolio.pop(idx)
                     save_portfolio_to_file(st.session_state.my_portfolio)
                     st.rerun()
+
+            # Wenn der Betrag geändert wurde:
+            if new_invested != current_invested:
+                item["buy_price"] = float(new_invested)
+                item["shares"] = 1.0  # Setzen wir sauber auf Basis 1x Geldbetrag
+                portfolio_changed = True
         
-        if portfolio_changed or st.button("💾 Werte speichern", use_container_width=True):
+        if portfolio_changed or st.button("💾 Geldbeträge speichern", use_container_width=True):
             save_portfolio_to_file(st.session_state.my_portfolio)
-            st.success("✅ Gespeichert & neu berechnet!")
+            st.success("✅ Beträge gespeichert & Gesamtwert aktualisiert!")
             st.rerun()
     else:
-        st.info("Noch keine Positionen im Depot.")
+        st.info("Noch keine Aktien eingetragen.")
 
     st.divider()
     st.header("🤖 KI-Modell")
@@ -158,28 +154,31 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "⚔️ Aktien-Vergleich"
 ])
 
-# Daten laden & Gesamtrechnung auf Basis deiner echten Werte
+# Daten laden & Gesamtrechnung auf Basis deines echten Geldes
 if st.session_state.my_portfolio:
     stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
-    stock_val = stock_df["_raw_val"].sum()
-    total_invested = stock_df["_raw_invested"].sum()
+    
+    # Exakte Berechnung über Geldbeträge
+    total_invested = sum([float(x.get("buy_price", 0.0)) * float(x.get("shares", 1.0)) for x in st.session_state.my_portfolio])
+    stock_val = stock_df["_raw_val"].sum() if stock_df["_raw_val"].sum() > 0 else total_invested
     total_tr_account = stock_val + st.session_state.tr_cash
-    stock_pnl = stock_val - total_invested if total_invested > 0 else 0.0
+    stock_pnl = stock_val - total_invested
     stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
 
-    # Haupt-Banner
+    # Haupt-Banner ganz oben
     c_m1, c_m2, c_m3 = st.columns(3)
     with c_m1:
-        st.metric("TR Gesamtkonto", f"{total_tr_account:,.2f} €", help="Aktienwert + uninvestiertes Cash-Guthaben")
+        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Aktienwert + dein Bargeld auf Trade Republic")
     with c_m2:
-        st.metric("Tatsächlich investiert", f"{total_invested:,.2f} €", help="Summe des Geldes, das du für alle Aktienkäufe bezahlt hast")
+        st.metric("Dein eingezahltes Geld", fmt_eur(total_invested), help="Summe des Geldes, das du tatsächlich bezahlt hast")
     with c_m3:
-        st.metric("Dein Reingewinn / Verlust", f"{stock_pnl:+,.2f} €", delta=f"{stock_pnl_pct:+.2f}%", help="Reiner Buchgewinn/-verlust gegenüber deinem Kaufpreis")
+        st.metric("Dein Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 else:
     stock_df = pd.DataFrame()
     ticker_news = []
     resolved_tickers = []
     stock_val = 0.0
+    total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
 # TAB 0: SPEZIELLER TRADE REPUBLIC KONTO TAB
@@ -188,21 +187,24 @@ with tab0:
     
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
-        st.info(f"💶 **Verrechnungskonto (Cash):** {st.session_state.tr_cash:,.2f} €")
+        st.info(f"💶 **Bargeld auf Konto (Cash):** {fmt_eur(st.session_state.tr_cash)}")
     with col_tr2:
-        st.success(f"📈 **Aktueller Aktienwert (Depot):** {stock_val:,.2f} €")
+        st.success(f"📈 **Wert deiner Aktien:** {fmt_eur(stock_val)}")
         
-    st.write("### Deine echten Positionen im Überblick:")
+    st.write("### Deine echten Geldbeträge im Überblick:")
     if not stock_df.empty:
         st.dataframe(
             stock_df[[
-                "Name / Aktie", "Ticker", "Stückzahl", "Kaufkurs", 
+                "Name / Aktie", "Ticker", "Kaufkurs", 
                 "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"
-            ]],
+            ]].rename(columns={
+                "Kaufkurs": "Dein Geldeinsatz",
+                "Positionswert": "Aktueller Wert"
+            }),
             hide_index=True
         )
     else:
-        st.info("Passe deine Aktien und Stückzahlen in der linken Seitenleiste an.")
+        st.info("Trage in der linken Seitenleiste deine Geldbeträge ein.")
 
 # TAB 5: Live-Charts
 with tab5:
@@ -339,7 +341,10 @@ if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
                 with tab2:
                     st.subheader("💼 Dein Depot im Überblick")
                     st.dataframe(
-                        stock_df[["Name / Aktie", "Ticker", "Stückzahl", "Kaufkurs", "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"]],
+                        stock_df[["Name / Aktie", "Ticker", "Kaufkurs", "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"]].rename(columns={
+                            "Kaufkurs": "Dein Geldeinsatz",
+                            "Positionswert": "Aktueller Wert"
+                        }),
                         hide_index=True
                     )
                     st.divider()
