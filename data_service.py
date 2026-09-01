@@ -130,13 +130,10 @@ def search_ticker_candidates(query):
 
 
 def parse_trade_republic_pdf(uploaded_file):
-  """Extrahiert Bestände aus einem hochgeladenen Trade Republic PDF-Auszug."""
   found_items = []
   try:
     reader = pypdf.PdfReader(uploaded_file)
     full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
-
-    # Suchmuster für Wertpapierabrechnungen (ISIN und Stückzahl)
     isin_matches = re.findall(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b", full_text)
     for isin in set(isin_matches):
       cand = search_ticker_candidates(isin)
@@ -179,7 +176,6 @@ def calculate_rsi(series, period=14):
 
 
 def get_stock_data(portfolio_list):
-  """Lädt alle Finanzdaten, Dividenden, Branchen und berechnet Portfoliowerte im Batch."""
   clean_tickers = [clean_ticker(x["ticker"]) for x in portfolio_list]
   data = []
   direct_news = []
@@ -206,7 +202,6 @@ def get_stock_data(portfolio_list):
     rsi_val = "N/A"
     company_name = item.get("name") or t
 
-    # Kurs & RSI
     try:
       if not batch_df.empty:
         close_s = (
@@ -230,7 +225,6 @@ def get_stock_data(portfolio_list):
       except Exception:
         pass
 
-    # Fundamentaldaten & Dividenden
     pe_str = "N/A"
     target_str = "N/A"
     recommendation = "HALTEN"
@@ -254,7 +248,6 @@ def get_stock_data(portfolio_list):
       if pe_val:
         pe_str = f"{pe_val:.1f}"
 
-      # Fair-Value-Näherung (Graham / Multiples)
       book_val = inf.get("bookValue")
       eps_val = inf.get("trailingEps")
       if book_val and eps_val and eps_val > 0 and book_val > 0:
@@ -287,7 +280,6 @@ def get_stock_data(portfolio_list):
     except Exception:
       pass
 
-    # Portfolio-Berechnung
     curr_val = (price * shares) if (price and not pd.isna(price)) else 0.0
     invested_val = buy_price * shares
     pnl_val = curr_val - invested_val if invested_val > 0 else 0.0
