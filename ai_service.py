@@ -21,52 +21,60 @@ def get_account_models(api_key):
 
 
 def run_analysis(
-    client, model_name, news_text, metrics_summary, ticker_news_text
+    client,
+    model_name,
+    news_text,
+    metrics_summary,
+    ticker_news_text,
+    cluster_context="",
 ):
   prompt_market = f"""
-Du bist ein professioneller Finanzanalyst. Antworte AUSSCHLIESSLICH auf reinem Deutsch.
-
-Hier sind weltweite Wirtschaftsnachrichten:
+Du bist ein professioneller Finanzanalyst. Antworte AUSSCHLIESSLICH auf Deutsch.
+Hier sind aktuelle Wirtschaftsnachrichten:
 {news_text}
 
-Aufgabe:
-1. Erstelle die **TOP 10 wichtigsten Markt- und Börsen-Informationen** des Tages prägnant und übersichtlich auf Deutsch.
-2. Gib am Ende eine Zusammenfassung der weltweiten Marktstimmung (Bullisch / Neutral / Bärisch).
+Erstelle:
+1. Die **TOP 10 wichtigsten Markt- und Börsen-Informationen** prägnant und fundiert.
+2. Eine Einschätzung der aktuellen Marktstimmung (Bullisch / Neutral / Bärisch) inkl. Fear & Greed Tendenz.
 """
 
   prompt_depot = f"""
-Du bist ein Portfolio-Experte. Antworte AUSSCHLIESSLICH auf Deutsch.
-
-Hier sind die Kennzahlen der Depot-Aktien:
+Du bist ein Portfolio-Manager. Antworte AUSSCHLIESSLICH auf Deutsch.
+Depot-Werte & Kennzahlen:
 {metrics_summary}
 
-Direkte Unternehmensnachrichten:
+Unternehmensnachrichten:
 {ticker_news_text}
 
-Allgemeine Marktnachrichten:
-{news_text}
-
-Erstelle für JEDE gelistete Aktie eine strukturierte deutsche Analyse:
+Erstelle für JEDE Aktie:
 1. **Sentiment**: 🟢 Bullisch, 🟡 Neutral oder 🔴 Bärisch
-2. **Technik & Bewertung**: Interpretiere Kurs, RSI (überkauft/überverkauft) und KGV.
-3. **Fokus/News**: Wichtigste Treiber und Ad-hocs.
-4. **Ausblick**: Worauf Anleger in den nächsten Tagen achten sollten.
+2. **Technik & Bewertung**: RSI, KGV und Fair-Value Einordnung.
+3. **Fokus/News**: Relevante Treiber und Katalysatoren.
+4. **Ausblick**: Wichtige Marken für die kommenden Tage.
 """
 
   prompt_signals = f"""
 Du bist ein quantitativer Analyst. Antworte AUSSCHLIESSLICH auf Deutsch.
-
-Hier sind die Daten:
+Kennzahlen & Konsens:
 {metrics_summary}
-{ticker_news_text}
 
-Erstelle für JEDE Aktie eine klare Handlungsempfehlung:
-
+Erstelle für jede Aktie eine klare Handlungsempfehlung:
 ### [Name der Aktie] ([Ticker])
 - **Signal**: 🟢 **KAUFEN** / 🟡 **HALTEN** / 🔴 **VERKAUFEN**
-- **Begründung**: Begründe die Entscheidung mit RSI, KGV, Analysten-Kursziel und Nachrichtenlage.
+- **Begründung**: Analyse aus RSI, KGV, Fair Value und Nachrichten.
 - **Risikostufe**: Gering / Mittel / Hoch
 - **Anlagehorizont**: Kurzfristig / Mittelfristig / Langfristig
+"""
+
+  prompt_cluster = f"""
+Du bist ein Risikomanager. Antworte AUSSCHLIESSLICH auf Deutsch.
+Portfolio-Zusammensetzung nach Branchen und Regionen:
+{cluster_context}
+
+Bewerte das Klumpenrisiko des Depots:
+1. **Risiko-Score**: 1 (Sehr diversifiziert) bis 10 (Extremes Klumpenrisiko).
+2. **Kritische Übergewichtungen**: Wo liegen gefährliche Abhängigkeiten (z.B. US-Tech oder Halbleiter)?
+3. **Absicherungs-Empfehlungen**: Welche 1-2 Anlageklassen oder Sektoren fehlen zur optimalen Balance?
 """
 
   res_market = client.chat.completions.create(
@@ -75,23 +83,47 @@ Erstelle für JEDE Aktie eine klare Handlungsempfehlung:
       temperature=0.2,
       max_tokens=900,
   )
-
   res_depot = client.chat.completions.create(
       model=model_name,
       messages=[{"role": "user", "content": prompt_depot}],
       temperature=0.2,
       max_tokens=1000,
   )
-
   res_signals = client.chat.completions.create(
       model=model_name,
       messages=[{"role": "user", "content": prompt_signals}],
       temperature=0.2,
       max_tokens=1000,
   )
+  res_cluster = client.chat.completions.create(
+      model=model_name,
+      messages=[{"role": "user", "content": prompt_cluster}],
+      temperature=0.2,
+      max_tokens=800,
+  )
 
   return (
       res_market.choices[0].message.content,
       res_depot.choices[0].message.content,
       res_signals.choices[0].message.content,
+      res_cluster.choices[0].message.content,
   )
+
+
+def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
+  prompt = f"""
+Du bist ein neutraler Aktien-Analyst. Vergleiche diese beiden Aktien in einem direkten Duell auf Deutsch:
+AKTE 1: {stock_a_info}
+AKTE 2: {stock_b_info}
+
+Erstelle:
+1. **Stärken-Vergleich**: Bewertung (KGV/Fair Value), Charttechnik (RSI) und Wachstum.
+2. **Klares Duell-Urteil**: Welche Aktie bietet aktuell das bessere Chance-Risiko-Verhältnis für die nächsten 6-12 Monate?
+"""
+  res = client.chat.completions.create(
+      model=model_name,
+      messages=[{"role": "user", "content": prompt}],
+      temperature=0.2,
+      max_tokens=800,
+  )
+  return res.choices[0].message.content
