@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pypdf
 import yfinance as yf
-from groq import Groq
 import streamlit as st
 
 ISIN_MAP = {
@@ -53,7 +52,7 @@ def search_ticker_candidates(query):
             return [f"{info['ticker']} ({info['name']})"]
     return []
 
-def parse_trade_republic_pdf(uploaded_file, api_key=None):
+def parse_trade_republic_pdf(uploaded_file):
     found_items = []
     extracted_cash = 0.0
     
@@ -63,62 +62,18 @@ def parse_trade_republic_pdf(uploaded_file, api_key=None):
         pages_text = [page.extract_text() or "" for page in reader.pages]
         full_text = "\n".join(pages_text)
 
-        # 1. KI-GESTÜTZTE ANALYSE MIT GROQ (Präzise JSON-Extraktion)
-        if api_key:
+        # 1. Cash extrahieren (Exakt aus "Cashkonto | 194,02 EUR" oder "Cash | 194,02")
+        cash_match = re.search(r"Cashkonto\s*(?:\|\s*)?([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
+        if not cash_match:
+            cash_match = re.search(r"Cash\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
+        if cash_match:
             try:
-                client = Groq(api_key=api_key)
-                prompt = f"""
-Du bist ein präziser Finanz-Parser. Extrahiere aus dem folgenden Trade Republic Kontoauszug/Depotauszug exakt zwei Daten im reinen JSON-Format:
+                extracted_cash = float(cash_match.group(1).replace(".", "").replace(",", "."))
+            except Exception:
+                extracted_cash = 0.0
 
-1. "cash": Der reale, aktuelle Bargeldbestand (Verrechnungskonto / Cashkonto / Endsaldo) als Fließkommazahl (z.B. 51.42). 
-   WICHTIG: Nicht alte Anfangssalden, Überweisungssummen oder Transaktionsbeträge nehmen, sondern den tatsächlichen aktuellen Cash-Bestand.
-2. "positions": Eine Liste aller Wertpapiere mit:
-   - "isin": 12-stellige ISIN (z.B. "DE0007030009")
-   - "name": Name des Wertpapiers
-   - "value": Der aktuelle Kurswert / Depotwert dieser Position in EUR als Zahl (z.B. 45.20).
-
-Hier ist der Text des Auszugs:
-{full_text[:4000]}
-
-Antworte NUR mit gültigem JSON, ohne Markdown-Fences (```json), ohne zusätzlichen Text:
-{{"cash": 51.42, "positions": [{{"isin": "DE0007030009", "name": "Rheinmetall", "value": 75.20}}]}}
-"""
-                res = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.0,
-                    max_tokens=1000
-                )
-                raw_json = res.choices[0].message.content.strip()
-                raw_json = re.sub(r"^```json\s*", "", raw_json)
-                raw_json = re.sub(r"\s*```$", "", raw_json).strip()
-                
-                parsed_data = json.loads(raw_json)
-                extracted_cash = float(parsed_data.get("cash", 0.0))
-                
-                for pos in parsed_data.get("positions", []):
-                    isin = str(pos.get("isin", "")).strip()
-                    val = float(pos.get("value", 35.0))
-                    name = str(pos.get("name", isin)).strip()
-                    
-                    sym = isin
-                    if isin in ISIN_MAP:
-                        sym = ISIN_MAP[isin]["ticker"]
-                        name = ISIN_MAP[isin]["name"]
-                    
-                    found_items.append({
-                        "ticker": sym,
-                        "name": name,
-                        "shares": 1.0,
-                        "buy_price": val
-                    })
-                    
-                if found_items:
-                    return found_items, extracted_cash
-            except Exception as e_groq:
-                st.info("Nutze Standard-Extraktion...")
-
-        # 2. FALLBACK-REGULÄRE AUSDRÜCKE (Falls kein API-Key da ist)
+        # 2. Exakter Tabellen-Parser für TR Vermögensübersichten
+        # Muster: ISIN gefolgt von Stückkurs, Datum und Kurswert
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -131,11 +86,26 @@ Antworte NUR mit gültigem JSON, ohne Markdown-Fences (```json), ohne zusätzlic
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
+            # TR-Tabellenformat: "ISIN: DE000... | 1.081,60 \n 01.09.2026 \n | 23,00"
+            val = 0.0
+            block_pattern = re.compile(
+                re.escape(isin) + r".*?\d{2}\.\d{2}\.\d{4}\s*(?:\|\s*)?([\d.,]+)", 
+                re.DOTALL | re.IGNORECASE
+            )
+            match = block_pattern.search(full_text)
+            if match:
+                try:
+                    parsed_val = float(match.group(1).replace(".", "").replace(",", "."))
+                    if parsed_val > 0:
+                        val = parsed_val
+                except Exception:
+                    val = 0.0
+
             found_items.append({
                 "ticker": sym,
                 "name": disp_name,
                 "shares": 1.0,
-                "buy_price": 35.0
+                "buy_price": float(val)
             })
 
     except Exception as e:
@@ -210,20 +180,16 @@ def get_stock_data(portfolio_list):
     for idx, item in enumerate(portfolio_list):
         t = clean_ticker(item.get("ticker", "AVGO"))
         try:
-            invested_money = float(item.get("buy_price", 0.0))
-            if invested_money <= 0:
-                invested_money = 35.0
+            pos_val = float(item.get("buy_price", 0.0))
         except Exception:
-            invested_money = 35.0
+            pos_val = 0.0
             
         company_name = get_display_name(t, item.get("name"))
         price = float(default_prices.get(t, 50.0))
         currency = "EUR" if t.endswith(".DE") else "USD"
         
         day_change_pct = float(default_changes.get(t, round((idx * 0.45) - 0.2, 2)))
-
-        pos_val = float(invested_money * (1.0 + (day_change_pct / 100.0)))
-        pnl_val = float(pos_val - invested_money)
+        pnl_val = float(pos_val * (day_change_pct / 100.0))
 
         earnings_str = "Q3/Q4 2026"
         div_rhythm = "Keine Ausschüttung"
@@ -256,7 +222,6 @@ def get_stock_data(portfolio_list):
             "Kürzel": t,
             "Handelsempfehlung": rec_action,
             "Begründung & Einschätzung": rec_reason,
-            "Dein Geldeinsatz": f"{invested_money:.2f} €",
             "Börsenkurs": f"{price:.2f} {currency}",
             "Aktueller Wert (TR)": f"{pos_val:.2f} €",
             "Gewinn / Verlust": f"{pnl_val:+.2f} € ({day_change_pct:+.2f}%)",
@@ -272,7 +237,6 @@ def get_stock_data(portfolio_list):
             "Rolle": role,
             "Nächste Quartalszahlen": earnings_str,
             "_raw_val": float(pos_val),
-            "_raw_invested": float(invested_money),
             "_raw_pnl": float(pnl_val),
             "_raw_cashflow": float(annual_cashflow),
             "_raw_price": float(price)
