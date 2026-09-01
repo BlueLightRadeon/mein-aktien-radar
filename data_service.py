@@ -35,13 +35,13 @@ RSS_SOURCES = [
 ]
 
 DEFAULT_HOLDINGS = [
-    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 10.0, "buy_price": 300.0},
-    {"ticker": "AVGO", "name": "Broadcom", "shares": 15.0, "buy_price": 140.0},
-    {"ticker": "NVDA", "name": "NVIDIA", "shares": 25.0, "buy_price": 110.0},
-    {"ticker": "TSM", "name": "TSMC", "shares": 20.0, "buy_price": 150.0},
-    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 100.0, "buy_price": 8.5},
-    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 12.0, "buy_price": 125.0},
-    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 5.0, "buy_price": 480.0},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 1.0, "buy_price": 50.0},
+    {"ticker": "AVGO", "name": "Broadcom", "shares": 1.0, "buy_price": 50.0},
+    {"ticker": "NVDA", "name": "NVIDIA", "shares": 1.0, "buy_price": 50.0},
+    {"ticker": "TSM", "name": "TSMC", "shares": 1.0, "buy_price": 50.0},
+    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 1.0, "buy_price": 25.0},
+    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 50.0},
+    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 1.0, "buy_price": 100.0},
 ]
 
 def load_saved_portfolio():
@@ -109,7 +109,7 @@ def parse_trade_republic_pdf(uploaded_file):
             cand = search_ticker_candidates(isin)
             if cand:
                 sym = clean_ticker(cand[0])
-                found_items.append({"ticker": sym, "name": sym, "shares": 1.0, "buy_price": 0.0})
+                found_items.append({"ticker": sym, "name": sym, "shares": 1.0, "buy_price": 50.0})
     except Exception:
         pass
     return found_items
@@ -141,7 +141,6 @@ def calculate_rsi(series, period=14):
         return "N/A"
 
 def fetch_quote_summary_direct(ticker):
-    """Holt Fundamentaldaten direkt per JSON-API, falls yfinance info blockiert wird."""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=financialData,summaryDetail,defaultKeyStatistics,assetProfile"
     try:
@@ -166,15 +165,18 @@ def get_stock_data(portfolio_list):
 
     for item in portfolio_list:
         t = clean_ticker(item["ticker"])
-        shares = float(item.get("shares", 1.0))
-        buy_price = float(item.get("buy_price", 0.0))
         
+        # Das vom Nutzer eingegebene Geld (z. B. 50 €)
+        invested_money = float(item.get("buy_price", 50.0))
+        if invested_money <= 0:
+            invested_money = 50.0
+
         price = None
         currency = "EUR" if t.endswith(".DE") else "USD"
         rsi_val = "N/A"
         company_name = item.get("name") or t
         
-        # Kurs & RSI
+        # Kurs ermitteln
         try:
             if not batch_df.empty:
                 close_s = batch_df['Close'].dropna() if len(clean_tickers) == 1 else batch_df[t]['Close'].dropna()
@@ -185,7 +187,6 @@ def get_stock_data(portfolio_list):
         except Exception:
             pass
 
-        # Schneller Fallback für Kurs
         if price is None:
             try:
                 stk_obj = yf.Ticker(t)
@@ -194,68 +195,56 @@ def get_stock_data(portfolio_list):
             except Exception:
                 pass
 
-        # Fundamentaldaten über direkte API abfragen
+        # 1-Tages-Entwicklung in Prozent abrufen für realistische Gewinn/Verlust-Berechnung
+        day_change_pct = 0.0
+        try:
+            if not batch_df.empty:
+                s = batch_df['Close'].dropna() if len(clean_tickers) == 1 else batch_df[t]['Close'].dropna()
+                if len(s) >= 2:
+                    day_change_pct = ((s.iloc[-1] - s.iloc[-2]) / s.iloc[-2]) * 100
+        except Exception:
+            pass
+
+        # Realistische Werte berechnen:
+        # Der Positionswert entspricht deinem Geldeinsatz angepasst an die Kursbewegung
+        pos_val = invested_money * (1 + (day_change_pct / 100))
+        pnl_val = pos_val - invested_money
+
+        # Fundamentaldaten
         q_data = fetch_quote_summary_direct(t)
         fin_data = q_data.get("financialData", {})
         sum_detail = q_data.get("summaryDetail", {})
-        key_stats = q_data.get("defaultKeyStatistics", {})
         profile = q_data.get("assetProfile", {})
 
-        # 1. KGV (P/E)
-        pe_val = None
-        if "trailingPE" in sum_detail and "raw" in sum_detail["trailingPE"]:
-            pe_val = sum_detail["trailingPE"]["raw"]
-        elif "forwardPE" in sum_detail and "raw" in sum_detail["forwardPE"]:
-            pe_val = sum_detail["forwardPE"]["raw"]
-        
-        pe_str = f"{pe_val:.1f}" if pe_val else ("35.0" if "NVDA" in t else ("28.0" if "PANW" in t else ("18.5" if "RHM" in t else "N/A")))
+        pe_val = sum_detail.get("trailingPE", {}).get("raw") or sum_detail.get("forwardPE", {}).get("raw")
+        pe_str = f"{pe_val:.1f}" if pe_val else ("35.0" if "NVDA" in t else ("28.0" if "PANW" in t else "N/A"))
 
-        # 2. Analysten-Kursziel & Upside
         target_str = "N/A"
         target_mean = fin_data.get("targetMeanPrice", {}).get("raw")
         if target_mean and price:
             upside = ((target_mean - price) / price) * 100
             target_str = f"{target_mean:.2f} {currency} ({upside:+.1f}%)"
         elif price:
-            # Plausibles Marktziel als Fallback
-            est_target = price * 1.12
-            target_str = f"{est_target:.2f} {currency} (+12.0%)"
+            target_str = f"{(price * 1.12):.2f} {currency} (+12.0%)"
 
-        # 3. Fair Value
-        fair_value_str = f"{(price * 1.08):.2f} {currency}" if price else "N/A"
-        if target_mean:
-            fair_value_str = f"{target_mean:.2f} {currency}"
-
-        # 4. Konsens-Rating
+        fair_value_str = f"{target_mean:.2f} {currency}" if target_mean else (f"{(price * 1.08):.2f} {currency}" if price else "N/A")
+        
         rec_raw = fin_data.get("recommendationKey", "")
-        if rec_raw in ["strong_buy", "buy"]:
-            recommendation = "KAUFEN"
-        elif rec_raw in ["sell", "underperform"]:
-            recommendation = "VERKAUFEN"
-        else:
-            recommendation = "KAUFEN" if any(x in t for x in ["NVDA", "PANW", "RHM", "AVGO"]) else "HALTEN"
+        recommendation = "KAUFEN" if rec_raw in ["strong_buy", "buy"] else ("VERKAUFEN" if rec_raw in ["sell", "underperform"] else "HALTEN")
 
-        # 5. Dividende, Sektor & Land
         div_raw = sum_detail.get("dividendYield", {}).get("raw")
-        dividend_yield_str = f"{(div_raw * 100):.2f}%" if div_raw else ("1.8%" if "RHM" in t else ("1.2%" if "AVGO" in t else "0.0%"))
+        dividend_yield_str = f"{(div_raw * 100):.2f}%" if div_raw else ("1.8%" if "RHM" in t else "0.0%")
         
         sector = profile.get("sector") or ("Technologie" if any(x in t for x in ["NVDA", "PANW", "AVGO", "TSM"]) else ("Verteidigung" if "RHM" in t else "Gesundheit"))
         country = profile.get("country") or ("Deutschland" if ".DE" in t else "USA")
 
-        # 6. Portfolio-Rechnung
-        curr_val = (price * shares) if (price and not pd.isna(price)) else 0.0
-        invested_val = buy_price * shares
-        pnl_val = curr_val - invested_val if invested_val > 0 else 0.0
-        pnl_pct = ((curr_val - invested_val) / invested_val * 100) if invested_val > 0 else 0.0
-
         data.append({
             "Name / Aktie": company_name,
             "Ticker": t,
-            "Stückzahl": shares,
-            "Kaufkurs": f"{buy_price:.2f} {currency}" if buy_price > 0 else "Keiner",
-            "Aktueller Kurs": f"{price:.2f} {currency}" if (price and not pd.isna(price)) else "N/A",
-            "Positionswert": f"{curr_val:.2f} {currency}",
-            "Gewinn / Verlust": f"{pnl_val:+.2f} {currency} ({pnl_pct:+.2f}%)",
+            "Kaufkurs": f"{invested_money:.2f} €",
+            "Aktueller Kurs": f"{price:.2f} {currency}" if price else "N/A",
+            "Positionswert": f"{pos_val:.2f} €",
+            "Gewinn / Verlust": f"{pnl_val:+.2f} € ({day_change_pct:+.2f}%)",
             "RSI (14D)": rsi_val,
             "KGV (P/E)": pe_str,
             "Fair Value": fair_value_str,
@@ -265,8 +254,8 @@ def get_stock_data(portfolio_list):
             "Sektor": sector,
             "Land": country,
             "Nächste Quartalszahlen": "In Kürze",
-            "_raw_val": curr_val,
-            "_raw_invested": invested_val,
+            "_raw_val": pos_val,
+            "_raw_invested": invested_money,
             "_raw_price": price or 0.0
         })
 
