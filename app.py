@@ -9,11 +9,11 @@ try:
   from data_service import (
       load_saved_portfolio, save_portfolio_to_file, get_stock_data,
       get_individual_series_dict, fetch_all_headlines, search_ticker_candidates,
-      clean_ticker, parse_trade_republic_pdf
+      clean_ticker, parse_trade_republic_pdf, get_display_name
   )
   from ai_service import get_account_models, run_analysis, run_duel_analysis
 except Exception as e:
-  st.error(f"Import-Fehler: Bitte prüfe die Dateien auf GitHub. Details: {e}")
+  st.error(f"Import-Fehler: {e}")
   st.stop()
 
 st.set_page_config(
@@ -64,24 +64,24 @@ with st.sidebar:
 
   st.divider()
   st.subheader("🔍 Aktie hinzufügen:")
-  search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Nvidia, Apple...")
+  search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Nvidia, Apple, Rheinmetall...")
   if search_query:
     results = search_ticker_candidates(search_query)
     if results:
       selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
-      in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=10.0)
+      in_money = st.number_input("Investierter Geldbetrag (€):", min_value=1.0, value=50.0, step=10.0)
       
       if st.button("➕ Hinzufügen", use_container_width=True):
         sym = clean_ticker(selected_cand)
-        name = selected_cand.split("(")[1].replace(")", "") if "(" in selected_cand else sym
+        disp_name = get_display_name(sym)
         st.session_state.my_portfolio.append({
             "ticker": sym,
-            "name": name,
+            "name": disp_name,
             "shares": 1.0,
             "buy_price": float(in_money)
         })
         save_portfolio_to_file(st.session_state.my_portfolio)
-        st.success(f"{sym} hinzugefügt!")
+        st.success(f"{disp_name} hinzugefügt!")
         st.rerun()
 
   st.divider()
@@ -90,10 +90,11 @@ with st.sidebar:
   if st.session_state.my_portfolio:
     for idx, item in enumerate(st.session_state.my_portfolio):
       current_invested = float(item.get("buy_price", 50.0))
+      display_label = get_display_name(item.get("ticker", ""), item.get("name"))
       col_a, col_b = st.columns([3, 1])
       with col_a:
         new_invested = st.number_input(
-            f"💶 {item.get('name', item['ticker'])}:",
+            f"💶 {display_label}:",
             min_value=0.0,
             value=float(current_invested),
             step=10.0,
@@ -109,6 +110,7 @@ with st.sidebar:
 
       if new_invested != current_invested:
         item["buy_price"] = float(new_invested)
+        item["name"] = display_label
         portfolio_changed = True
     
     if portfolio_changed or st.button("💾 Speichern", use_container_width=True):
@@ -116,7 +118,7 @@ with st.sidebar:
       st.success("✅ Gespeichert!")
       st.rerun()
   else:
-    st.info("Noch keine Positionen hinterlegt.")
+    st.info("Noch keine Positionen im Depot.")
 
   st.divider()
   st.header("🤖 Modell")
@@ -126,7 +128,7 @@ with st.sidebar:
   else:
     selected_model = "llama-3.3-70b-versatile"
 
-# DATENBERECHNUNG
+# KORREKTE GESAMTBERECHNUNG
 if st.session_state.my_portfolio:
   stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
   total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
@@ -166,11 +168,11 @@ if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
       ticker_news_text = "\n".join(ticker_news) if ticker_news else "Keine aktuellen Sondermeldungen."
 
       metrics_summary = stock_df[[
-          "Name / Aktie", "Ticker", "Aktueller Kurs", "RSI (14D)", 
+          "Unternehmen", "Börsenkurs", "RSI (14D)", 
           "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
       ]].to_string(index=False)
 
-      cluster_context = stock_df[["Name / Aktie", "Ticker", "Sektor", "Land", "Positionswert"]].to_string(index=False)
+      cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Aktueller Wert (TR)"]].to_string(index=False)
 
       try:
         out_m, out_d, out_s, out_c = run_analysis(
@@ -203,18 +205,15 @@ with tab0:
   with col_tr1:
     st.success(f"💶 **Bargeld (Cash):** {fmt_eur(st.session_state.tr_cash)}")
   with col_tr2:
-    st.success(f"📈 **Aktien-Marktwert:** {fmt_eur(stock_val)}")
+    st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
       
   st.subheader("Positionen im Überblick:")
   if not stock_df.empty:
     st.dataframe(
         stock_df[[
-            "Name / Aktie", "Ticker", "Kaufkurs", 
-            "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"
-        ]].rename(columns={
-            "Kaufkurs": "Dein Geldeinsatz",
-            "Positionswert": "Aktueller Wert"
-        }),
+            "Unternehmen", "Dein Geldeinsatz", 
+            "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
+        ]],
         hide_index=True,
         use_container_width=True
     )
@@ -233,11 +232,8 @@ with tab2:
   if not stock_df.empty:
     st.dataframe(
         stock_df[[
-            "Name / Aktie", "Ticker", "Kaufkurs", "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"
-        ]].rename(columns={
-            "Kaufkurs": "Dein Geldeinsatz",
-            "Positionswert": "Aktueller Wert"
-        }),
+            "Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"
+        ]],
         hide_index=True,
         use_container_width=True
     )
@@ -251,7 +247,7 @@ with tab3:
   if not stock_df.empty:
     st.dataframe(
         stock_df[[
-            "Name / Aktie", "Ticker", "Dividendenrendite", "Nächste Quartalszahlen"
+            "Unternehmen", "Dividendenrendite", "Nächste Quartalszahlen"
         ]].rename(columns={
             "Dividendenrendite": "Gewinnausschüttung (% p.a.)",
             "Nächste Quartalszahlen": "Nächster Quartalstermin"
@@ -266,7 +262,7 @@ with tab4:
   if not stock_df.empty:
     st.dataframe(
         stock_df[[
-            "Name / Aktie", "Ticker", "Aktueller Kurs", "Fair Value", "Analysten-Kursziel", "Konsens-Rating"
+            "Unternehmen", "Börsenkurs", "Fair Value", "Analysten-Kursziel", "Konsens-Rating"
         ]].rename(columns={
             "Fair Value": "Faire Wertschätzung",
             "Analysten-Kursziel": "Experten-Kursziel",
@@ -300,23 +296,23 @@ with tab5:
   if st.session_state.my_portfolio:
     series_dict = get_individual_series_dict(st.session_state.my_portfolio, period=timeframe)
     if series_dict:
-      available_tickers = list(series_dict.keys())
-      selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_tickers, index=0)
+      available_names = list(series_dict.keys())
+      selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
       
       palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900"]
       fig = go.Figure()
-      tickers_to_plot = available_tickers if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
+      names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
 
       if chart_mode == "Wertentwicklung in %":
-        for i, t in enumerate(tickers_to_plot):
-          s = series_dict[t]
+        for i, name in enumerate(names_to_plot):
+          s = series_dict[name]
           if not s.empty and s.iloc[0] > 0:
             base_val = s.iloc[0]
             pct_series = ((s - base_val) / base_val) * 100
             fig.add_trace(go.Scatter(
-                x=s.index, y=pct_series, mode="lines", name=t,
+                x=s.index, y=pct_series, mode="lines", name=name,
                 line=dict(width=2.5, color=palette[i % len(palette)]),
-                hovertemplate=f"<b>{t}</b>: %{{y:+.2f}}%<extra></extra>"
+                hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
             ))
         
         fig.add_hline(y=0, line_dash="dash", line_color="rgba(150,150,150,0.6)", annotation_text="0%")
@@ -330,12 +326,12 @@ with tab5:
             height=380
         )
       else:
-        for i, t in enumerate(tickers_to_plot):
-          s = series_dict[t]
+        for i, name in enumerate(names_to_plot):
+          s = series_dict[name]
           fig.add_trace(go.Scatter(
-              x=s.index, y=s, mode="lines", name=t,
+              x=s.index, y=s, mode="lines", name=name,
               line=dict(width=2.5, color=palette[i % len(palette)]),
-              hovertemplate=f"<b>{t}</b>: %{{y:.2f}}<extra></extra>"
+              hovertemplate=f"<b>{name}</b>: %{{y:.2f}}<extra></extra>"
           ))
         fig.update_layout(
             title=f"Kursverlauf ({timeframe.upper()})",
@@ -375,24 +371,23 @@ with tab6:
     st.divider()
     st.subheader("🛡️ KI-Gutachten & Erklärung zur Risikostreuung:")
     st.markdown(st.session_state["ai_cluster"])
-  else:
-    st.caption("Klicke oben auf '🚀 Gesamte KI-Auswertung starten', um das Gutachten zur Risikostreuung zu laden.")
 
 # TAB 7: AKTIEN-VERGLEICH
 with tab7:
   st.info("ℹ️ **Kurzinfo:** 1-gegen-1-Vergleich zweier Aktien. Die KI bewertet Kurspotenzial, Kennzahlen und kürt den besseren Kauf.")
   if not stock_df.empty and len(stock_df) >= 2:
     cd1, cd2 = st.columns(2)
+    names_list = stock_df["Unternehmen"].tolist()
     with cd1:
-      duel_a = st.selectbox("Erste Aktie:", stock_df["Ticker"].tolist(), index=0)
+      duel_a = st.selectbox("Erste Aktie:", names_list, index=0)
     with cd2:
-      duel_b = st.selectbox("Zweite Aktie:", stock_df["Ticker"].tolist(), index=1)
+      duel_b = st.selectbox("Zweite Aktie:", names_list, index=1)
     
     if st.button("⚡ Duell auswerten", use_container_width=True):
       if GROQ_KEY:
         cl = Groq(api_key=GROQ_KEY.strip())
-        row_a = stock_df[stock_df["Ticker"] == duel_a].iloc[0].to_dict()
-        row_b = stock_df[stock_df["Ticker"] == duel_b].iloc[0].to_dict()
+        row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
+        row_b = stock_df[stock_df["Unternehmen"] == duel_b].iloc[0].to_dict()
         with st.spinner("Analysiere Duell..."):
           res_duel = run_duel_analysis(cl, selected_model, str(row_a), str(row_b))
           st.markdown(res_duel)
