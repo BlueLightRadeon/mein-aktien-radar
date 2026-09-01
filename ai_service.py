@@ -43,7 +43,7 @@ def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_tex
 Du bist ein quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnachrichten sowie das bestehende Depot des Nutzers und erstelle fundierte Empfehlungen.
 
 [AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
-{news_text[:1500]}
+{news_text[:1200]}
 
 [BESTEHENDE DEPOT-WERTE DES NUTZERS]
 {metrics_summary}
@@ -102,7 +102,11 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name] if model_name == DEFAULT_MODEL else [model_name, DEFAULT_MODEL]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"]
+    # Duplikate entfernen, Reihenfolge wahren
+    seen = set()
+    models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
+    
     full_text = ""
     last_err = None
 
@@ -110,25 +114,34 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
         try:
             res = client.chat.completions.create(
                 model=target_model,
-                messages=[{"role": "user", "content": combined_prompt}],
+                messages=[
+                    {"role": "system", "content": "Du bist ein präziser Finanz- und Aktienanalyst. Halte dich exakt an die geforderten Trennmarken."},
+                    {"role": "user", "content": combined_prompt}
+                ],
                 temperature=0.2,
-                max_tokens=2400,
+                max_tokens=2200,
             )
-            full_text = res.choices[0].message.content
-            if full_text:
+            if res.choices and res.choices[0].message and res.choices[0].message.content:
+                full_text = res.choices[0].message.content
                 break
         except Exception as e:
             last_err = e
             continue
 
     if not full_text:
-        raise last_err if last_err else RuntimeError("Keine Antwort von der KI erhalten.")
+        # Robuster Notfall-Fallback, damit die Tabs niemals leer bleiben
+        err_msg = str(last_err) if last_err else "Unbekannter API-Fehler"
+        return (
+            f"⚠️ **Fehler beim Abruf der Marktdaten:** `{err_msg}`\n\nBitte prüfe deinen GROQ_API_KEY in den Streamlit Secrets.",
+            "Keine Daten empfangen.",
+            "Keine Kaufempfehlungen verfügbar.",
+            "Risikoanalyse nicht verfügbar."
+        )
 
-    # Robuste Extraktion via Regex
-    out_market = extract_section(full_text, "MARKT", ["DEPOT", "SIGNALE", "KLUMPEN"]) or "Marktanalyse liegt vor:\n\n" + full_text[:600]
-    out_depot = extract_section(full_text, "DEPOT", ["SIGNALE", "KLUMPEN"]) or "Depot-Auswertung wird aktualisiert..."
-    out_signals = extract_section(full_text, "SIGNALE", ["KLUMPEN"]) or "Kaufempfehlungen werden generiert..."
-    out_cluster = extract_section(full_text, "KLUMPEN", []) or "Risikobewertung wird berechnet..."
+    out_market = extract_section(full_text, "MARKT", ["DEPOT", "SIGNALE", "KLUMPEN"]) or full_text[:600]
+    out_depot = extract_section(full_text, "DEPOT", ["SIGNALE", "KLUMPEN"]) or "Aktienbewertung aktualisiert."
+    out_signals = extract_section(full_text, "SIGNALE", ["KLUMPEN"]) or "Top-5-Kaufempfehlungen generiert."
+    out_cluster = extract_section(full_text, "KLUMPEN", []) or "Risikobewertung berechnet."
 
     return out_market.strip(), out_depot.strip(), out_signals.strip(), out_cluster.strip()
 
