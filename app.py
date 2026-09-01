@@ -115,7 +115,7 @@ with st.sidebar:
         available_models = get_account_models(GROQ_KEY)
         selected_model = st.selectbox("Auswahl:", available_models, index=0)
     else:
-        selected_model = "llama-3.3-70b-versatile"
+        selected_model = "openai/gpt-oss-120b"
 
 # BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
