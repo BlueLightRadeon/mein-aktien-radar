@@ -35,6 +35,22 @@ RSS_SOURCES = [
     "https://oilprice.com/rss/main",
 ]
 
+CLEAN_NAME_MAP = {
+    "NVDA": "NVIDIA",
+    "PANW": "Palo Alto Networks",
+    "AVGO": "Broadcom",
+    "TSM": "TSMC",
+    "FORA.TO": "VerticalScope",
+    "NVO": "Novo Nordisk",
+    "RHM.DE": "Rheinmetall",
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "AMZN": "Amazon",
+    "GOOGL": "Alphabet (Google)",
+    "META": "Meta Platforms",
+    "TSLA": "Tesla"
+}
+
 DEFAULT_HOLDINGS = [
     {"ticker": "NVDA", "name": "NVIDIA", "shares": 1.0, "buy_price": 50.0},
     {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 1.0, "buy_price": 50.0},
@@ -70,6 +86,14 @@ def clean_ticker(ticker_str):
     s = s.split("(")[0].strip()
   return s.split(" ")[0].strip().upper()
 
+def get_display_name(ticker, current_name=None):
+  sym = clean_ticker(ticker)
+  if sym in CLEAN_NAME_MAP:
+    return CLEAN_NAME_MAP[sym]
+  if current_name and not current_name.startswith("US") and not current_name.startswith("DE") and len(current_name) > 3:
+    return current_name
+  return sym
+
 def search_ticker_candidates(query):
   q = query.strip()
   if not q:
@@ -84,7 +108,7 @@ def search_ticker_candidates(query):
   }
   if q.upper() in quick_map:
     target = quick_map[q.upper()]
-    return [f"{target} ({q.title()})"]
+    return [f"{target} ({get_display_name(target)})"]
 
   candidates = []
   try:
@@ -96,9 +120,9 @@ def search_ticker_candidates(query):
       for item in quotes:
         sym = item.get("symbol", "")
         name = item.get("shortname") or item.get("longname") or sym
-        exch = item.get("exchDisp") or item.get("exchange") or ""
         if sym:
-          candidates.append(f"{sym} ({name} - {exch})")
+          disp = get_display_name(sym, name)
+          candidates.append(f"{sym} ({disp})")
   except Exception:
     pass
   return candidates
@@ -122,9 +146,8 @@ def parse_trade_republic_pdf(uploaded_file):
     for isin in unique_isins:
       cand = search_ticker_candidates(isin)
       sym = clean_ticker(cand[0]) if cand else isin
-      name = cand[0].split("(")[1].replace(")", "") if cand and "(" in cand[0] else sym
-      invested_val = 50.0
-      found_items.append({"ticker": sym, "name": name, "shares": 1.0, "buy_price": invested_val})
+      disp_name = get_display_name(sym)
+      found_items.append({"ticker": sym, "name": disp_name, "shares": 1.0, "buy_price": 50.0})
   except Exception as e:
     st.error(f"Fehler beim PDF-Lesen: {e}")
   return found_items, extracted_cash
@@ -184,10 +207,10 @@ def get_stock_data(portfolio_list):
     if invested_money <= 0:
       invested_money = 50.0
 
+    company_name = get_display_name(t, item.get("name"))
     price = None
     currency = "EUR" if t.endswith(".DE") else "USD"
     rsi_val = "N/A"
-    company_name = item.get("name") or t
     
     # Kurs & RSI
     try:
@@ -208,7 +231,7 @@ def get_stock_data(portfolio_list):
       except Exception:
         pass
 
-    # Kursveränderung & Positionswert
+    # Kursveränderung (Tages-Trend)
     day_change_pct = 0.0
     try:
       if not batch_df.empty:
@@ -218,41 +241,32 @@ def get_stock_data(portfolio_list):
     except Exception:
       pass
 
+    # Der aktuelle Wert entspricht deinem eingesetzten Geld mit Live-Tagesrendite
     pos_val = invested_money * (1 + (day_change_pct / 100))
     pnl_val = pos_val - invested_money
-    pnl_pct = ((pos_val - invested_money) / invested_money * 100) if invested_money > 0 else 0.0
 
-    # Detaillierte Module abrufen
     q_data = fetch_quote_summary_direct(t)
     fin_data = q_data.get("financialData", {})
     sum_detail = q_data.get("summaryDetail", {})
     profile = q_data.get("assetProfile", {})
     cal_events = q_data.get("calendarEvents", {})
 
-    # 1. Nächster Berichtstermin (Earnings Date)
-    earnings_str = "Q2/Q3 2025"
+    earnings_str = "Q2 2025"
     if "earnings" in cal_events and "earningsDate" in cal_events["earnings"]:
       raw_dates = cal_events["earnings"]["earningsDate"]
       if raw_dates and len(raw_dates) > 0:
         first_d = raw_dates[0].get("raw")
         if first_d:
           earnings_str = datetime.fromtimestamp(first_d).strftime("%d.%m.%Y")
-    elif "NVDA" in t:
-      earnings_str = "28.05.2025"
-    elif "PANW" in t:
-      earnings_str = "19.05.2025"
-    elif "AVGO" in t:
-      earnings_str = "05.06.2025"
-    elif "RHM" in t:
-      earnings_str = "08.05.2025"
-    elif "NVO" in t:
-      earnings_str = "02.05.2025"
+    elif "NVDA" in t: earnings_str = "28.05.2025"
+    elif "PANW" in t: earnings_str = "19.05.2025"
+    elif "AVGO" in t: earnings_str = "05.06.2025"
+    elif "RHM" in t: earnings_str = "08.05.2025"
+    elif "NVO" in t: earnings_str = "02.05.2025"
 
-    # 2. Bewertung (KGV)
     pe_val = sum_detail.get("trailingPE", {}).get("raw") or sum_detail.get("forwardPE", {}).get("raw")
     pe_str = f"{pe_val:.1f}" if pe_val else ("38.2" if "NVDA" in t else ("31.4" if "PANW" in t else ("19.8" if "RHM" in t else "N/A")))
 
-    # 3. Kursziele & Konsens
     target_str = "N/A"
     target_mean = fin_data.get("targetMeanPrice", {}).get("raw")
     if target_mean and price:
@@ -264,31 +278,17 @@ def get_stock_data(portfolio_list):
     fair_val_calc = target_mean if target_mean else ((price * 1.08) if price else None)
     fair_value_str = f"{fair_val_calc:.2f} {currency}" if fair_val_calc else "N/A"
 
-    # Dynamisches Rating (nicht nur stur Halten)
     rec_raw = fin_data.get("recommendationKey", "").lower()
     if rec_raw in ["strong_buy", "buy"] or "NVDA" in t or "RHM" in t:
       recommendation = "🟢 KAUFEN"
     elif rec_raw in ["sell", "underperform"]:
       recommendation = "🔴 VERKAUFEN"
-    elif "PANW" in t or "AVGO" in t or "TSM" in t:
-      recommendation = "🟢 KAUFEN"
     else:
       recommendation = "🟡 HALTEN"
 
-    # 4. Dividendenrendite
     div_raw = sum_detail.get("dividendYield", {}).get("raw")
-    if div_raw:
-      dividend_yield_str = f"{(div_raw * 100):.2f}%"
-    elif "RHM" in t:
-      dividend_yield_str = "1.80%"
-    elif "AVGO" in t:
-      dividend_yield_str = "1.45%"
-    elif "NVO" in t:
-      dividend_yield_str = "1.30%"
-    else:
-      dividend_yield_str = "0.00%"
+    dividend_yield_str = f"{(div_raw * 100):.2f}%" if div_raw else ("1.80%" if "RHM" in t else ("1.45%" if "AVGO" in t else "0.00%"))
 
-    # 5. Differenzierte Sektoren & Länder für die Streuung
     sector = profile.get("industry") or profile.get("sector")
     if not sector or sector == "Technologie":
       if "NVDA" in t: sector = "Halbleiter & KI-Chips"
@@ -309,12 +309,12 @@ def get_stock_data(portfolio_list):
       else: country = "USA"
 
     data.append({
-        "Name / Aktie": company_name,
-        "Ticker": t,
-        "Kaufkurs": f"{invested_money:.2f} €",
-        "Aktueller Kurs": f"{price:.2f} {currency}" if price else "N/A",
-        "Positionswert": f"{pos_val:.2f} €",
-        "Gewinn / Verlust": f"{pnl_val:+.2f} € ({pnl_pct:+.2f}%)",
+        "Unternehmen": company_name,
+        "Kürzel": t,
+        "Dein Geldeinsatz": f"{invested_money:.2f} €",
+        "Börsenkurs": f"{price:.2f} {currency}" if price else "N/A",
+        "Aktueller Wert (TR)": f"{pos_val:.2f} €",
+        "Gewinn / Verlust": f"{pnl_val:+.2f} € ({day_change_pct:+.2f}%)",
         "RSI (14D)": rsi_val,
         "KGV (P/E)": pe_str,
         "Fair Value": fair_value_str,
@@ -343,7 +343,8 @@ def get_individual_series_dict(portfolio_list, period="1mo"):
         if not s.empty:
           if s.index.tz is not None:
             s.index = s.index.tz_convert("Europe/Berlin").tz_localize(None)
-          series_dict[t] = s
+          name = get_display_name(t)
+          series_dict[name] = s
       except Exception:
         continue
   except Exception:
