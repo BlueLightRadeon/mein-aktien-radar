@@ -24,7 +24,16 @@ st.set_page_config(
 
 st.title("📈 KI Markt- & Depot-Radar")
 
-GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
+# Universelle Secret-Erkennung
+def get_groq_key():
+    for k in ["GROQ_API_KEY", "groq_api_key", "GROQ_KEY", "groq_key"]:
+        if k in st.secrets:
+            v = str(st.secrets[k]).strip()
+            if v:
+                return v
+    return ""
+
+GROQ_KEY = get_groq_key()
 
 def get_berlin_time_str():
     tz_de = timezone(timedelta(hours=2))
@@ -128,11 +137,11 @@ with c_m3:
 # KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
     if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
     else:
-        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
+        with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
             try:
-                client = Groq(api_key=GROQ_KEY.strip())
+                client = Groq(api_key=GROQ_KEY)
                 news_data = fetch_all_headlines()
                 news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
@@ -155,7 +164,12 @@ if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"
                 st.session_state["last_analysis_time"] = get_berlin_time_str()
                 st.success("✅ Auswertung erfolgreich abgeschlossen!")
             except Exception as e:
-                st.error(f"Fehler: {str(e)}")
+                st.error(f"⚠️ Groq Fehler: {str(e)}")
+
+# DIREKTE ERGEBNIS-BOX ÜBER DEN TABS
+if st.session_state.get("ai_signals"):
+    with st.expander(f"✨ **Ergebnis-Direktansicht (Stand: {st.session_state.get('last_analysis_time', '')})**", expanded=True):
+        st.markdown(st.session_state["ai_signals"])
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -182,11 +196,6 @@ with tab0:
     if not stock_df.empty:
         disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
-
-    if st.session_state.get("ai_signals"):
-        st.divider()
-        st.subheader("🎯 Schnelle Übersicht: Top 5 Kaufkandidaten")
-        st.markdown(st.session_state["ai_signals"])
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
@@ -337,7 +346,7 @@ with tab7:
         
         if st.button("⚡ Duell auswerten", width="stretch"):
             if GROQ_KEY:
-                cl = Groq(api_key=GROQ_KEY.strip())
+                cl = Groq(api_key=GROQ_KEY)
                 row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
                 row_b = stock_df[stock_df["Unternehmen"] == duel_b].iloc[0].to_dict()
                 with st.spinner("Analysiere Duell..."):
