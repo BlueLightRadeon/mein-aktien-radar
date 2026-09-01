@@ -74,7 +74,7 @@ def fetch_all_headlines(sources):
 
 
 def calculate_rsi(series, period=14):
-  """Berechnet den 14-Tage RSI (Relative Strength Index)."""
+  """Berechnet den 14-Tage RSI."""
   try:
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -88,7 +88,6 @@ def calculate_rsi(series, period=14):
 
 
 def get_stock_data(tickers):
-  """Holt Kurse, Fundamentaldaten, RSI, Kursziele und Ticker-News."""
   data = []
   direct_news = []
 
@@ -101,7 +100,6 @@ def get_stock_data(tickers):
       price = fast.last_price if hasattr(fast, "last_price") else None
       currency = fast.currency if hasattr(fast, "currency") else "USD"
 
-      # RSI (14 Tage) über historische Daten
       hist = stock.history(period="1mo")
       rsi_val = (
           calculate_rsi(hist["Close"])
@@ -109,7 +107,6 @@ def get_stock_data(tickers):
           else "N/A"
       )
 
-      # Fundamentaldaten & Analysten-Ziele
       pe_ratio = info.get("trailingPE")
       pe_str = f"{pe_ratio:.1f}" if pe_ratio else "N/A"
 
@@ -120,7 +117,6 @@ def get_stock_data(tickers):
       else:
         target_str = "N/A"
 
-      # Nächste Quartalszahlen
       earnings_date = "Unbekannt"
       try:
         cal = stock.calendar
@@ -131,7 +127,6 @@ def get_stock_data(tickers):
       except Exception:
         pass
 
-      # Direkte Ticker-News
       try:
         if stock.news:
           for item in stock.news[:2]:
@@ -163,26 +158,48 @@ def get_stock_data(tickers):
   return pd.DataFrame(data), direct_news
 
 
-def pick_valid_chat_model(client):
-  """Wählt ausschließlich offizielle, lizenzfreie Standard-Chat-Modelle aus."""
-  # Feste Liste bewährter, immer freier Groq-Modelle (ohne Zusatzbedingungen)
-  standard_free_models = [
-      "llama-3.3-70b-versatile",
-      "llama-3.1-70b-versatile",
-      "llama-3.1-8b-instant",
+def execute_llm_call(client, prompt):
+  """Probiert automatisch alle verfügbaren Standard-Chat-Modelle durch."""
+  # Liste gängiger Groq-Modelle in Prioritätsreihenfolge
+  candidate_models = [
       "llama3-70b-8192",
       "llama3-8b-8192",
       "mixtral-8x7b-32768",
       "gemma2-9b-it",
+      "llama-3.3-70b-versatile",
+      "llama-3.1-8b-instant",
   ]
+
+  # Falls verfügbar, fügen wir dynamisch die echten IDs deines Accounts hinzu
   try:
-    available = [m.id for m in client.models.list().data]
-    for candidate in standard_free_models:
-      if candidate in available:
-        return candidate
+    account_models = [
+        m.id
+        for m in client.models.list().data
+        if not any(x in m.lower() for x in ["whisper", "guard", "orpheus"])
+    ]
+    # Vorne anfügen
+    candidate_models = account_models + candidate_models
   except Exception:
     pass
-  return "llama-3.3-70b-versatile"
+
+  # Deduplizieren
+  candidate_models = list(dict.fromkeys(candidate_models))
+
+  last_err = ""
+  for model in candidate_models:
+    try:
+      res = client.chat.completions.create(
+          model=model,
+          messages=[{"role": "user", "content": prompt}],
+          temperature=0.3,
+          max_tokens=900,
+      )
+      return res.choices[0].message.content, model
+    except Exception as e:
+      last_err = f"{model}: {str(e)}"
+      continue
+
+  raise RuntimeError(f"Kein Modell konnte antworten. Letzter Fehler: {last_err}")
 
 
 # Tabs beibehalten
@@ -203,9 +220,6 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
     ]
 
     with st.spinner("Scanne 45+ Quellen, Ticker-News, RSI & Fundamentaldaten..."):
-      model_to_use = pick_valid_chat_model(client)
-
-      # 1. Daten holen
       news_data = fetch_all_headlines(RSS_SOURCES)
       news_text = "\n".join(news_data)
       stock_df, ticker_news = get_stock_data(tickers)
@@ -215,12 +229,10 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
           else "Keine direkten Ad-hocs gefunden."
       )
 
-      # Datenübersicht für die KI aufbereiten
       metrics_summary = stock_df[
           ["Ticker", "Kurs", "RSI (14D)", "KGV (P/E)", "Analysten-Kursziel"]
       ].to_string(index=False)
 
-      # 2. Prompts
       prompt_market = f"""
 Aktuelle weltweite Wirtschaftsnachrichten (aus 45+ Quellen & ETF-Feeds):
 {news_text}
@@ -247,24 +259,11 @@ Erstelle für jeden Wert ({', '.join(tickers)}) eine fundierte Analyse:
 """
 
       try:
-        res_market = client.chat.completions.create(
-            model=model_to_use,
-            messages=[{"role": "user", "content": prompt_market}],
-            temperature=0.3,
-            max_tokens=900,
-        )
-        out_market = res_market.choices[0].message.content
-
-        res_depot = client.chat.completions.create(
-            model=model_to_use,
-            messages=[{"role": "user", "content": prompt_depot}],
-            temperature=0.3,
-            max_tokens=1000,
-        )
-        out_depot = res_depot.choices[0].message.content
+        out_market, used_model = execute_llm_call(client, prompt_market)
+        out_depot, _ = execute_llm_call(client, prompt_depot)
 
         with tab1:
-          st.caption(f"🤖 Verwendetes Modell: `{model_to_use}`")
+          st.caption(f"🤖 Verwendetes Modell: `{used_model}`")
           st.markdown(out_market)
 
         with tab2:
@@ -289,4 +288,4 @@ Erstelle für jeden Wert ({', '.join(tickers)}) eine fundierte Analyse:
           )
 
       except Exception as e:
-        st.error(f"Fehler bei Modell '{model_to_use}': {str(e)}")
+        st.error(f"Fehler: {str(e)}")
