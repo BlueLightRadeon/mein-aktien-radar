@@ -2,11 +2,15 @@ import streamlit as st
 from groq import Groq
 import re
 
-DEFAULT_MODEL = "openai/gpt-oss-120b"
-STATIC_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"]
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+STATIC_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b"
+]
 
 def get_account_models(api_key):
-    # Statische Liste: Verhindert jedes Blockieren beim Laden der Seite
     return STATIC_MODELS
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
@@ -79,8 +83,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     full_text = ""
     last_err_msg = ""
 
-    # Schneller Request mit festem Timeout (max. 10 Sek)
-    for model_to_try in [target, "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]:
+    for model_to_try in [target, "llama-3.1-8b-instant", "openai/gpt-oss-120b"]:
         try:
             res = client.chat.completions.create(
                 model=model_to_try,
@@ -89,7 +92,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.2,
-                max_tokens=2000,
+                max_tokens=2200,
                 timeout=10.0
             )
             if res.choices and res.choices[0].message and res.choices[0].message.content:
@@ -103,7 +106,6 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
         err_display = f"⚠️ **Groq API Fehler:** `{last_err_msg}`\n\nBitte prüfe deinen API-Key in den Streamlit Secrets."
         return err_display, err_display, err_display, err_display
 
-    # Zerlegung via Regex
     normalized_text = full_text
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*MARKT\s*={2,5}\*{0,2}|#{1,4}\s*MARKT)', '<<<SECTION_MARKT>>>', normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*DEPOT\s*={2,5}\*{0,2}|#{1,4}\s*DEPOT)', '<<<SECTION_DEPOT>>>', normalized_text, flags=re.IGNORECASE)
