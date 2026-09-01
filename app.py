@@ -17,14 +17,13 @@ st.title("📈 KI Markt- & Depot-Radar")
 # Key aus Streamlit Secrets laden
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# In der Seitenleiste verwaltest du nur noch deine Aktien
+# In der Seitenleiste Aktien verwalten
 with st.sidebar:
-    st.header("💼 Mein Depot")
-    portfolio_input = st.text_input(
-        "Deine Aktien (Ticker)", 
-        value="AAPL, MSFT, NVDA, TSLA"
-    )
-    st.caption("Beispiele: AAPL (Apple), MSFT (Microsoft), SAP.DE (SAP), MBG.DE (Mercedes)")
+  st.header("💼 Mein Depot")
+  portfolio_input = st.text_input(
+      "Deine Aktien (Ticker)", value="AAPL, MSFT, NVDA, TSLA"
+  )
+  st.caption("Beispiele: AAPL, MSFT, SAP.DE, MBG.DE")
 
 # RSS-Feeds
 RSS_SOURCES = [
@@ -47,45 +46,64 @@ RSS_SOURCES = [
 
 
 def fetch_all_headlines(sources):
-    headlines = []
-    for url in sources:
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:3]:
-                headlines.append(f"- {entry.title}")
-        except Exception:
-            continue
-    return headlines[:80]
+  headlines = []
+  for url in sources:
+    try:
+      feed = feedparser.parse(url)
+      for entry in feed.entries[:3]:
+        headlines.append(f"- {entry.title}")
+    except Exception:
+      continue
+  return headlines[:80]
 
 
 def get_stock_data(tickers):
-    data = []
-    for t in tickers:
-        try:
-            stock = yf.Ticker(t)
-            price = stock.fast_info.last_price
-            earnings_date = "Unbekannt"
-            try:
-                cal = stock.calendar
-                if isinstance(cal, pd.DataFrame) and not cal.empty:
-                    earnings_date = str(cal.iloc[0, 0]).split(" ")[0]
-                elif isinstance(cal, dict) and "Earnings Date" in cal:
-                    earnings_date = str(cal["Earnings Date"][0]).split(" ")[0]
-            except Exception:
-                pass
+  data = []
+  for t in tickers:
+    try:
+      stock = yf.Ticker(t)
+      price = stock.fast_info.last_price
+      earnings_date = "Unbekannt"
+      try:
+        cal = stock.calendar
+        if isinstance(cal, pd.DataFrame) and not cal.empty:
+          earnings_date = str(cal.iloc[0, 0]).split(" ")[0]
+        elif isinstance(cal, dict) and "Earnings Date" in cal:
+          earnings_date = str(cal["Earnings Date"][0]).split(" ")[0]
+      except Exception:
+        pass
 
-            data.append({
-                "Ticker": t,
-                "Kurs": f"{price:.2f}" if price is not None else "N/A",
-                "Nächste Earnings": earnings_date,
-            })
-        except Exception:
-            data.append({
-                "Ticker": t, 
-                "Kurs": "N/A", 
-                "Nächste Earnings": "Nicht gefunden"
-            })
-    return pd.DataFrame(data)
+      data.append({
+          "Ticker": t,
+          "Kurs": f"{price:.2f}" if price is not None else "N/A",
+          "Nächste Earnings": earnings_date,
+      })
+    except Exception:
+      data.append(
+          {"Ticker": t, "Kurs": "N/A", "Nächste Earnings": "Nicht gefunden"}
+      )
+  return pd.DataFrame(data)
+
+
+def get_available_model(client):
+  # Fragt die aktuell bei Groq aktiven Modelle dynamisch ab
+  try:
+    models_resp = client.models.list()
+    active_ids = [m.id for m in models_resp.data]
+    # Bevorzugte Modell-Reihenfolge
+    for candidate in [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+    ]:
+      if candidate in active_ids:
+        return candidate
+    return active_ids[0] if active_ids else "llama-3.1-8b-instant"
+  except Exception:
+    return "llama3-8b-8192"
 
 
 tab1, tab2, tab3 = st.tabs(
@@ -93,18 +111,26 @@ tab1, tab2, tab3 = st.tabs(
 )
 
 if st.button("🚀 KI-Analyse starten", use_container_width=True):
-    if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY in den Streamlit Secrets gefunden! Bitte unter App Settings -> Secrets hinterlegen.")
-    else:
-        client = Groq(api_key=GROQ_KEY.strip())
-        tickers = [t.strip().upper() for t in portfolio_input.split(",") if t.strip()]
+  if not GROQ_KEY:
+    st.error(
+        "⚠️ Kein GROQ_API_KEY in den Streamlit Secrets gefunden! Bitte unter"
+        " Settings -> Secrets eintragen."
+    )
+  else:
+    client = Groq(api_key=GROQ_KEY.strip())
+    tickers = [
+        t.strip().upper() for t in portfolio_input.split(",") if t.strip()
+    ]
 
-        with st.spinner("Scanne 40+ Quellen und analysiere Daten..."):
-            news_data = fetch_all_headlines(RSS_SOURCES)
-            news_text = "\n".join(news_data)
-            stock_df = get_stock_data(tickers)
+    with st.spinner("Prüfe Modell und scanne 40+ Datenquellen..."):
+      # Dynamisch aktives Modell wählen
+      active_model = get_available_model(client)
 
-            prompt_market = f"""
+      news_data = fetch_all_headlines(RSS_SOURCES)
+      news_text = "\n".join(news_data)
+      stock_df = get_stock_data(tickers)
+
+      prompt_market = f"""
 Hier sind weltweite Wirtschaftsnachrichten:
 {news_text}
 
@@ -112,7 +138,7 @@ Fasse die **TOP 10 wichtigsten Markt-Informationen** prägnant auf Deutsch zusam
 Bewerte am Ende kurz die Marktstimmung (Bullisch / Neutral / Bärisch).
 """
 
-            prompt_depot = f"""
+      prompt_depot = f"""
 Depot-Aktien: {', '.join(tickers)}
 Wirtschaftsnachrichten:
 {news_text}
@@ -123,25 +149,25 @@ Erstelle für jede Aktie einzeln:
 3. **Tipp für Anleger**: Worauf die nächsten Tage geachtet werden sollte.
 """
 
-            res_market = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": prompt_market}],
-            )
+      res_market = client.chat.completions.create(
+          model=active_model,
+          messages=[{"role": "user", "content": prompt_market}],
+      )
 
-            res_depot = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": prompt_depot}],
-            )
+      res_depot = client.chat.completions.create(
+          model=active_model,
+          messages=[{"role": "user", "content": prompt_depot}],
+      )
 
-        with tab1:
-            st.markdown(res_market.choices[0].message.content)
+    with tab1:
+      st.markdown(res_market.choices[0].message.content)
 
-        with tab2:
-            st.subheader("Aktuelle Kurse")
-            st.dataframe(stock_df[["Ticker", "Kurs"]], hide_index=True)
-            st.divider()
-            st.markdown(res_depot.choices[0].message.content)
+    with tab2:
+      st.subheader("Aktuelle Kurse")
+      st.dataframe(stock_df[["Ticker", "Kurs"]], hide_index=True)
+      st.divider()
+      st.markdown(res_depot.choices[0].message.content)
 
-        with tab3:
-            st.subheader("📅 Anstehende Quartalszahlen")
-            st.dataframe(stock_df, hide_index=True)
+    with tab3:
+      st.subheader("📅 Anstehende Quartalszahlen")
+      st.dataframe(stock_df, hide_index=True)
