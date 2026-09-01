@@ -7,8 +7,6 @@ import pandas as pd
 import pypdf
 import streamlit as st
 
-PORTFOLIO_FILE = "portfolio.json"
-
 ISIN_MAP = {
     "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "val": 75.18, "sh": 0.238273, "earnings": "Dezember 2026 (Q4)", "div_month": "März, Juni, Sept, Dez", "price": 315.50},
     "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "val": 23.00, "sh": 0.021265, "earnings": "05.11.2026 (Q3)", "div_month": "Jährlich im Mai", "price": 1081.60},
@@ -25,17 +23,6 @@ ISIN_MAP = {
     "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "val": 50.0, "sh": 1.0, "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez", "price": 420.00}
 }
 
-DEFAULT_HOLDINGS = [
-    {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238273, "buy_price": 75.18},
-    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021265, "buy_price": 23.00},
-    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624309, "buy_price": 48.90},
-    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.262936, "buy_price": 49.43},
-    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 38.96},
-    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.596822, "buy_price": 54.14},
-    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242466, "buy_price": 78.97},
-    {"ticker": "TSM", "name": "TSMC", "shares": 0.136612, "buy_price": 49.18},
-]
-
 def clean_ticker(ticker_str):
     s = str(ticker_str).strip()
     if "(" in s:
@@ -51,29 +38,6 @@ def get_display_name(ticker, fallback_name=None):
         return fallback_name
     return sym
 
-def load_saved_portfolio():
-    if os.path.exists(PORTFOLIO_FILE):
-        try:
-            with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if data and isinstance(data, list) and len(data) > 0:
-                    for item in data:
-                        item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
-                    return data
-        except Exception:
-            pass
-    return [dict(x) for x in DEFAULT_HOLDINGS]
-
-def save_portfolio_to_file(portfolio_list):
-    try:
-        for item in portfolio_list:
-            item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
-        with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
-            json.dump(portfolio_list, f, indent=2)
-        return True
-    except Exception:
-        return False
-
 def search_ticker_candidates(query):
     q = query.strip().upper()
     if not q:
@@ -88,7 +52,7 @@ def search_ticker_candidates(query):
 
 def parse_trade_republic_pdf(uploaded_file):
     found_items = []
-    extracted_cash = 194.02
+    extracted_cash = 0.0
     try:
         pdf_bytes = uploaded_file.read() if hasattr(uploaded_file, "read") else uploaded_file
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
@@ -131,9 +95,6 @@ def parse_trade_republic_pdf(uploaded_file):
             })
     except Exception as e:
         st.error(f"Fehler beim Auslesen des PDFs: {e}")
-    
-    if not found_items:
-        found_items = [dict(x) for x in DEFAULT_HOLDINGS]
         
     return found_items, float(extracted_cash)
 
@@ -160,8 +121,10 @@ def assign_dynamic_role(ticker):
         return "🎯 Nischenwert / Sonstiges"
 
 def get_stock_data(portfolio_list):
-    active_list = portfolio_list if (portfolio_list and len(portfolio_list) > 0) else DEFAULT_HOLDINGS
-    clean_tickers = [clean_ticker(x.get("ticker", "")) for x in active_list]
+    if not portfolio_list:
+        return pd.DataFrame(), [], []
+
+    clean_tickers = [clean_ticker(x.get("ticker", "")) for x in portfolio_list]
     data = []
 
     default_prices = {
@@ -182,12 +145,12 @@ def get_stock_data(portfolio_list):
         "NVO": "Dänemark", "EUNL.DE": "Weltweit", "PANW": "USA", "TSM": "Taiwan"
     }
 
-    for item in active_list:
+    for item in portfolio_list:
         t = clean_ticker(item.get("ticker", "AVGO"))
         try:
-            invested_money = float(item.get("buy_price", 50.0))
+            invested_money = float(item.get("buy_price", 0.0))
         except Exception:
-            invested_money = 50.0
+            invested_money = 0.0
             
         company_name = get_display_name(t, item.get("name"))
 
@@ -247,7 +210,8 @@ def get_stock_data(portfolio_list):
     return pd.DataFrame(data), [], clean_tickers
 
 def get_individual_series_dict(portfolio_list, period="1mo"):
-    active_list = portfolio_list if (portfolio_list and len(portfolio_list) > 0) else DEFAULT_HOLDINGS
+    if not portfolio_list:
+        return {}
     dates = pd.date_range(end=datetime.now(), periods=30, freq="D")
     series_dict = {}
     
@@ -262,7 +226,7 @@ def get_individual_series_dict(portfolio_list, period="1mo"):
         "FORA.TO": [0.0, -0.5, -0.2, -0.8, -0.4, -0.1, -0.6, -0.3, 0.1, -0.2, 0.2, -0.1, 0.3, 0.0, 0.4, 0.1, 0.5, 0.2, 0.6, 0.3, 0.7, 0.4, 0.8, 0.5, 0.9, 0.6, 1.0, 0.7, 1.1, 0.8]
     }
 
-    for item in active_list:
+    for item in portfolio_list:
         t = clean_ticker(item.get("ticker", "AVGO"))
         name = get_display_name(t)
         base = float(item.get("buy_price", 50.0))
