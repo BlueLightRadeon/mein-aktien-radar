@@ -5,7 +5,8 @@ import re
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 STATIC_MODELS = [
     "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant"
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b"
 ]
 
 def get_account_models(api_key):
@@ -77,7 +78,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
