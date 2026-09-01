@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
+import os
 
 try:
     from data_service import (
@@ -22,6 +23,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# Alte Cache-Dateien sofort vom Server löschen, falls vorhanden
+if os.path.exists("portfolio.json"):
+    try:
+        os.remove("portfolio.json")
+    except Exception:
+        pass
+
 st.title("📈 KI Markt- & Depot-Radar")
 
 def get_groq_key():
@@ -38,7 +46,7 @@ def get_berlin_time_str():
     tz_de = timezone(timedelta(hours=2))
     return datetime.now(tz_de).strftime("%H:%M:%S Uhr")
 
-# Portfolio initialisieren (Standardmäßig komplett leer)
+# Session-State: Startet absolut leer bei 0,00 €
 if "my_portfolio" not in st.session_state:
     st.session_state.my_portfolio = []
 
@@ -68,6 +76,12 @@ with st.sidebar:
                     st.rerun()
 
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
+
+    if st.session_state.my_portfolio or st.session_state.tr_cash > 0:
+        if st.button("🗑️ Depot & Cash leeren", width="stretch"):
+            st.session_state.my_portfolio = []
+            st.session_state.tr_cash = 0.0
+            st.rerun()
 
     st.divider()
     st.subheader("🔍 Aktie manuell hinzufügen:")
@@ -104,7 +118,7 @@ with st.sidebar:
                     st.session_state.my_portfolio.pop(idx)
                     st.rerun()
     else:
-        st.info("Noch kein Auszug geladen.")
+        st.info("Noch kein Auszug geladen (0 Positionen).")
 
     st.divider()
     st.header("🤖 KI-Modell")
