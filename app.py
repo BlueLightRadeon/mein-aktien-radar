@@ -173,12 +173,7 @@ if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"
             except Exception as e:
                 st.error(f"⚠️ Groq Fehler: {str(e)}")
 
-# DIREKTE ERGEBNIS-BOX ÜBER DEN TABS
-if st.session_state.get("ai_signals"):
-    with st.expander(f"✨ **Ergebnis-Direktansicht (Stand: {st.session_state.get('last_analysis_time', '')})**", expanded=True):
-        st.markdown(st.session_state["ai_signals"])
-
-# 8 TABS
+# 8 TABS (Die Ergebnisse werden jetzt direkt und sauber in ihren jeweiligen Tabs angezeigt)
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
     "🌍 Nachrichten",
@@ -256,7 +251,7 @@ with tab4:
 
 # TAB 5: CHARTS
 with tab5:
-    st.info("ℹ️ **Kurzinfo:** Interaktive Diagramme für alle Aktien aus deinem Portfolio.")
+    st.info("ℹ️ **Kurzinfo:** Interaktive Kursverläufe für alle Aktien aus deinem Portfolio.")
     if portfolio_list:
         series_dict = get_individual_series_dict(portfolio_list)
         if series_dict:
@@ -269,7 +264,7 @@ with tab5:
 
             for i, name in enumerate(names_to_plot):
                 s = series_dict[name]
-                base_val = s.iloc[0]
+                base_val = s.iloc[0] if s.iloc[0] != 0 else 1.0
                 pct_series = ((s - base_val) / base_val) * 100.0
                 fig.add_trace(go.Scatter(
                     x=s.index, y=pct_series, mode="lines", name=name,
@@ -288,7 +283,7 @@ with tab5:
             )
             st.plotly_chart(fig, width="stretch")
     else:
-        st.info("Lade ein PDF hoch, um Kursverläufe anzuzeigen.")
+        st.info("Lade deinen TR-Kontoauszug hoch, um die Diagramme deiner Positionen anzuzeigen.")
 
 # TAB 6: RISIKOSTREUUNG
 with tab6:
