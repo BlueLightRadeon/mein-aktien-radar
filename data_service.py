@@ -35,13 +35,13 @@ RSS_SOURCES = [
 ]
 
 DEFAULT_HOLDINGS = [
-    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "AVGO", "name": "Broadcom", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "NVDA", "name": "NVIDIA", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "TSM", "name": "TSMC", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 1.0, "buy_price": 25.0},
-    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 50.0},
-    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 1.0, "buy_price": 100.0},
+    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.42, "buy_price": 50.0},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.15, "buy_price": 50.0},
+    {"ticker": "AVGO", "name": "Broadcom", "shares": 0.35, "buy_price": 50.0},
+    {"ticker": "TSM", "name": "TSMC", "shares": 0.33, "buy_price": 50.0},
+    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 3.0, "buy_price": 25.0},
+    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 0.40, "buy_price": 50.0},
+    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.08, "buy_price": 100.0},
 ]
 
 def load_saved_portfolio():
@@ -76,7 +76,10 @@ def search_ticker_candidates(query):
     quick_map = {
         "BROADCOMM": "AVGO", "BROADCOM": "AVGO", "PALO ALTO": "PANW",
         "TSMC": "TSM", "NOVO NORDDISK": "NVO", "NOVO NORDISK": "NVO",
-        "RHEINMETALL": "RHM.DE", "VERTICALSCOPE": "FORA.TO"
+        "RHEINMETALL": "RHM.DE", "VERTICALSCOPE": "FORA.TO",
+        "US67066G1040": "NVDA", "US6974351057": "PANW", "US11135F1012": "AVGO",
+        "US8740391003": "TSM", "CA92536G1063": "FORA.TO", "DK0062498333": "NVO",
+        "DE0007030009": "RHM.DE"
     }
     if q.upper() in quick_map:
         target = quick_map[q.upper()]
@@ -100,19 +103,67 @@ def search_ticker_candidates(query):
     return candidates
 
 def parse_trade_republic_pdf(uploaded_file):
+    """Liest Bestände, Stückzahlen, Einstandswerte und Cash präzise aus dem TR-PDF aus."""
     found_items = []
+    extracted_cash = None
+    
     try:
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
+        
+        # 1. Barvermögen (Cash) ermitteln
+        cash_match = re.search(r"(?:Verrechnungskonto|Saldo|Guthaben|Cash)[^\d]*([\d.,]+)\s*€", full_text, re.IGNORECASE)
+        if cash_match:
+            try:
+                cash_str = cash_match.group(1).replace(".", "").replace(",", ".")
+                extracted_cash = float(cash_str)
+            except Exception:
+                pass
+
+        # 2. ISINs und zugehörige Stückzahlen / Beträge finden
         isin_matches = re.findall(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b", full_text)
-        for isin in set(isin_matches):
+        unique_isins = list(dict.fromkeys(isin_matches))
+        
+        for isin in unique_isins:
             cand = search_ticker_candidates(isin)
-            if cand:
-                sym = clean_ticker(cand[0])
-                found_items.append({"ticker": sym, "name": sym, "shares": 1.0, "buy_price": 50.0})
-    except Exception:
-        pass
-    return found_items
+            sym = clean_ticker(cand[0]) if cand else isin
+            name = cand[0].split("(")[1].replace(")", "") if cand and "(" in cand[0] else sym
+            
+            # Stückzahl & Kaufwert im Textabschnitt um die ISIN herum suchen
+            shares = 1.0
+            invested_val = 50.0
+            
+            # Muster: "0,421 Stk" oder "0.421 Anteile" oder Betrag "50,00 EUR"
+            isin_pos = full_text.find(isin)
+            if isin_pos != -1:
+                snippet = full_text[max(0, isin_pos-150):min(len(full_text), isin_pos+200)]
+                shares_match = re.search(r"([\d.,]+)\s*(?:Stk|Stück|Anteile|Pcs|Pz)", snippet, re.IGNORECASE)
+                if shares_match:
+                    try:
+                        sh_str = shares_match.group(1).replace(".", "").replace(",", ".") if "," in shares_match.group(1) else shares_match.group(1)
+                        shares = float(sh_str)
+                    except Exception:
+                        pass
+                
+                amount_match = re.search(r"([\d.,]+)\s*(?:EUR|€)", snippet)
+                if amount_match:
+                    try:
+                        am_str = amount_match.group(1).replace(".", "").replace(",", ".")
+                        invested_val = float(am_str)
+                    except Exception:
+                        pass
+
+            found_items.append({
+                "ticker": sym,
+                "name": name,
+                "shares": shares,
+                "buy_price": invested_val
+            })
+            
+    except Exception as e:
+        st.error(f"Fehler beim PDF-Lesen: {e}")
+        
+    return found_items, extracted_cash
 
 def fetch_all_headlines():
     headlines = []
@@ -165,8 +216,7 @@ def get_stock_data(portfolio_list):
 
     for item in portfolio_list:
         t = clean_ticker(item["ticker"])
-        
-        # Das vom Nutzer eingegebene Geld (z. B. 50 €)
+        shares = float(item.get("shares", 1.0))
         invested_money = float(item.get("buy_price", 50.0))
         if invested_money <= 0:
             invested_money = 50.0
@@ -176,7 +226,6 @@ def get_stock_data(portfolio_list):
         rsi_val = "N/A"
         company_name = item.get("name") or t
         
-        # Kurs ermitteln
         try:
             if not batch_df.empty:
                 close_s = batch_df['Close'].dropna() if len(clean_tickers) == 1 else batch_df[t]['Close'].dropna()
@@ -195,20 +244,23 @@ def get_stock_data(portfolio_list):
             except Exception:
                 pass
 
-        # 1-Tages-Entwicklung in Prozent abrufen für realistische Gewinn/Verlust-Berechnung
-        day_change_pct = 0.0
-        try:
-            if not batch_df.empty:
-                s = batch_df['Close'].dropna() if len(clean_tickers) == 1 else batch_df[t]['Close'].dropna()
-                if len(s) >= 2:
-                    day_change_pct = ((s.iloc[-1] - s.iloc[-2]) / s.iloc[-2]) * 100
-        except Exception:
-            pass
+        # Exakter Marktwert: Bei vorhandener Stückzahl = Kurs * Stückzahl, sonst proportionaler Anteil
+        if price and shares > 0 and shares != 1.0:
+            pos_val = price * shares
+        else:
+            # Tagesveränderung als Approximation
+            day_change_pct = 0.0
+            try:
+                if not batch_df.empty:
+                    s = batch_df['Close'].dropna() if len(clean_tickers) == 1 else batch_df[t]['Close'].dropna()
+                    if len(s) >= 2:
+                        day_change_pct = ((s.iloc[-1] - s.iloc[-2]) / s.iloc[-2]) * 100
+            except Exception:
+                pass
+            pos_val = invested_money * (1 + (day_change_pct / 100))
 
-        # Realistische Werte berechnen:
-        # Der Positionswert entspricht deinem Geldeinsatz angepasst an die Kursbewegung
-        pos_val = invested_money * (1 + (day_change_pct / 100))
         pnl_val = pos_val - invested_money
+        pnl_pct = ((pos_val - invested_money) / invested_money * 100) if invested_money > 0 else 0.0
 
         # Fundamentaldaten
         q_data = fetch_quote_summary_direct(t)
@@ -241,10 +293,11 @@ def get_stock_data(portfolio_list):
         data.append({
             "Name / Aktie": company_name,
             "Ticker": t,
+            "Stückzahl": f"{shares:.3f}".rstrip('0').rstrip('.'),
             "Kaufkurs": f"{invested_money:.2f} €",
             "Aktueller Kurs": f"{price:.2f} {currency}" if price else "N/A",
             "Positionswert": f"{pos_val:.2f} €",
-            "Gewinn / Verlust": f"{pnl_val:+.2f} € ({day_change_pct:+.2f}%)",
+            "Gewinn / Verlust": f"{pnl_val:+.2f} € ({pnl_pct:+.2f}%)",
             "RSI (14D)": rsi_val,
             "KGV (P/E)": pe_str,
             "Fair Value": fair_value_str,
