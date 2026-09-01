@@ -173,7 +173,7 @@ else:
 
 # TAB 0: TRADE REPUBLIC KONTO
 with tab0:
-    st.info("💡 **Wozu dieser Tab da ist:** Spiegelt dein echtes Trade Republic Konto wider – getrennt nach deinem Bargeld (Cash) und dem aktuellen Gesamtwert aller Aktien.")
+    st.info("💡 **Was dieser Tab macht:** Zeigt dein reales Trade Republic Depot – dein uninvestiertes Bargeld (Cash) und den aktuellen Wert all deiner Wertpapiere.")
     st.subheader("🏦 Mein Trade Republic Depot-Spiegel")
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
@@ -181,7 +181,7 @@ with tab0:
     with col_tr2:
         st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
         
-    st.write("### Deine echten Positionen im Überblick:")
+    st.write("### Deine Positionen im Überblick:")
     if not stock_df.empty:
         st.dataframe(
             stock_df[[
@@ -194,27 +194,63 @@ with tab0:
             hide_index=True
         )
     else:
-        st.info("Lade oben links dein PDF hoch oder trage deine Beträge ein.")
+        st.info("Lade links dein PDF hoch oder trage deine Beträge ein.")
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
-    st.info("💡 **Wozu dieser Tab da ist:** Scannt über 45 weltweite Finanzquellen und fasst die 10 wichtigsten Wirtschafts-Ereignisse sowie die allgemeine Börsenstimmung für dich zusammen.")
+    st.info("💡 **Was dieser Tab macht:** Fasst weltweite Wirtschafts- und Finanznachrichten aus über 45 Quellen zusammen und ermittelt die allgemeine Marktstimmung.")
+    st.subheader("🌍 TOP 10 Welt- & Marktnachrichten")
+    st.caption("Klicke unten auf den großen Button '🚀 Gesamte KI-Auswertung starten', um die Tagesnachrichten abzurufen.")
 
 # TAB 2: STIMMUNG & DEPOT
 with tab2:
-    st.info("💡 **Wozu dieser Tab da ist:** Detaillierte Einzelanalyse deiner Aktien – die KI prüft für jeden Wert die aktuelle Marktstimmung, das Preisschild (KGV) und den Trend für die nächsten Tage.")
+    st.info("💡 **Was dieser Tab macht:** Detaillierte Einzelanalyse deiner Aktien – prüft Marktstimmung, Bewertung (KGV) und Trends der nächsten Tage.")
+    st.subheader("💼 Depot-Übersicht & Stimmungsbericht")
+    if not stock_df.empty:
+        st.dataframe(
+            stock_df[[
+                "Name / Aktie", "Ticker", "Kaufkurs", "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"
+            ]].rename(columns={
+                "Kaufkurs": "Dein Geldeinsatz",
+                "Positionswert": "Aktueller Wert"
+            }),
+            hide_index=True
+        )
 
 # TAB 3: TERMINE & DIVIDENDEN
 with tab3:
-    st.info("💡 **Wozu dieser Tab da ist:** Zeigt dir anstehende Geschäftsberichte (Quartalszahlen) und wie viel passive Gewinnausschüttung (Dividende in % pro Jahr) dir die Unternehmen auszahlen.")
+    st.info("💡 **Was dieser Tab macht:** Zeigt anstehende Quartalsberichte und jährliche Gewinnausschüttungen (Dividendenrendite in % p.a.) auf dein Konto.")
+    st.subheader("📅 Termine & Gewinnausschüttungen")
+    if not stock_df.empty:
+        st.dataframe(
+            stock_df[[
+                "Name / Aktie", "Ticker", "Dividendenrendite", "Nächste Quartalszahlen"
+            ]].rename(columns={
+                "Dividendenrendite": "Gewinnausschüttung (% p.a.)",
+                "Nächste Quartalszahlen": "Nächster Geschäftsbericht"
+            }),
+            hide_index=True
+        )
 
 # TAB 4: KAUF- / VERKAUF-TIPPS
 with tab4:
-    st.info("💡 **Wozu dieser Tab da ist:** Klare KI-Handlungsempfehlungen (Kaufen, Halten oder Verkaufen) für jede Aktie mit verständlicher Begründung, Banken-Kurszielen und dem fairen Wert.")
+    st.info("💡 **Was dieser Tab macht:** Liefert verständliche KI-Signale (Kaufen, Halten, Verkaufen) mit Begründung, Banken-Kurszielen und dem fairen Wert.")
+    st.subheader("🎯 Handlungsempfehlungen & Faire Bewertung")
+    if not stock_df.empty:
+        st.dataframe(
+            stock_df[[
+                "Name / Aktie", "Ticker", "Aktueller Kurs", "Fair Value", "Analysten-Kursziel", "Konsens-Rating"
+            ]].rename(columns={
+                "Fair Value": "Faire Wertschätzung",
+                "Analysten-Kursziel": "Experten-Kursziel",
+                "Konsens-Rating": "Experten-Empfehlung"
+            }),
+            hide_index=True
+        )
 
 # TAB 5: LIVE-CHARTS & PERFORMANCE
 with tab5:
-    st.info("💡 **Wozu dieser Tab da ist:** Interaktive Live-Charts – vergleiche die Kursverläufe deiner Aktien wahlweise als prozentualen Gewinn/Verlust ab Start oder als Geldpreis pro Aktie.")
+    st.info("💡 **Was dieser Tab macht:** Interaktive Live-Diagramme – vergleiche Kursverläufe wahlweise in % ab Start oder als Geldpreis pro Aktie.")
     st.subheader("📊 Kursentwicklung & Performance")
     c1, c2 = st.columns([1, 1])
     with c1:
@@ -283,7 +319,7 @@ with tab5:
 
 # TAB 6: RISIKOSTREUUNG
 with tab6:
-    st.info("💡 **Wozu dieser Tab da ist:** Prüft, wie dein Geld auf Branchen und Länder verteilt ist. Die KI warnt dich vor Klumpenrisiken (einseitigen Abhängigkeiten) und gibt Absicherungstipps.")
+    st.info("💡 **Was dieser Tab macht:** Prüft, wie dein Geld auf Branchen und Länder verteilt ist, und warnt vor einseitigen Klumpenrisiken.")
     st.subheader("🥧 Risikostreuung & Einseitigkeit (Klumpenrisiko)")
     if not stock_df.empty:
         col_d1, col_d2 = st.columns(2)
@@ -298,7 +334,7 @@ with tab6:
 
 # TAB 7: AKTIEN-VERGLEICH
 with tab7:
-    st.info("💡 **Wozu dieser Tab da ist:** Direktes 1-gegen-1-Duell zweier Aktien aus deinem Portfolio – die KI vergleicht Chancen, Bewertung und Risiken und kürt die aktuell bessere Wahl.")
+    st.info("💡 **Was dieser Tab macht:** Direktes Duell (1 vs. 1) zweier Aktien – die KI kürt anhand von Bewertung, RSI und Wachstum den besseren Kauf.")
     st.subheader("⚔️ Direktes Aktien-Duell (1 gegen 1)")
     if not stock_df.empty and len(stock_df) >= 2:
         cd1, cd2 = st.columns(2)
@@ -348,37 +384,10 @@ if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
                     st.markdown(out_market)
 
                 with tab2:
-                    st.subheader("💼 Dein Depot im Überblick")
-                    st.dataframe(
-                        stock_df[["Name / Aktie", "Ticker", "Kaufkurs", "Aktueller Kurs", "Positionswert", "Gewinn / Verlust"]].rename(columns={
-                            "Kaufkurs": "Dein Geldeinsatz",
-                            "Positionswert": "Aktueller Wert"
-                        }),
-                        hide_index=True
-                    )
                     st.divider()
                     st.markdown(out_depot)
 
-                with tab3:
-                    st.subheader("📅 Termine & Gewinnausschüttungen")
-                    st.dataframe(
-                        stock_df[["Name / Aktie", "Ticker", "Dividendenrendite", "Nächste Quartalszahlen"]].rename(columns={
-                            "Dividendenrendite": "Gewinnausschüttung (% p.a.)",
-                            "Nächste Quartalszahlen": "Nächster Geschäftsbericht"
-                        }),
-                        hide_index=True
-                    )
-
                 with tab4:
-                    st.subheader("🎯 Kauf- / Verkauf-Tipps & Faire Bewertung")
-                    st.dataframe(
-                        stock_df[["Name / Aktie", "Ticker", "Aktueller Kurs", "Fair Value", "Analysten-Kursziel", "Konsens-Rating"]].rename(columns={
-                            "Fair Value": "Faire Wertschätzung",
-                            "Analysten-Kursziel": "Experten-Kursziel",
-                            "Konsens-Rating": "Experten-Empfehlung"
-                        }),
-                        hide_index=True
-                    )
                     st.divider()
                     st.markdown(out_signals)
 
