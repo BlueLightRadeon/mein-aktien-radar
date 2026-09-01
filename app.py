@@ -1,24 +1,19 @@
 import streamlit as st
-import os
-import glob
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
 
-# 1. Zwingend alte JSON-Cache-Dateien auf dem Server löschen
-for f in glob.glob("*.json"):
-    try:
-        os.remove(f)
-    except Exception:
-        pass
+# 1. ZWANGS-INITIALISIERUNG: Startet IMMER bei 0 Positionen und 0,00 € Cash
+if "tr_clean_cash" not in st.session_state:
+    st.session_state["tr_clean_cash"] = 0.0
 
-# 2. Hard-Reset: Falls der alte 194.02 Wert im State hängt, sofort auf 0.0 setzen
+if "tr_clean_portfolio" not in st.session_state:
+    st.session_state["tr_clean_portfolio"] = []
 
-
-if "my_portfolio" not in st.session_state:
-    st.session_state["my_portfolio"] = []
+if "pdf_is_imported" not in st.session_state:
+    st.session_state["pdf_is_imported"] = False
 
 try:
     from data_service import (
@@ -56,8 +51,6 @@ def get_berlin_time_str():
 def fmt_eur(val):
     try:
         val_float = float(val)
-        if val_float == 194.02 and not st.session_state.get("pdf_loaded", False):
-            val_float = 0.0
         return f"{val_float:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return "0,00 €"
@@ -72,23 +65,20 @@ with st.sidebar:
         if tr_pdf is not None:
             if st.button("📄 Auszug jetzt einlesen", width="stretch"):
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
-                st.session_state.my_portfolio = imported_items
-                st.session_state.tr_cash = float(imported_cash)
-                st.session_state["pdf_loaded"] = True
-                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) eingelesen!")
+                st.session_state["tr_clean_portfolio"] = imported_items
+                st.session_state["tr_clean_cash"] = float(imported_cash)
+                st.session_state["pdf_is_imported"] = True
+                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['tr_clean_cash'])}) eingelesen!")
                 st.rerun()
 
-    current_cash_val = st.session_state.get("tr_cash", 0.0)
-    if current_cash_val == 194.02 and not st.session_state.get("pdf_loaded", False):
-        current_cash_val = 0.0
-        st.session_state["tr_cash"] = 0.0
-
-    st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(current_cash_val)}`")
+    # Cash-Anzeige: Zeigt exakt 0,00 €, solange kein Auszug eingelesen wurde
+    current_cash = st.session_state["tr_clean_cash"] if st.session_state["pdf_is_imported"] else 0.0
+    st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(current_cash)}`")
 
     if st.button("🗑️ Depot & Cash leeren", width="stretch"):
-        st.session_state.my_portfolio = []
-        st.session_state.tr_cash = 0.0
-        st.session_state["pdf_loaded"] = False
+        st.session_state["tr_clean_portfolio"] = []
+        st.session_state["tr_clean_cash"] = 0.0
+        st.session_state["pdf_is_imported"] = False
         st.session_state.pop("ai_signals", None)
         st.session_state.pop("ai_market", None)
         st.session_state.pop("ai_depot", None)
@@ -107,7 +97,7 @@ with st.sidebar:
             if st.button("➕ Hinzufügen", width="stretch"):
                 sym = clean_ticker(selected_cand)
                 disp_name = get_display_name(sym)
-                st.session_state.my_portfolio.append({
+                st.session_state["tr_clean_portfolio"].append({
                     "ticker": sym,
                     "name": disp_name,
                     "shares": 1.0,
@@ -118,8 +108,8 @@ with st.sidebar:
 
     st.divider()
     st.subheader("📋 Eingelesene Positionen:")
-    if st.session_state.my_portfolio:
-        for idx, item in enumerate(list(st.session_state.my_portfolio)):
+    if st.session_state["tr_clean_portfolio"]:
+        for idx, item in enumerate(list(st.session_state["tr_clean_portfolio"])):
             disp_name = get_display_name(item.get("ticker", ""), item.get("name"))
             col_pos_a, col_pos_b = st.columns([3, 1])
             with col_pos_a:
@@ -127,7 +117,7 @@ with st.sidebar:
                 st.caption(f"Einsatz: {fmt_eur(float(item.get('buy_price', 0.0)))}")
             with col_pos_b:
                 if st.button("❌", key=f"del_item_{idx}_{item.get('ticker','')}"):
-                    st.session_state.my_portfolio.pop(idx)
+                    st.session_state["tr_clean_portfolio"].pop(idx)
                     st.rerun()
     else:
         st.info("Noch kein Auszug geladen (0 Positionen).")
@@ -138,10 +128,10 @@ with st.sidebar:
     selected_model = st.selectbox("Auswahl:", available_models, index=0)
 
 # BERECHNUNG DER DEPOT-DATEN
-stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
-total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
+stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state["tr_clean_portfolio"])
+total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state["tr_clean_portfolio"]])
 stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
-total_tr_account = stock_val + current_cash_val
+total_tr_account = stock_val + current_cash
 stock_pnl = stock_val - total_invested
 stock_pnl_pct = (stock_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
 
@@ -157,7 +147,7 @@ with c_m3:
 if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
-    elif not st.session_state.my_portfolio:
+    elif not st.session_state["tr_clean_portfolio"]:
         st.warning("⚠️ Bitte lade zuerst deinen Trade Republic PDF-Auszug in der linken Seitenleiste hoch.")
     else:
         with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
@@ -209,7 +199,7 @@ with tab0:
     st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash aus Auszug) und dem aktuellen Wert deiner Wertpapiere.")
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
-        st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(current_cash_val)}")
+        st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(current_cash)}")
     with col_tr2:
         st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
         
@@ -271,8 +261,8 @@ with tab4:
 # TAB 5: CHARTS
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Diagramme für alle Aktien aus deinem Portfolio.")
-    if st.session_state.my_portfolio:
-        series_dict = get_individual_series_dict(st.session_state.my_portfolio)
+    if st.session_state["tr_clean_portfolio"]:
+        series_dict = get_individual_series_dict(st.session_state["tr_clean_portfolio"])
         if series_dict:
             available_names = list(series_dict.keys())
             selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
