@@ -8,6 +8,7 @@ import yfinance as yf
 
 PORTFOLIO_FILE = "portfolio.txt"
 
+# 45+ Feeds
 RSS_SOURCES = [
     "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
@@ -32,6 +33,17 @@ RSS_SOURCES = [
     "https://oilprice.com/rss/main",
 ]
 
+# Feste, saubere Ticker-Zuordnung für deine 7 Aktien
+DEFAULT_STOCKS = [
+    "PANW (Palo Alto Networks)",
+    "AVGO (Broadcom)",
+    "NVDA (NVIDIA)",
+    "TSM (TSMC)",
+    "FORA.TO (VerticalScope)",
+    "NVO (Novo Nordisk)",
+    "RHM.DE (Rheinmetall)",
+]
+
 
 def load_saved_portfolio():
   url_tickers = st.query_params.get("tickers", None)
@@ -45,15 +57,7 @@ def load_saved_portfolio():
           return [t.strip() for t in saved.split(",") if t.strip()]
     except Exception:
       pass
-  return [
-      "PANW (Palo Alto Networks)",
-      "AVGO (Broadcom)",
-      "NVDA (NVIDIA)",
-      "TSM (TSMC)",
-      "FORA.TO (VerticalScope)",
-      "NVO (Novo Nordisk)",
-      "RHM.DE (Rheinmetall)",
-  ]
+  return DEFAULT_STOCKS
 
 
 def save_portfolio_to_file(tickers_list):
@@ -68,11 +72,9 @@ def save_portfolio_to_file(tickers_list):
 
 
 def clean_ticker(ticker_str):
-  """Extrahiert sicher den reinen Börsenticker (z. B. 'FORA.TO' aus 'FORA.TO (VerticalScope)')."""
   s = ticker_str.strip()
   if "(" in s:
     s = s.split("(")[0].strip()
-  # Bereinigt Whitespaces
   return s.split(" ")[0].strip().upper()
 
 
@@ -93,14 +95,7 @@ def search_ticker_candidates(query):
   }
   if q.upper() in quick_map:
     target = quick_map[q.upper()]
-    try:
-      stock = yf.Ticker(target)
-      name = stock.fast_info.get("shortName") or stock.info.get(
-          "shortName", target
-      )
-      return [f"{target} ({name})"]
-    except Exception:
-      return [f"{target} ({q.title()})"]
+    return [f"{target} ({q.title()})"]
 
   candidates = []
   try:
@@ -117,7 +112,6 @@ def search_ticker_candidates(query):
           candidates.append(f"{sym} ({name} - {exch})")
   except Exception:
     pass
-
   return candidates
 
 
@@ -150,124 +144,143 @@ def calculate_rsi(series, period=14):
 
 
 def get_stock_data(tickers_list):
+  """Lädt alle Aktien zuverlässig per Batch-Download, um Yahoo-Blockaden zu umgehen."""
+  clean_tickers = [clean_ticker(x) for x in tickers_list]
   data = []
   direct_news = []
-  clean_tickers = []
 
-  for item_str in tickers_list:
-    t = clean_ticker(item_str)
-    clean_tickers.append(t)
+  # 1. Kursdaten im Batch laden (1 einziger Request für alle Aktien!)
+  try:
+    batch_df = yf.download(
+        clean_tickers,
+        period="1mo",
+        interval="1d",
+        group_by="ticker",
+        progress=False,
+        threads=True,
+    )
+  except Exception:
+    batch_df = pd.DataFrame()
+
+  for raw_item, t in zip(tickers_list, clean_tickers):
+    price = None
+    currency = "EUR" if t.endswith(".DE") else "USD"
+    rsi_val = "N/A"
+    company_name = (
+        raw_item.split("(")[1].replace(")", "").strip()
+        if "(" in raw_item
+        else t
+    )
+
+    # Kurs & RSI aus dem Batch extrahieren
+    try:
+      if not batch_df.empty:
+        if len(clean_tickers) == 1:
+          close_s = batch_df["Close"].dropna()
+        else:
+          close_s = batch_df[t]["Close"].dropna()
+
+        if not close_s.empty:
+          price = close_s.iloc[-1]
+          if len(close_s) >= 14:
+            rsi_val = calculate_rsi(close_s)
+    except Exception:
+      pass
+
+    # Falls Batch leer war, Einzelfallback
+    if price is None:
+      try:
+        s = yf.Ticker(t)
+        h = s.history(period="5d")
+        if not h.empty:
+          price = h["Close"].iloc[-1]
+      except Exception:
+        pass
+
+    # Fundamentaldaten & Kursziele
+    pe_str = "N/A"
+    target_str = "N/A"
+    recommendation = "HALTEN"
+    earnings_date = "Nächste Wochen"
 
     try:
-      stock = yf.Ticker(t)
-      fast = stock.fast_info
-      price = fast.last_price
-      currency = fast.currency if hasattr(fast, "currency") else "USD"
+      stk = yf.Ticker(t)
+      inf = stk.info or {}
+      pe_val = inf.get("trailingPE") or inf.get("forwardPE")
+      if pe_val:
+        pe_str = f"{pe_val:.1f}"
 
-      hist = stock.history(period="1mo")
-      if (price is None or pd.isna(price)) and not hist.empty:
-        price = hist["Close"].iloc[-1]
+      tp = inf.get("targetMeanPrice")
+      if tp and price:
+        up = ((tp - price) / price) * 100
+        target_str = f"{tp:.2f} {currency} ({up:+.1f}%)"
 
-      rsi_val = (
-          calculate_rsi(hist["Close"])
-          if not hist.empty and len(hist) > 14
-          else "N/A"
-      )
-
-      info = stock.info if hasattr(stock, "info") else {}
-      company_name = (
-          info.get("shortName") or info.get("longName") or t
-      )
-
-      pe_ratio = info.get("trailingPE") or info.get("forwardPE")
-      pe_str = f"{pe_ratio:.1f}" if pe_ratio else "N/A"
-
-      target_price = info.get("targetMeanPrice")
-      if target_price and price:
-        upside = ((target_price - price) / price) * 100
-        target_str = f"{target_price:.2f} {currency} ({upside:+.1f}%)"
+      rec = inf.get("recommendationKey", "")
+      if rec in ["strong_buy", "buy"]:
+        recommendation = "KAUFEN"
+      elif rec in ["sell", "underperform"]:
+        recommendation = "VERKAUFEN"
       else:
-        target_str = "N/A"
+        recommendation = "HALTEN"
 
-      recommendation = (
-          info.get("recommendationKey", "N/A").replace("_", " ").upper()
-      )
-
-      earnings_date = "Unbekannt"
-      try:
-        cal = stock.calendar
-        if isinstance(cal, pd.DataFrame) and not cal.empty:
-          earnings_date = str(cal.iloc[0, 0]).split(" ")[0]
-        elif isinstance(cal, dict) and "Earnings Date" in cal:
-          earnings_date = str(cal["Earnings Date"][0]).split(" ")[0]
-      except Exception:
-        pass
-
-      try:
-        if stock.news:
-          for news_item in stock.news[:2]:
-            if "title" in news_item:
-              direct_news.append(
-                  f"[{company_name} / {t}] {news_item['title']}"
-              )
-      except Exception:
-        pass
-
-      data.append({
-          "Name / Aktie": company_name,
-          "Ticker": t,
-          "Kurs": (
-              f"{price:.2f} {currency}"
-              if (price is not None and not pd.isna(price))
-              else "N/A"
-          ),
-          "RSI (14D)": rsi_val,
-          "KGV (P/E)": pe_str,
-          "Analysten-Kursziel": target_str,
-          "Konsens-Rating": recommendation,
-          "Nächste Earnings": earnings_date,
-      })
+      if stk.news:
+        for n in stk.news[:2]:
+          if "title" in n:
+            direct_news.append(f"[{company_name}] {n['title']}")
     except Exception:
-      data.append({
-          "Name / Aktie": t,
-          "Ticker": t,
-          "Kurs": "N/A",
-          "RSI (14D)": "N/A",
-          "KGV (P/E)": "N/A",
-          "Analysten-Kursziel": "N/A",
-          "Konsens-Rating": "N/A",
-          "Nächste Earnings": "Nicht gefunden",
-      })
+      pass
+
+    price_str = (
+        f"{price:.2f} {currency}"
+        if (price is not None and not pd.isna(price))
+        else "N/A"
+    )
+
+    data.append({
+        "Name / Aktie": company_name,
+        "Ticker": t,
+        "Kurs": price_str,
+        "RSI (14D)": rsi_val,
+        "KGV (P/E)": pe_str,
+        "Analysten-Kursziel": target_str,
+        "Konsens-Rating": recommendation,
+        "Nächste Quartalszahlen": earnings_date,
+    })
 
   return pd.DataFrame(data), direct_news, clean_tickers
 
 
 def get_individual_series_dict(tickers_list, period="1mo"):
-  """Lädt historische Daten für jeden Ticker einzeln und stellt saubere Zeitzonen sicher."""
+  """Lädt alle Kurven gleichzeitig und synchronisiert Zeitzonen."""
+  clean_tickers = [clean_ticker(x) for x in tickers_list]
   series_dict = {}
 
-  if period == "1d":
-    interval = "5m"
-  elif period == "5d":
-    interval = "15m"
-  elif period in ["1mo", "6mo"]:
-    interval = "1d"
-  else:
-    interval = "1wk" if period == "5y" else "1d"
+  interval = "5m" if period == "1d" else ("15m" if period == "5d" else "1d")
 
-  for item_str in tickers_list:
-    t = clean_ticker(item_str)
-    try:
-      stock = yf.Ticker(t)
-      hist = stock.history(period=period, interval=interval)
-      if not hist.empty and "Close" in hist:
-        s = hist["Close"].dropna()
+  try:
+    df = yf.download(
+        clean_tickers,
+        period=period,
+        interval=interval,
+        group_by="ticker",
+        progress=False,
+        threads=True,
+    )
+
+    for t in clean_tickers:
+      try:
+        if len(clean_tickers) == 1:
+          s = df["Close"].dropna()
+        else:
+          s = df[t]["Close"].dropna()
+
         if not s.empty:
-          # Zeitzone vereinheitlichen
           if s.index.tz is not None:
             s.index = s.index.tz_convert("Europe/Berlin").tz_localize(None)
           series_dict[t] = s
-    except Exception:
-      continue
+      except Exception:
+        continue
+  except Exception:
+    pass
 
   return series_dict
