@@ -15,11 +15,11 @@ def get_account_models(api_key):
             m.id for m in models_data 
             if not any(x in m.id.lower() for x in ["whisper", "guard", "vision", "safeguard", "orpheus", "tts"])
         ]
-        preferred = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"]
+        preferred = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant"]
         sorted_models = [m for m in preferred if m in valid_models] + [m for m in valid_models if m not in preferred]
         return sorted_models if sorted_models else [DEFAULT_MODEL]
     except Exception:
-        return [DEFAULT_MODEL, "llama-3.1-70b-versatile"]
+        return [DEFAULT_MODEL, "llama-3.1-70b-versatile", "llama-3.1-8b-instant"]
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
@@ -34,23 +34,23 @@ Du bist ein quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnach
 [DEPOT-AUFTEILUNG]
 {cluster_context}
 
-Erstelle deine Antwort strikt mit diesen 4 Abschnitten:
+Erstelle deine Antwort strikt gegliedert nach diesen 4 Markern:
 
-[MARKT_SECTION]
+===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
 10 prägnante Stichpunkte zur aktuellen globalen Wirtschaftslage.
 
 ### 🧭 Gesamtstimmung der Börse
 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit kurzer Begründung.
 
-[DEPOT_SECTION]
+===DEPOT===
 ### 💼 Statusbericht zu deinen Depot-Positionen
 Analysiere die bestehenden Aktien des Nutzers:
 - **[Unternehmen]**: Aktuelle Bewertung, Trend und worauf man jetzt achten muss.
 
-[SIGNALE_SECTION]
+===SIGNALE===
 ### 🎯 TOP 5 KAUF-EMPFEHLUNGEN (Stand Jetzt zur Portfolio-Erweiterung)
-Wähle basierend auf der Marktlage genau 5 konkrete Qualitätsaktien/ETFs (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
+Wähle basierend auf der aktuellen Lage genau 5 konkrete Qualitätsaktien oder ETFs (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
 
 1. **[Aktie 1]** (Ticker | Branche | Land)
    - **Warum JETZT kaufen?** (Konkreter Treiber: z. B. Energie-Infrastruktur, Zinsgewinner, Rüstung, Basiskonsum)
@@ -80,24 +80,26 @@ Wähle basierend auf der Marktlage genau 5 konkrete Qualitätsaktien/ETFs (NICHT
 #### 🔴 AKTUELL MEIDEN (Verlierer der aktuellen Marktlage):
 Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 
-[KLUMPEN_SECTION]
+===KLUMPEN===
 ### 🛡️ Risikostreuung & Depot-Optimierung
 1. **Risiko-Score**: 1 (Sehr gut gestreut) bis 10 (Hohes Risiko).
 2. **Erläuterung der Streuung**: Wo liegen aktuell die Schwerpunkte?
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     seen = set()
     models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
-    
+
     full_text = ""
+    last_err_msg = ""
+
     for target_model in models_to_try:
         try:
             res = client.chat.completions.create(
                 model=target_model,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte immer auf Deutsch und strukturiert."},
+                    {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.2,
@@ -106,55 +108,48 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             if res.choices and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
                 break
-        except Exception:
+        except Exception as e:
+            last_err_msg = str(e)
             continue
 
     if not full_text:
-        return (
-            "⚠️ Keine Antwort von der Groq-API erhalten. Bitte prüfe deinen API-Key.",
-            "Keine Depot-Daten verfügbar.",
-            "Keine Kaufempfehlungen verfügbar.",
-            "Keine Risikodaten verfügbar."
-        )
+        err_display = f"⚠️ **Groq API Fehler:** `{last_err_msg}`\n\nBitte prüfe deinen API-Key in den Streamlit Secrets."
+        return err_display, err_display, err_display, err_display
 
-    # Intelligenter Parser mit Fallbacks: Zerteilt nach den Tags oder teilt den Text sinnvoll auf
+    # Zerlegung nach den Markern
     out_market = ""
     out_depot = ""
     out_signals = ""
     out_cluster = ""
 
-    if "[MARKT_SECTION]" in full_text:
-        parts = full_text.split("[MARKT_SECTION]")
-        rest1 = parts[1] if len(parts) > 1 else parts[0]
-        
-        if "[DEPOT_SECTION]" in rest1:
-            out_market, rest2 = rest1.split("[DEPOT_SECTION]", 1)
-            if "[SIGNALE_SECTION]" in rest2:
-                out_depot, rest3 = rest2.split("[SIGNALE_SECTION]", 1)
-                if "[KLUMPEN_SECTION]" in rest3:
-                    out_signals, out_cluster = rest3.split("[KLUMPEN_SECTION]", 1)
+    # Normalisierung
+    clean_text = full_text.replace("**===MARKT===**", "===MARKT===").replace("**===DEPOT===**", "===DEPOT===").replace("**===SIGNALE===**", "===SIGNALE===").replace("**===KLUMPEN===**", "===KLUMPEN===")
+
+    if "===MARKT===" in clean_text:
+        parts = clean_text.split("===MARKT===")[1]
+        if "===DEPOT===" in parts:
+            out_market, rest1 = parts.split("===DEPOT===", 1)
+            if "===SIGNALE===" in rest1:
+                out_depot, rest2 = rest1.split("===SIGNALE===", 1)
+                if "===KLUMPEN===" in rest2:
+                    out_signals, out_cluster = rest2.split("===KLUMPEN===", 1)
                 else:
-                    out_signals = rest3
+                    out_signals = rest2
             else:
-                out_depot = rest2
+                out_depot = rest1
         else:
-            out_market = rest1
+            out_market = parts
     else:
-        # Fallback: Falls die KI die Tags weggelassen hat, teilen wir den Text proportional auf
-        chunks = full_text.split("\n\n")
-        total_chunks = len(chunks)
-        c1 = total_chunks // 4
-        c2 = total_chunks // 2
-        c3 = (total_chunks * 3) // 4
-        out_market = "\n\n".join(chunks[:c1]) if c1 > 0 else full_text
-        out_depot = "\n\n".join(chunks[c1:c2]) if c2 > c1 else "Depot-Auswertung liegt vor."
-        out_signals = "\n\n".join(chunks[c2:c3]) if c3 > c2 else "Top-5-Kaufempfehlungen werden berechnet."
-        out_cluster = "\n\n".join(chunks[c3:]) if total_chunks > c3 else "Risikoanalyse liegt vor."
+        # Falls Marker komplett fehlen: Ganzen Text im ersten Tab zeigen
+        out_market = clean_text
+        out_depot = "Analyse im Reiter '🌍 Nachrichten' enthalten."
+        out_signals = "Analyse im Reiter '🌍 Nachrichten' enthalten."
+        out_cluster = "Analyse im Reiter '🌍 Nachrichten' enthalten."
 
     return (
-        out_market.strip() or "Marktdaten geladen.",
-        out_depot.strip() or "Depot-Bewertung geladen.",
-        out_signals.strip() or "Kaufempfehlungen geladen.",
+        out_market.strip() or clean_text,
+        out_depot.strip() or "Depot-Check aktualisiert.",
+        out_signals.strip() or "Kaufempfehlungen aktualisiert.",
         out_cluster.strip() or "Risikostreuung berechnet."
     )
 
