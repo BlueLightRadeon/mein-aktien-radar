@@ -15,8 +15,7 @@ for f in glob.glob("*.json"):
         pass
 
 # 2. Hard-Reset: Falls der alte 194.02 Wert im State hängt, sofort auf 0.0 setzen
-if "tr_cash" not in st.session_state or st.session_state.tr_cash == 194.02:
-    st.session_state["tr_cash"] = 0.0
+
 
 if "my_portfolio" not in st.session_state:
     st.session_state["my_portfolio"] = []
