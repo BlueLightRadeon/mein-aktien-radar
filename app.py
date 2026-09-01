@@ -42,6 +42,7 @@ else:
     for item in st.session_state.my_portfolio:
         item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
 
+# Cash-Guthaben aus Auszug
 if "tr_cash" not in st.session_state:
     st.session_state.tr_cash = 194.02
 
@@ -68,6 +69,7 @@ with st.sidebar:
                 st.success(f"✅ {len(imported_items)} Positionen & Cash übernommen!")
                 st.rerun()
 
+    # Cash-Anzeige (Read-Only)
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
 
     st.divider()
@@ -117,7 +119,7 @@ with st.sidebar:
     else:
         selected_model = "llama-3.3-70b-versatile"
 
-# BERECHNUNG DER DATEN
+# BERECHNUNG DER DEPOT-DATEN
 if st.session_state.my_portfolio:
     stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
     total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
@@ -128,7 +130,7 @@ if st.session_state.my_portfolio:
 
     c_m1, c_m2, c_m3 = st.columns(3)
     with c_m1:
-        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld + Gesamtwert deiner Aktien")
+        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld (aus Auszug) + Gesamtwert deiner Aktien")
     with c_m2:
         st.metric("Eingezahltes Geld", fmt_eur(total_invested), help="Dein tatsächlich eingesetztes Kapital")
     with c_m3:
@@ -141,7 +143,7 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# KI-AUSWERTUNGS BUTTON (DIREKT IN DEN STATE OHNE HÄNGENBLEIBEN)
+# KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
@@ -207,12 +209,12 @@ with tab0:
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
-    st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
+    st.info("ℹ️ **Kurzinfo:** Scannt weltweite Finanzquellen und fasst die 10 wichtigsten Markt-Ereignisse zusammen.")
     if "ai_market" in st.session_state and st.session_state["ai_market"]:
         st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
     else:
-        st.info("Klicke oben auf den Button **'🚀 Jetzt KI-Auswertung starten'**, um die Meldungen abzurufen.")
+        st.info("Klicke oben auf **'🚀 Jetzt KI-Auswertung starten'**, um die Meldungen abzurufen.")
 
 # TAB 2: STIMMUNG & DEPOT
 with tab2:
