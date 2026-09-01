@@ -41,7 +41,7 @@ with st.sidebar:
   else:
     selected_model = "llama-3.3-70b-versatile"
 
-# JETZT 5 TABS: Neuer Tab "📊 Live-Charts & Performance"
+# 5 Tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🌍 Markt Top 10",
     "💼 Sentiment & Depot",
@@ -50,17 +50,16 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Live-Charts & Performance",
 ])
 
-# Parsing der Ticker
 raw_tickers = [t.strip() for t in portfolio_input.split(",") if t.strip()]
 
-# TAB 5: Live-Charts (kann jederzeit unabhängig von der KI-Analyse geladen/betrachtet werden)
+# TAB 5: Live-Charts & Performance
 with tab5:
   st.subheader("📊 Kursentwicklung & Performance-Vergleich")
 
   c1, c2 = st.columns([2, 1])
   with c1:
     timeframe = st.selectbox(
-        "Zeitraum auswählen:",
+        "Zeitraum:",
         options=["1d", "5d", "1mo", "6mo", "1y", "5y"],
         index=2,
         format_func=lambda x: {
@@ -74,62 +73,77 @@ with tab5:
     )
   with c2:
     chart_mode = st.radio(
-        "Anzeige:",
-        ["Vergleich in %", "Absolute Kurse"],
+        "Modus:",
+        ["Performance in %", "Absolute Kurse"],
         horizontal=True,
     )
 
   if raw_tickers:
     resolved_list = [resolve_to_ticker(x) for x in raw_tickers]
-    chart_df = get_historical_chart_data(resolved_list, period=timeframe)
 
-    if not chart_df.empty:
-      if chart_mode == "Vergleich in %":
-        # Relative Rendite seit Periodenstart
-        norm_df = (chart_df / chart_df.iloc[0] - 1) * 100
-        fig = px.line(
-            norm_df,
-            x=norm_df.index,
-            y=norm_df.columns,
-            labels={
-                "value": "Rendite (%)",
-                "Date": "Datum/Zeit",
-                "variable": "Aktie",
-            },
-            title=f"Performance-Vergleich ({timeframe.upper()})",
-        )
+    with st.spinner("Lade Chartdaten für alle Aktien..."):
+      chart_df = get_historical_chart_data(resolved_list, period=timeframe)
+
+    if not chart_df.empty and len(chart_df) > 1:
+      fig = go.Figure()
+
+      if chart_mode == "Performance in %":
+        # Erste gültige Basis pro Aktie finden und in % umrechnen
+        for col in chart_df.columns:
+          first_val = chart_df[col].dropna().iloc[0]
+          if first_val > 0:
+            pct_series = ((chart_df[col] - first_val) / first_val) * 100
+            fig.add_trace(
+                go.Scatter(
+                    x=chart_df.index,
+                    y=pct_series,
+                    mode="lines",
+                    name=col,
+                    hovertemplate=f"<b>{col}</b>: %{{y:+.2f}}%<extra></extra>",
+                )
+            )
+
         fig.update_layout(
-            hovermode="x unified",
+            title=f"Performance-Vergleich seit Periodenbeginn ({timeframe.upper()})",
+            xaxis_title="Datum / Zeit",
+            yaxis_title="Entwicklung (%)",
             yaxis_ticksuffix="%",
-            legend=dict(
-                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
-            ),
-            margin=dict(l=10, r=10, t=40, b=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-      else:
-        # Einzelkurse
-        fig = px.line(
-            chart_df,
-            x=chart_df.index,
-            y=chart_df.columns,
-            labels={
-                "value": "Kurs",
-                "Date": "Datum/Zeit",
-                "variable": "Aktie",
-            },
-            title=f"Kursverlauf ({timeframe.upper()})",
-        )
-        fig.update_layout(
             hovermode="x unified",
             legend=dict(
                 orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
             ),
-            margin=dict(l=10, r=10, t=40, b=10),
+            margin=dict(l=10, r=10, t=50, b=10),
         )
-        st.plotly_chart(fig, use_container_width=True)
+      else:
+        # Absolute Kurse
+        for col in chart_df.columns:
+          fig.add_trace(
+              go.Scatter(
+                  x=chart_df.index,
+                  y=chart_df[col],
+                  mode="lines",
+                  name=col,
+                  hovertemplate=f"<b>{col}</b>: %{{y:.2f}}<extra></extra>",
+              )
+          )
+
+        fig.update_layout(
+            title=f"Absoluter Kursverlauf ({timeframe.upper()})",
+            xaxis_title="Datum / Zeit",
+            yaxis_title="Kurs",
+            hovermode="x unified",
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+            ),
+            margin=dict(l=10, r=10, t=50, b=10),
+        )
+
+      st.plotly_chart(fig, use_container_width=True)
     else:
-      st.info("Lade Chartdaten für deine ausgewählten Werte...")
+      st.info(
+          "Aktuell werden Kursdaten geladen. Bitte prüfe deine Aktienkürzel"
+          " oder versuche einen anderen Zeitraum."
+      )
   else:
     st.warning("Bitte gib mindestens eine Aktie in der Seitenleiste ein.")
 
