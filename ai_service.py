@@ -5,7 +5,8 @@ import re
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 STATIC_MODELS = [
     "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
     "mixtral-8x7b-32768",
     "gemma2-9b-it"
 ]
@@ -80,7 +81,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -97,7 +98,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                 ],
                 temperature=0.2,
                 max_tokens=2200,
-                timeout=20.0
+                timeout=25.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
@@ -146,7 +147,7 @@ Aktie B: {stock_b_info}
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
-            timeout=10.0
+            timeout=15.0
         )
         return res.choices[0].message.content
     except Exception as e:
