@@ -224,7 +224,6 @@ def get_individual_series_dict(portfolio_list, period="1M"):
     if not portfolio_list:
         return {}
 
-    # Zeitraum mapping
     period_days_map = {
         "1W": 7,
         "1M": 30,
@@ -232,32 +231,37 @@ def get_individual_series_dict(portfolio_list, period="1M"):
         "1J": 365,
         "Max": 730
     }
-    days = period_days_map.get(period, 30)
-    dates = pd.date_range(end=datetime.now(), periods=days, freq="D")
+    days = period_days_map.get(str(period).strip(), 30)
+    
+    # Echte Datumsobjekte erzeugen
+    end_date = datetime.now()
+    dates = [end_date - timedelta(days=x) for x in range(days)]
+    dates.reverse()
+
     series_dict = {}
 
     growth_bias = {
-        "NVDA": 0.45, "AVGO": 0.32, "RHM.DE": 0.40, "TSM": 0.28,
-        "PANW": 0.25, "EUNL.DE": 0.10, "NVO": 0.12, "AAPL": 0.20,
-        "MSFT": 0.22, "FORA.TO": 0.05
+        "NVDA": 0.42, "AVGO": 0.30, "RHM.DE": 0.38, "TSM": 0.26,
+        "PANW": 0.22, "EUNL.DE": 0.08, "NVO": 0.10, "AAPL": 0.18,
+        "MSFT": 0.20, "FORA.TO": 0.04
     }
 
     for idx, item in enumerate(portfolio_list):
         t = clean_ticker(item.get("ticker", "AVGO"))
         name = get_display_name(t)
-        bias = growth_bias.get(t, 0.18 + (idx * 0.04))
+        bias = growth_bias.get(t, 0.15 + (idx * 0.03))
         
-        # Generiert glatte, realistische Kurven für jeden beliebigen Zeitraum
+        # Prozentuale Entwicklung über den exakten Zeitraum berechnen
         pct_values = []
         for i in range(days):
             progress = i / max(1, days - 1)
-            trend = progress * (bias * days * 0.15)
-            wave1 = math.sin(i * 0.4 + idx) * 1.5
-            wave2 = math.cos(i * 0.15 + (idx * 0.5)) * 0.8
-            val = trend + wave1 + wave2
+            # Gesamtrendite skaliert mit dem Zeitraum
+            period_gain_factor = (days / 30.0) * 3.5 * bias
+            trend = progress * period_gain_factor
+            wave = math.sin(i * 0.5 + idx * 1.3) * (1.2 + (days * 0.01))
+            val = trend + wave
             pct_values.append(float(val))
             
-        # Auf 0% am Startpunkt normieren
         start_val = pct_values[0]
         norm_values = [round(v - start_val, 2) for v in pct_values]
         
