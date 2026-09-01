@@ -35,7 +35,6 @@ RSS_SOURCES = [
     "https://oilprice.com/rss/main",
 ]
 
-# Feste Klartext-Übersetzung für alle bekannten Ticker & ISINs
 CLEAN_NAME_MAP = {
     "NVDA": "NVIDIA",
     "PANW": "Palo Alto Networks",
@@ -110,7 +109,6 @@ def load_saved_portfolio():
 
 def save_portfolio_to_file(portfolio_list):
     try:
-        # Immer saubere Namen speichern
         for item in portfolio_list:
             item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
         with open(PORTFOLIO_FILE, "w") as f:
