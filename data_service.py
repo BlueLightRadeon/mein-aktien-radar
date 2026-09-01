@@ -24,7 +24,6 @@ ISIN_MAP = {
     "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "val": 50.0, "sh": 1.0, "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez", "price": 420.00}
 }
 
-# Deine 8 Positionen als Standard fest hinterlegt
 DEFAULT_HOLDINGS = [
     {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238273, "buy_price": 75.18},
     {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021265, "buy_price": 23.00},
@@ -47,14 +46,14 @@ def get_display_name(ticker, fallback_name=None):
     for isin, info in ISIN_MAP.items():
         if sym == info["ticker"]:
             return info["name"]
-    if fallback_name and len(fallback_name) > 2 and not fallback_name.startswith("US") and not fallback_name.startswith("DE") and not fallback_name.startswith("IE"):
+    if fallback_name and len(fallback_name) > 2 and not fallback_name.startswith(("US", "DE", "IE", "CA", "DK")):
         return fallback_name
     return sym
 
 def load_saved_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
         try:
-            with open(PORTFOLIO_FILE, "r") as f:
+            with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if data and len(data) > 0:
                     for item in data:
@@ -68,7 +67,7 @@ def save_portfolio_to_file(portfolio_list):
     try:
         for item in portfolio_list:
             item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
-        with open(PORTFOLIO_FILE, "w") as f:
+        with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
             json.dump(portfolio_list, f, indent=2)
         return True
     except Exception:
