@@ -141,10 +141,10 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# AUSWERTUNG VOR DEM RENDERN DER TABS
+# KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Streamlit Secrets eintragen.")
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets hinterlegen.")
     elif not st.session_state.my_portfolio:
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
@@ -169,11 +169,11 @@ if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type=
                 st.session_state["ai_signals"] = out_s
                 st.session_state["ai_cluster"] = out_c
                 st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.success("✅ Auswertung fertiggestellt!")
+                st.success("✅ Auswertung abgeschlossen!")
             except Exception as e:
-                st.error(f"Fehler bei der KI-Analyse: {str(e)}")
+                st.error(f"Fehler: {str(e)}")
 
-# 8 TABS (GREIFEN DIREKT AUF DEN AKTUALISIERTEN STATE ZU)
+# 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
     "🌍 Nachrichten",
