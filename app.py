@@ -36,15 +36,15 @@ def get_berlin_time_str():
         return datetime.now(tz_fallback).strftime("%H:%M:%S Uhr")
 
 # Portfolio laden
-if "my_portfolio" not in st.session_state or not st.session_state.my_portfolio:
+if "my_portfolio" not in st.session_state:
     st.session_state.my_portfolio = load_saved_portfolio()
 else:
     for item in st.session_state.my_portfolio:
         item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
 
-# Cash-Guthaben aus Auszug
+# Cash-Guthaben nur aus PDF (Standard: 0.0 wenn noch nichts geladen)
 if "tr_cash" not in st.session_state:
-    st.session_state.tr_cash = 194.02
+    st.session_state.tr_cash = 0.0
 
 def fmt_eur(val):
     try:
@@ -52,25 +52,50 @@ def fmt_eur(val):
     except Exception:
         return f"{val} €"
 
-# --- SEITENLEISTE ---
+def execute_ai_analysis(portfolio_data, stock_dataframe, selected_model_name):
+    if not GROQ_KEY or not portfolio_data:
+        return
+    client = Groq(api_key=GROQ_KEY.strip())
+    news_data = fetch_all_headlines()
+    news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
+
+    metrics_summary = stock_dataframe[[
+        "Unternehmen", "Börsenkurs", "RSI (14D)", 
+        "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
+    ]].to_string(index=False)
+
+    cluster_context = stock_dataframe[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
+
+    out_m, out_d, out_s, out_c = run_analysis(
+        client, selected_model_name, news_text, metrics_summary, "", cluster_context
+    )
+    st.session_state["ai_market"] = out_m
+    st.session_state["ai_depot"] = out_d
+    st.session_state["ai_signals"] = out_s
+    st.session_state["ai_cluster"] = out_c
+    st.session_state["last_analysis_time"] = get_berlin_time_str()
+
+# --- SEITENLEISTE (KEINE MANUELLE GELDEINGABE) ---
 with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
-    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=False):
+    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
         st.caption("Lade deinen Auszug hoch. Positionen, Kurswerte und Cash werden vollautomatisch eingelesen.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_uploader")
         if tr_pdf is not None:
             imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
             if imported_items:
                 st.session_state.my_portfolio = imported_items
-                if imported_cash is not None:
-                    st.session_state.tr_cash = imported_cash
+                st.session_state.tr_cash = imported_cash
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {len(imported_items)} Positionen & Cash übernommen!")
+                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(imported_cash)}) eingelesen!")
                 st.rerun()
 
-    # Cash-Anzeige (Read-Only)
-    st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
+    # Cash-Anzeige (Read-Only aus Auszug)
+    if st.session_state.tr_cash > 0:
+        st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
+    else:
+        st.caption("💶 *Noch kein PDF-Auszug geladen (Cash: 0,00 €)*")
 
     st.divider()
     st.subheader("🔍 Aktie hinzufügen:")
@@ -108,8 +133,15 @@ with st.sidebar:
                     st.session_state.my_portfolio.pop(idx)
                     save_portfolio_to_file(st.session_state.my_portfolio)
                     st.rerun()
+        
+        st.write("")
+        if st.button("🗑️ Alle Positionen leeren", use_container_width=True):
+            st.session_state.my_portfolio = []
+            st.session_state.tr_cash = 0.0
+            save_portfolio_to_file([])
+            st.rerun()
     else:
-        st.info("Keine Positionen hinterlegt.")
+        st.info("Keine Positionen hinterlegt. Lade oben deinen Auszug hoch.")
 
     st.divider()
     st.header("🤖 KI-Modell")
@@ -119,7 +151,7 @@ with st.sidebar:
     else:
         selected_model = "llama-3.3-70b-versatile"
 
-# BERECHNUNG DER DEPOT-DATEN
+# BERECHNUNG DER DATEN
 if st.session_state.my_portfolio:
     stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
     total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
@@ -143,37 +175,24 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# KI-AUSWERTUNGS BUTTON
+    c_m1, c_m2, c_m3 = st.columns(3)
+    with c_m1:
+        st.metric("TR Gesamtkonto", fmt_eur(st.session_state.tr_cash))
+    with c_m2:
+        st.metric("Eingezahltes Geld", "0,00 €")
+    with c_m3:
+        st.metric("Gewinn / Verlust", "0,00 €")
+
+# MANUELLER AUSWERTUNGS-BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt!")
     elif not st.session_state.my_portfolio:
-        st.error("⚠️ Keine Aktien im Depot vorhanden.")
+        st.error("⚠️ Bitte lade zuerst dein PDF hoch oder füge Aktien hinzu!")
     else:
-        with st.spinner("Analysiere Weltlage, Makrodaten und Positionen mit Groq KI..."):
-            try:
-                client = Groq(api_key=GROQ_KEY.strip())
-                news_data = fetch_all_headlines()
-                news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
-
-                metrics_summary = stock_df[[
-                    "Unternehmen", "Börsenkurs", "RSI (14D)", 
-                    "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
-                ]].to_string(index=False)
-
-                cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
-
-                out_m, out_d, out_s, out_c = run_analysis(
-                    client, selected_model, news_text, metrics_summary, "", cluster_context
-                )
-                st.session_state["ai_market"] = out_m
-                st.session_state["ai_depot"] = out_d
-                st.session_state["ai_signals"] = out_s
-                st.session_state["ai_cluster"] = out_c
-                st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.success("✅ Auswertung erfolgreich abgeschlossen!")
-            except Exception as e:
-                st.error(f"Fehler bei der KI-Analyse: {str(e)}")
+        with st.spinner("Analysiere Weltlage, Makrodaten und Positionen..."):
+            execute_ai_analysis(st.session_state.my_portfolio, stock_df, selected_model)
+            st.success("✅ Auswertung erfolgreich abgeschlossen!")
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -209,7 +228,7 @@ with tab0:
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
-    st.info("ℹ️ **Kurzinfo:** Scannt weltweite Finanzquellen und fasst die 10 wichtigsten Markt-Ereignisse zusammen.")
+    st.info("ℹ️ **Kurzinfo:** Scannt weltweite Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
     if "ai_market" in st.session_state and st.session_state["ai_market"]:
         st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
