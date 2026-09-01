@@ -1,6 +1,6 @@
 from datetime import datetime
 from ai_service import get_account_models, run_analysis
-from data_service import fetch_all_headlines, get_historical_chart_data, get_stock_data, load_saved_portfolio, resolve_to_ticker, save_portfolio_to_file
+from data_service import clean_ticker, fetch_all_headlines, get_historical_chart_data, get_stock_data, load_saved_portfolio, save_portfolio_to_file, search_ticker_candidates
 from groq import Groq
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,20 +15,51 @@ st.set_page_config(
 st.title("📈 KI Markt- & Depot-Radar")
 
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
-default_tickers = load_saved_portfolio()
 
-# Seitenleiste
+# Session State für Portfolio initialisieren
+if "my_portfolio" not in st.session_state:
+  st.session_state.my_portfolio = load_saved_portfolio()
+
+# --- SEITENLEISTE: INTERAKTIVE LIVE-SUCHE & VERWALTUNG ---
 with st.sidebar:
   st.header("💼 Mein Depot")
-  portfolio_input = st.text_input(
-      "Deine Aktien & ETFs (Name oder Ticker)", value=default_tickers
+
+  # 1. Suchfeld für neue Aktien
+  search_query = st.text_input(
+      "🔍 Aktie/ETF suchen:", placeholder="z. B. Novo Nordisk, Broadcom..."
   )
 
-  if st.button("💾 Depot dauerhaft speichern", use_container_width=True):
-    if save_portfolio_to_file(portfolio_input):
-      st.success("✅ Gespeichert! Bleibt beim nächsten Öffnen erhalten.")
+  if search_query:
+    results = search_ticker_candidates(search_query)
+    if results:
+      selected_candidate = st.selectbox(
+          "Gefundene Treffer:", results, key="search_select"
+      )
+      if st.button("➕ Zum Depot hinzufügen", use_container_width=True):
+        if selected_candidate not in st.session_state.my_portfolio:
+          st.session_state.my_portfolio.append(selected_candidate)
+          save_portfolio_to_file(st.session_state.my_portfolio)
+          st.success("Hinzugefügt!")
+          st.rerun()
+    else:
+      st.caption("Keine exakten Treffer gefunden.")
 
-  st.caption("Beispiele: Apple, Allianz, Mercedes, MSCI World, NVDA")
+  st.divider()
+
+  # 2. Liste der aktuellen Aktien mit Lösch-Möglichkeit
+  st.subheader("Aktuell im Depot:")
+  if st.session_state.my_portfolio:
+    for idx, item in enumerate(list(st.session_state.my_portfolio)):
+      col_a, col_b = st.columns([4, 1])
+      with col_a:
+        st.write(f"• **{item}**")
+      with col_b:
+        if st.button("❌", key=f"del_{idx}", help=f"{item} entfernen"):
+          st.session_state.my_portfolio.remove(item)
+          save_portfolio_to_file(st.session_state.my_portfolio)
+          st.rerun()
+  else:
+    st.info("Noch keine Aktien hinzugefügt.")
 
   st.divider()
   st.header("🤖 KI-Modell")
@@ -49,9 +80,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Live-Charts & Performance",
 ])
 
-raw_tickers = [t.strip() for t in portfolio_input.split(",") if t.strip()]
-
-# TAB 5: Übersichtlichere Live-Charts & Performance
+# TAB 5: Live-Charts
 with tab5:
   st.subheader("📊 Kursentwicklung & Performance")
 
@@ -77,17 +106,17 @@ with tab5:
         horizontal=True,
     )
 
-  if raw_tickers:
-    resolved_list = [resolve_to_ticker(x) for x in raw_tickers]
-
-    with st.spinner("Lade Chartdaten..."):
-      chart_df = get_historical_chart_data(resolved_list, period=timeframe)
+  if st.session_state.my_portfolio:
+    with st.spinner("Lade Chartdaten für alle ausgewählten Werte..."):
+      chart_df = get_historical_chart_data(
+          st.session_state.my_portfolio, period=timeframe
+      )
 
     if not chart_df.empty and len(chart_df) > 1:
       view_options = ["Alle Aktien gleichzeitig"] + list(chart_df.columns)
       selected_view = st.selectbox("Fokus-Auswahl:", view_options, index=0)
 
-      # 1. Metrik-Karten oben drüber
+      # Metrik-Karten
       metric_cols = st.columns(min(len(chart_df.columns), 4))
       for idx, col in enumerate(chart_df.columns):
         series_clean = chart_df[col].dropna()
@@ -165,9 +194,7 @@ with tab5:
             margin=dict(l=10, r=10, t=60, b=10),
             height=420,
         )
-
       else:
-        # Preis pro Aktie
         for i, col in enumerate(cols_to_plot):
           color = palette[i % len(palette)]
           fig.add_trace(
@@ -209,6 +236,106 @@ with tab5:
           config={"displayModeBar": False, "responsive": True},
       )
     else:
-      st.info("Aktuell werden Kursdaten synchronisiert...")
+      st.info("Synchronisiere Kursdaten...")
   else:
-    st.warning("Bitte gib mindestens eine Aktie in der Seitenleiste ein.")
+    st.warning(
+        "Dein Depot ist aktuell leer. Füge über die Seitenleiste Aktien hinzu!"
+    )
+
+# BUTTON FÜR KI-ANALYSE
+if st.button("🚀 KI-Analyse starten", use_container_width=True):
+  if not GROQ_KEY:
+    st.error(
+        "⚠️ Kein GROQ_API_KEY in den Streamlit Secrets gefunden! Bitte unter"
+        " Settings -> Secrets eintragen."
+    )
+  elif not st.session_state.my_portfolio:
+    st.error("⚠️ Bitte füge zuerst mindestens eine Aktie zu deinem Depot hinzu!")
+  else:
+    save_portfolio_to_file(st.session_state.my_portfolio)
+    client = Groq(api_key=GROQ_KEY.strip())
+
+    with st.spinner(
+        f"Lade Daten für alle {len(st.session_state.my_portfolio)} Aktien &"
+        f" analysiere mit '{selected_model}'..."
+    ):
+      news_data = fetch_all_headlines()
+      news_text = "\n".join(news_data)
+
+      stock_df, ticker_news, resolved_tickers = get_stock_data(
+          st.session_state.my_portfolio
+      )
+      ticker_news_text = (
+          "\n".join(ticker_news)
+          if ticker_news
+          else "Keine direkten Ad-hocs gefunden."
+      )
+
+      metrics_summary = stock_df[[
+          "Name / Aktie",
+          "Ticker",
+          "Kurs",
+          "RSI (14D)",
+          "KGV (P/E)",
+          "Analysten-Kursziel",
+          "Konsens-Rating",
+      ]].to_string(index=False)
+
+      try:
+        out_market, out_depot, out_signals = run_analysis(
+            client,
+            selected_model,
+            news_text,
+            metrics_summary,
+            ticker_news_text,
+        )
+
+        with tab1:
+          st.caption(f"🤖 Verwendetes Modell: `{selected_model}`")
+          st.markdown(out_market)
+
+        with tab2:
+          st.subheader("Depot-Kennzahlen & Kurse")
+          st.dataframe(
+              stock_df[[
+                  "Name / Aktie",
+                  "Ticker",
+                  "Kurs",
+                  "RSI (14D)",
+                  "KGV (P/E)",
+                  "Analysten-Kursziel",
+              ]],
+              hide_index=True,
+          )
+          st.divider()
+          st.markdown(out_depot)
+
+        with tab3:
+          st.subheader("📅 Anstehende Quartalszahlen")
+          st.dataframe(
+              stock_df[[
+                  "Name / Aktie",
+                  "Ticker",
+                  "Kurs",
+                  "Nächste Earnings",
+              ]],
+              hide_index=True,
+          )
+
+        with tab4:
+          st.subheader("🎯 Handlungsempfehlungen & Signale")
+          st.dataframe(
+              stock_df[[
+                  "Name / Aktie",
+                  "Ticker",
+                  "Kurs",
+                  "Konsens-Rating",
+                  "Analysten-Kursziel",
+              ]],
+              hide_index=True,
+          )
+          st.divider()
+          st.markdown(out_signals)
+
+      except Exception as e:
+        st.error(f"Fehler bei der Analyse: {str(e)}")
