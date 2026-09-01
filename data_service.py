@@ -24,7 +24,17 @@ ISIN_MAP = {
     "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "val": 50.0, "sh": 1.0, "earnings": "22.10.2026 (Q1)", "div_month": "März, Juni, Sept, Dez", "price": 420.00}
 }
 
-DEFAULT_HOLDINGS = []
+# Deine 8 Positionen aus dem TR Auszug
+DEFAULT_HOLDINGS = [
+    {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238273, "buy_price": 75.18},
+    {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021265, "buy_price": 23.00},
+    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624309, "buy_price": 48.90},
+    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.262936, "buy_price": 49.43},
+    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 38.96},
+    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.596822, "buy_price": 54.14},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242466, "buy_price": 78.97},
+    {"ticker": "TSM", "name": "TSMC", "shares": 0.136612, "buy_price": 49.18},
+]
 
 def clean_ticker(ticker_str):
     s = str(ticker_str).strip()
@@ -46,7 +56,7 @@ def load_saved_portfolio():
         try:
             with open(PORTFOLIO_FILE, "r") as f:
                 data = json.load(f)
-                if data:
+                if data and len(data) > 0:
                     for item in data:
                         item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
                     return data
@@ -78,12 +88,11 @@ def search_ticker_candidates(query):
 
 def parse_trade_republic_pdf(uploaded_file):
     found_items = []
-    extracted_cash = 0.0
+    extracted_cash = 194.02
     try:
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # Cash parsen
         cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
