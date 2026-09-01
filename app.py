@@ -47,7 +47,6 @@ def fmt_eur(val):
         return f"{val} €"
 
 def execute_ai_analysis(portfolio_data, stock_dataframe, selected_model_name):
-    """Führt die KI-Analyse zügig durch."""
     if not GROQ_KEY or not portfolio_data:
         return
     client = Groq(api_key=GROQ_KEY.strip())
@@ -96,8 +95,6 @@ with st.sidebar:
     )
 
     st.divider()
-
-    # Automatischer 5-Minuten Takt
     auto_refresh_active = st.checkbox("🔄 Live-Modus (Automatisch alle 5 Min aktualisieren)", value=True)
 
     st.divider()
@@ -179,7 +176,7 @@ if auto_refresh_active and (current_time - st.session_state.last_auto_run > 300)
         st.rerun()
 
 # MANUELLER AUSWERTUNGS-BUTTON
-if st.button("🚀 Jetzt sofort KI-Auswertung manuell starten", use_container_width=True, type="primary"):
+if st.button("🚀 Jetzt sofort KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt!")
     elif not st.session_state.my_portfolio:
@@ -195,7 +192,7 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
     "🌍 Nachrichten",
     "💼 Stimmung",
-    "📅 Termine",
+    "📅 Termine & Cashflow",
     "🎯 Tipps",
     "📊 Charts",
     "🥧 Streuung",
@@ -247,17 +244,23 @@ with tab2:
         st.subheader("🤖 KI-Stimmungsbericht:")
         st.markdown(st.session_state["ai_depot"])
 
-# TAB 3: TERMINE & DIVIDENDEN
+# TAB 3: TERMINE & CASHFLOW (ERWEITERT & PRÄZISE)
 with tab3:
-    st.info("ℹ️ **Kurzinfo:** Zeigt Quartalstermine und jährliche Dividendenausschüttungen.")
+    st.info("ℹ️ **Kurzinfo:** Zeigt die konkreten Termine für Quartalszahlen (Geschäftsberichte) und dein passives Einkommen (Ausschüttungen in €) auf dein Verrechnungskonto.")
     if not stock_df.empty:
+        total_annual_div = stock_df["_raw_cashflow"].sum()
+        col_cf1, col_cf2 = st.columns(2)
+        with col_cf1:
+            st.success(f"💰 **Erwartete Ausschüttung:** `{total_annual_div:.2f} € / Jahr`")
+        with col_cf2:
+            st.info(f"📊 **Durchschnittliche Dividendenrendite:** `{(total_annual_div / stock_val * 100) if stock_val > 0 else 0.0:.2f} % p.a.`")
+
+        st.subheader("📅 Terminkalender & Ausschüttungen im Detail:")
         st.dataframe(
             stock_df[[
-                "Unternehmen", "Dividendenrendite", "Nächste Quartalszahlen"
-            ]].rename(columns={
-                "Dividendenrendite": "Gewinnausschüttung (% p.a.)",
-                "Nächste Quartalszahlen": "Nächster Quartalstermin"
-            }),
+                "Unternehmen", "Nächste Quartalszahlen", 
+                "Dividendenrendite", "Ausschüttung pro Jahr", "Ausschüttungs-Monate"
+            ]],
             hide_index=True,
             use_container_width=True
         )
