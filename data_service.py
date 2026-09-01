@@ -58,7 +58,6 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # 1. Cash extrahieren
         cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
@@ -70,7 +69,6 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 extracted_cash = 0.0
 
-        # 2. ISINs extrahieren
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -158,7 +156,6 @@ def get_stock_data(portfolio_list):
             invested_money = 0.0
             
         company_name = get_display_name(t, item.get("name"))
-
         price = float(default_prices.get(t, 50.0))
         currency = "EUR" if t.endswith(".DE") else "USD"
         day_change_pct = float(default_changes.get(t, 0.25))
