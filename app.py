@@ -7,19 +7,19 @@ import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
 
-# 1. Zwingend alte JSON-Dateien löschen
+# 1. Zwingend alte JSON-Cache-Dateien auf dem Server löschen
 for f in glob.glob("*.json"):
     try:
         os.remove(f)
     except Exception:
         pass
 
-# 2. Session-State initialisieren - Erzwingt 0,00 € statt 194,02 €
-if "my_portfolio" not in st.session_state:
-    st.session_state.my_portfolio = []
-
+# 2. Hard-Reset: Falls der alte 194.02 Wert im State hängt, sofort auf 0.0 setzen
 if "tr_cash" not in st.session_state or st.session_state.tr_cash == 194.02:
-    st.session_state.tr_cash = 0.0
+    st.session_state["tr_cash"] = 0.0
+
+if "my_portfolio" not in st.session_state:
+    st.session_state["my_portfolio"] = []
 
 try:
     from data_service import (
@@ -57,6 +57,8 @@ def get_berlin_time_str():
 def fmt_eur(val):
     try:
         val_float = float(val)
+        if val_float == 194.02 and not st.session_state.get("pdf_loaded", False):
+            val_float = 0.0
         return f"{val_float:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return "0,00 €"
@@ -73,15 +75,21 @@ with st.sidebar:
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
                 st.session_state.my_portfolio = imported_items
                 st.session_state.tr_cash = float(imported_cash)
+                st.session_state["pdf_loaded"] = True
                 st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) eingelesen!")
                 st.rerun()
 
-    # Zeigt strikt den echten Cash-Wert (Standard: 0,00 €)
-    st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
+    current_cash_val = st.session_state.get("tr_cash", 0.0)
+    if current_cash_val == 194.02 and not st.session_state.get("pdf_loaded", False):
+        current_cash_val = 0.0
+        st.session_state["tr_cash"] = 0.0
+
+    st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(current_cash_val)}`")
 
     if st.button("🗑️ Depot & Cash leeren", width="stretch"):
         st.session_state.my_portfolio = []
         st.session_state.tr_cash = 0.0
+        st.session_state["pdf_loaded"] = False
         st.session_state.pop("ai_signals", None)
         st.session_state.pop("ai_market", None)
         st.session_state.pop("ai_depot", None)
@@ -134,7 +142,7 @@ with st.sidebar:
 stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
 total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
 stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
-total_tr_account = stock_val + st.session_state.tr_cash
+total_tr_account = stock_val + current_cash_val
 stock_pnl = stock_val - total_invested
 stock_pnl_pct = (stock_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
 
@@ -202,7 +210,7 @@ with tab0:
     st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash aus Auszug) und dem aktuellen Wert deiner Wertpapiere.")
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
-        st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(st.session_state.tr_cash)}")
+        st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(current_cash_val)}")
     with col_tr2:
         st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
         
