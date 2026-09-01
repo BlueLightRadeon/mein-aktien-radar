@@ -11,17 +11,13 @@ import yfinance as yf
 
 PORTFOLIO_FILE = "portfolio.json"
 
-# Erweiterte, verlässliche Finanz- & Wirtschaftsquellen
 RSS_SOURCES = [
     "https://www.tagesschau.de/wirtschaft/index~rss2.xml",
     "https://www.handelsblatt.com/contentexport/feed/top-themen",
     "https://www.spiegel.de/wirtschaft/index.rss",
     "https://www.finanzen.net/rss/news",
-    "https://www.deraktionaer.de/rss/feed",
-    "https://www.justetf.com/de/news/feed.rss",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
-    "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-    "https://seekingalpha.com/market_currents.xml"
+    "https://www.cnbc.com/id/100003114/device/rss/rss.html"
 ]
 
 ISIN_MAP = {
@@ -126,17 +122,19 @@ def search_ticker_candidates(query):
 
 def parse_trade_republic_pdf(uploaded_file):
     found_items = []
-    extracted_cash = 194.02
+    extracted_cash = 51.57
     try:
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        cash_match = re.search(r"(?:Cashkonto|Cash)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
+        cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
-            cash_match = re.search(r"(?:Cashkonto|Cash)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
+            cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
         if cash_match:
             try:
-                extracted_cash = float(cash_match.group(1).replace(".", "").replace(",", "."))
+                c_val = float(cash_match.group(1).replace(".", "").replace(",", "."))
+                if c_val >= 0:
+                    extracted_cash = c_val
             except Exception:
                 pass
 
@@ -184,7 +182,7 @@ def fetch_all_headlines():
                             headlines.append(f"- {t}")
         except Exception:
             continue
-    return headlines[:20]
+    return headlines[:15]
 
 def calculate_rsi(series, period=14):
     try:
