@@ -95,13 +95,14 @@ with st.sidebar:
         st.caption("Wähle deine PDF aus und klicke auf '📄 Auszug jetzt einlesen'.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         if tr_pdf is not None:
-            if st.button("📄 Auszug jetzt einlesen", width="stretch"):
-                imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
-                st.session_state["v_portfolio"] = imported_items
-                st.session_state["v_cash"] = float(imported_cash)
-                st.session_state["last_auto_run_ts"] = 0.0
-                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) eingelesen!")
-                st.rerun()
+            if st.button("📄 Auszug mit KI einlesen", width="stretch", type="primary"):
+                with st.spinner("🤖 KI liest Trade Republic PDF präzise aus..."):
+                    imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf, api_key=GROQ_KEY)
+                    st.session_state["v_portfolio"] = imported_items
+                    st.session_state["v_cash"] = float(imported_cash)
+                    st.session_state["last_auto_run_ts"] = 0.0
+                    st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) extrahiert!")
+                    st.rerun()
 
     display_cash = float(st.session_state.get("v_cash", 0.0))
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
@@ -185,7 +186,7 @@ else:
 total_tr_account = stock_val + display_cash
 stock_pnl_pct = (stock_pnl / (stock_val - stock_pnl) * 100.0) if (stock_val - stock_pnl) > 0 else 0.0
 
-# DIE 3 KLAREN HAUPTKARTEN
+# DIE 3 HAUPTKARTEN
 c_m1, c_m2, c_m3 = st.columns(3)
 with c_m1:
     st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Gesamtwert deines Kontos: Aktienbestand + Verrechnungskonto (Cash)")
