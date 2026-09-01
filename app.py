@@ -65,7 +65,20 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
         if not current_stock_df.empty and "Unternehmen" in current_stock_df.columns:
-            summary_cols = [c for c in ["Unternehmen", "Aktuelle KI-Empfehlung", "Aktuelle Begründung", "Empfehlung (vor 3 Monaten)", "Begründung (vor 3 Monaten)", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Dividendenrendite"] if c in current_stock_df.columns]
+            summary_cols = [
+                c for c in [
+                    "Unternehmen", 
+                    "Aktuelle KI-Empfehlung", 
+                    "Aktuelle Begründung", 
+                    "Empfehlung (vor 3 Monaten)", 
+                    "Begründung (vor 3 Monaten)", 
+                    "Börsenkurs", 
+                    "Aktueller Wert (TR)", 
+                    "KGV (P/E)", 
+                    "Fair Value", 
+                    "Analysten-Kursziel"
+                ] if c in current_stock_df.columns
+            ]
             metrics_summary = current_stock_df[summary_cols].to_string(index=False)
             cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in current_stock_df.columns]
             cluster_context = current_stock_df[cluster_cols].to_string(index=False)
@@ -252,7 +265,7 @@ with tab0:
     else:
         st.info("📂 Lade deinen Trade Republic Kontoauszug (PDF) in der linken Seitenleiste hoch, um deine Werte hier zu sehen.")
 
-# TAB 1: STIMMUNG & EMPFEHLUNGEN (MIT AKTUELLEN & 3-MONATS-BEGRÜNDUNGEN)
+# TAB 1: STIMMUNG & EMPFEHLUNGEN (KOMBINIERTE TABELLE & KI-BERICHT)
 with tab1:
     st.info("ℹ️ **Kurzinfo:** Vollständige Gegenüberstellung: Aktuelle Empfehlungen & Begründungen vs. historische 3-Monats-Analyse.")
     if not stock_df.empty:
