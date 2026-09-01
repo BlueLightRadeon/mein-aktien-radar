@@ -16,15 +16,13 @@ st.title("📈 KI Markt- & Depot-Radar")
 
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# Session State für Portfolio initialisieren
 if "my_portfolio" not in st.session_state:
   st.session_state.my_portfolio = load_saved_portfolio()
 
-# --- SEITENLEISTE: INTERAKTIVE LIVE-SUCHE & VERWALTUNG ---
+# Seitenleiste
 with st.sidebar:
   st.header("💼 Mein Depot")
 
-  # 1. Suchfeld für neue Aktien
   search_query = st.text_input(
       "🔍 Aktie/ETF suchen:", placeholder="z. B. Novo Nordisk, Broadcom..."
   )
@@ -46,7 +44,6 @@ with st.sidebar:
 
   st.divider()
 
-  # 2. Liste der aktuellen Aktien mit Lösch-Möglichkeit
   st.subheader("Aktuell im Depot:")
   if st.session_state.my_portfolio:
     for idx, item in enumerate(list(st.session_state.my_portfolio)):
@@ -59,7 +56,7 @@ with st.sidebar:
           save_portfolio_to_file(st.session_state.my_portfolio)
           st.rerun()
   else:
-    st.info("Noch keine Aktien hinzugefügt.")
+    st.info("Noch keine Aktien im Depot.")
 
   st.divider()
   st.header("🤖 KI-Modell")
@@ -75,12 +72,12 @@ with st.sidebar:
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🌍 Markt Top 10",
     "💼 Sentiment & Depot",
-    "📅 Earnings-Kalender",
+    "📅 Quartalszahlen",
     "🎯 Kauf- / Verkauf-Signale",
     "📊 Live-Charts & Performance",
 ])
 
-# TAB 5: Live-Charts & Performance
+# TAB 5: Live-Charts
 with tab5:
   st.subheader("📊 Kursentwicklung & Performance")
 
@@ -117,7 +114,6 @@ with tab5:
       view_options = ["Alle Aktien gleichzeitig"] + available_tickers
       selected_view = st.selectbox("Fokus-Auswahl:", view_options, index=0)
 
-      # 1. Metrik-Karten oben drüber für alle geladenen Aktien
       metric_cols = st.columns(min(len(available_tickers), 4))
       for idx, t in enumerate(available_tickers):
         s = series_dict[t]
@@ -240,9 +236,7 @@ with tab5:
     else:
       st.info("Synchronisiere Kursdaten...")
   else:
-    st.warning(
-        "Dein Depot ist aktuell leer. Füge über die Seitenleiste Aktien hinzu!"
-    )
+    st.warning("Dein Depot ist leer. Füge Aktien über die Seitenleiste hinzu!")
 
 # BUTTON FÜR KI-ANALYSE
 if st.button("🚀 KI-Analyse starten", use_container_width=True):
@@ -258,8 +252,8 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
     client = Groq(api_key=GROQ_KEY.strip())
 
     with st.spinner(
-        f"Lade Daten für alle {len(st.session_state.my_portfolio)} Aktien &"
-        f" erstelle KI-Auswertung..."
+        f"Lade Live-Daten für alle {len(st.session_state.my_portfolio)} Aktien &"
+        f" erstelle Analyse..."
     ):
       news_data = fetch_all_headlines()
       news_text = "\n".join(news_data)
@@ -319,7 +313,7 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
                   "Name / Aktie",
                   "Ticker",
                   "Kurs",
-                  "Nächste Earnings",
+                  "Nächste Quartalszahlen",
               ]],
               hide_index=True,
           )
