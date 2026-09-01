@@ -12,10 +12,11 @@ def get_account_models(api_key):
         return ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text, cluster_context=""):
-    """Führt alle 4 Auswertungen in einem einzigen, token-sparenden API-Aufruf durch."""
+    """Führt die Gesamtanalyse in einfacher, verständlicher Sprache durch."""
     
     combined_prompt = f"""
-Du bist ein professioneller Chefanyst für Aktienmärkte und Portfolios. Antworte AUSSCHLIESSLICH auf Deutsch.
+Du bist ein verständlicher, sympathischer Finanzberater. Erkläre alles so, dass es auch ein absoluter Börsen-Neuling (Laie) sofort versteht.
+Verzichte auf unnötiges Fachchinesisch. Wenn du Fachbegriffe wie KGV oder RSI nennst, erkläre in einem kurzen Nebensatz, was das bedeutet (z. B. "KGV von 25 = mäßig teuer bewertet" oder "RSI über 70 = Aktie ist kurzfristig heißgelaufen").
 
 Hier sind die aktuellen Daten:
 [GLOBALE NACHRICHTEN]
@@ -30,27 +31,27 @@ Hier sind die aktuellen Daten:
 [ALLOKATION & BRANCHEN]
 {cluster_context}
 
-Erstelle die Gesamtanalyse strikt aufgeteilt mit den folgenden 4 Trennmarkern:
+Erstelle die Analyse strikt aufgeteilt mit diesen 4 Trennmarkern:
 
 ===MARKT===
-1. **TOP 10 Markt-Informationen**: Die 10 wichtigsten Makro- & Börsenfakten stichpunktartig.
-2. **Gesamtstimmung**: 🟢 Bullisch, 🟡 Neutral oder 🔴 Bärisch (inkl. kurzer Begründung).
+1. **Die TOP 10 wichtigsten Welt- und Wirtschaftsnachrichten**: Einfach und verständlich formuliert.
+2. **Gesamt-Börsenstimmung**: 🟢 Optimistisch (Gute Laune an den Börsen), 🟡 Abwartend oder 🔴 Ängstlich/Vorsichtig mit kurzer Begründung.
 
 ===DEPOT===
-Analysiere JEDE Aktie aus dem Depot einzeln:
-- **[Aktienname]**: Sentiment (🟢/🟡/🔴), Einordnung der Technik (RSI) und fundamentale Bewertung (KGV/Fair Value).
-- **Ausblick**: Wichtige Treiber für die nächsten Tage.
+Analysiere JEDE Aktie einzeln in einfacher Sprache:
+- **[Aktienname]**: Stimmung (🟢/🟡/🔴), Preisschild-Einschätzung (Ist sie gerade günstig oder teuer?) und Chart-Zustand (Läuft sie gut oder schwächelt sie?).
+- **Was jetzt wichtig ist**: Worauf du in den nächsten Tagen achten solltest.
 
 ===SIGNALE===
-Erstelle für JEDE Aktie eine prägnante Handlungsempfehlung:
+Erstelle für JEDE Aktie eine klare Empfehlung:
 - **[Aktienname]**: 🟢 **KAUFEN** / 🟡 **HALTEN** / 🔴 **VERKAUFEN**
-- **Begründung**: (Kombination aus RSI, KGV, Fair Value & Kursziel)
-- **Risiko**: Gering / Mittel / Hoch | **Horizont**: Kurzfristig / Mittelfristig / Langfristig
+- **Einfache Begründung**: Warum diese Entscheidung Sinn macht.
+- **Risiko**: Gering / Mittel / Hoch | **Empfohlene Anlagedauer**: Eher kurzfristig oder langfristig liegenlassen.
 
 ===KLUMPEN===
-1. **Risiko-Score**: 1 bis 10 (Klumpenrisiko-Bewertung).
-2. **Kritische Übergewichte**: Wo bestehen einseitige Branchen- oder Länder-Abhängigkeiten?
-3. **Absicherungs-Tipps**: 1-2 konkrete Vorschläge zur Diversifikation.
+1. **Risiko-Note**: 1 (Sehr sicher und breit verteilt) bis 10 (Gefährlich einseitig).
+2. **Einseitigkeiten**: Hängt das Depot zu stark an einem Land (z. B. nur USA) oder einer Branche (z. B. nur Technik)?
+3. **Einfacher Tipp**: Welche Branche oder Absicherung würde dem Depot guttun?
 """
 
     res = client.chat.completions.create(
@@ -62,11 +63,10 @@ Erstelle für JEDE Aktie eine prägnante Handlungsempfehlung:
     
     full_text = res.choices[0].message.content
     
-    # Text sauber anhand der Marker auf die Tabs aufteilen
-    out_market = "Keine Marktdaten."
-    out_depot = "Keine Depotanalyse."
-    out_signals = "Keine Signale."
-    out_cluster = "Keine Klumpenanalyse."
+    out_market = "Keine Daten."
+    out_depot = "Keine Daten."
+    out_signals = "Keine Daten."
+    out_cluster = "Keine Daten."
     
     if "===MARKT===" in full_text:
         parts = full_text.split("===MARKT===")[1]
@@ -87,12 +87,12 @@ Erstelle für JEDE Aktie eine prägnante Handlungsempfehlung:
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
-Vergleiche diese beiden Aktien direkt auf Deutsch:
+Vergleiche diese beiden Aktien in einfachen Worten für einen Laien:
 Aktie A: {stock_a_info}
 Aktie B: {stock_b_info}
 
-1. Stärken & Schwächen (KGV, RSI, Fair Value, Kursziel)
-2. Klares Duell-Urteil: Welche Aktie ist aktuell der bessere Kauf?
+1. Wo liegen die Stärken und Schwächen im Vergleich?
+2. Klares Urteil: Welche Aktie ist aktuell die schlauere Wahl und warum?
 """
     res = client.chat.completions.create(
         model=model_name,
