@@ -3,6 +3,7 @@ import os
 import feedparser
 from groq import Groq
 import pandas as pd
+import requests
 import streamlit as st
 import yfinance as yf
 
@@ -23,7 +24,6 @@ PORTFOLIO_FILE = "portfolio.txt"
 
 
 def load_saved_portfolio():
-  # Prüfe zuerst URL-Parameter, dann Textdatei, sonst Standard-Werte
   url_tickers = st.query_params.get("tickers", None)
   if url_tickers:
     return url_tickers
@@ -35,27 +35,24 @@ def load_saved_portfolio():
           return saved
     except Exception:
       pass
-  return "AAPL, MSFT, NVDA, TSLA"
+  return "Apple, Microsoft, Nvidia, Tesla"
 
 
 def save_portfolio_to_file(tickers_str):
   try:
     with open(PORTFOLIO_FILE, "w") as f:
       f.write(tickers_str)
-    # URL synchronisieren, damit der Home-Bildschirm-Link die Daten behält
     st.query_params["tickers"] = tickers_str
     return True
   except Exception:
     return False
 
 
-# Standardmäßig deine gespeicherten Werte laden
 default_tickers = load_saved_portfolio()
 
 
 @st.cache_data(ttl=3600)
 def get_account_models(api_key):
-  """Liest live alle für deinen Key freigeschalteten Modelle aus."""
   try:
     c = Groq(api_key=api_key.strip())
     models_list = [m.id for m in c.models.list().data]
@@ -77,15 +74,17 @@ with st.sidebar:
   st.header("💼 Mein Depot")
 
   portfolio_input = st.text_input(
-      "Deine Aktien & ETFs (Ticker)", value=default_tickers
+      "Deine Aktien & ETFs (Name oder Ticker)", value=default_tickers
   )
 
-  # Speicher-Button für dein Depot
   if st.button("💾 Depot dauerhaft speichern"):
     if save_portfolio_to_file(portfolio_input):
       st.success("✅ Gespeichert! Bleibt beim nächsten Öffnen erhalten.")
 
-  st.caption("Beispiele: AAPL, MSFT, SAP.DE, MBG.DE, CSPX.AS, EUNL.DE")
+  st.caption(
+      "Du kannst Firmennamen oder Ticker eingeben (z. B. Apple, Allianz,"
+      " Mercedes, MSCI World, NVDA)"
+  )
 
   st.divider()
   st.header("🤖 KI-Modell")
@@ -142,6 +141,78 @@ def fetch_all_headlines(sources):
   return headlines[:30]
 
 
+def resolve_to_ticker(query):
+  """Wandelt Firmennamen/Umgangssprachliche Namen automatisch in den passenden Yahoo-Ticker um."""
+  q = query.strip()
+  # Bekannte deutsche Direkt-Zuordnungen für maximale Treffsicherheit
+  alias_map = {
+      "MERCEDES": "MBG.DE",
+      "MERCEDES-BENZ": "MBG.DE",
+      "MERCEDES BENZ": "MBG.DE",
+      "BMW": "BMW.DE",
+      "VOLKSWAGEN": "VOW3.DE",
+      "VW": "VOW3.DE",
+      "ALLIANZ": "ALV.DE",
+      "SIEMENS": "SIE.DE",
+      "TELEKOM": "DTE.DE",
+      "DEUTSCHE TELEKOM": "DTE.DE",
+      "SAP": "SAP.DE",
+      "BASF": "BAS.DE",
+      "BAYER": "BAYN.DE",
+      "DEUTSCHE BANK": "DBK.DE",
+      "COMMERZBANK": "CBK.DE",
+      "LUFTHANSA": "LHA.DE",
+      "RHEINMETALL": "RHM.DE",
+      "AIRBUS": "AIR.DE",
+      "MSCI WORLD": "EUNL.DE",
+      "S&P 500": "VUAA.DE",
+      "SP500": "VUAA.DE",
+      "NASDAQ": "EQAC.DE",
+      "APPLE": "AAPL",
+      "MICROSOFT": "MSFT",
+      "NVIDIA": "NVDA",
+      "TESLA": "TSLA",
+      "AMAZON": "AMZN",
+      "ALPHABET": "GOOGL",
+      "GOOGLE": "GOOGL",
+      "META": "META",
+      "NETFLIX": "NFLX",
+  }
+
+  upper_q = q.upper()
+  if upper_q in alias_map:
+    return alias_map[upper_q]
+
+  # Falls bereits ein gültiger Ticker mit Länderkürzel (z. B. MBG.DE, AAPL)
+  if "." in q or len(q) <= 5 and q.isalpha() and q.isupper():
+    try:
+      test_stock = yf.Ticker(q)
+      if test_stock.fast_info.last_price is not None:
+        return q
+    except Exception:
+      pass
+
+  # Automatische Yahoo Search API für alle anderen Namen / ETFs
+  try:
+    headers = {"User-Agent": "Mozilla/5.0"}
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(q)}&quotesCount=3&newsCount=0"
+    resp = requests.get(url, headers=headers, timeout=4)
+    if resp.status_code == 200:
+      data = resp.json()
+      quotes = data.get("quotes", [])
+      if quotes:
+        # Bevorzuge deutsches Listing falls vorhanden (.DE), sonst erstes Ergebnis
+        for item in quotes:
+          sym = item.get("symbol", "")
+          if sym.endswith(".DE") or sym.endswith(".F"):
+            return sym
+        return quotes[0].get("symbol", q)
+  except Exception:
+    pass
+
+  return q
+
+
 def calculate_rsi(series, period=14):
   try:
     delta = series.diff()
@@ -155,27 +226,49 @@ def calculate_rsi(series, period=14):
     return "N/A"
 
 
-def get_stock_data(tickers):
+def get_stock_data(user_inputs):
   data = []
   direct_news = []
+  resolved_tickers_list = []
 
-  for t in tickers:
+  for raw_input in user_inputs:
+    t = resolve_to_ticker(raw_input)
+    resolved_tickers_list.append(t)
+
     try:
       stock = yf.Ticker(t)
-      info = stock.info if hasattr(stock, "info") else {}
       fast = stock.fast_info
 
-      price = fast.last_price if hasattr(fast, "last_price") else None
+      # Sichere Kursermittlung
+      price = fast.last_price
       currency = fast.currency if hasattr(fast, "currency") else "USD"
 
+      # Falls fast_info leer ist, Fallback auf history
       hist = stock.history(period="1mo")
+      if (price is None or pd.isna(price)) and not hist.empty:
+        price = hist["Close"].iloc[-1]
+
+      # RSI (14 Tage)
       rsi_val = (
           calculate_rsi(hist["Close"])
           if not hist.empty and len(hist) > 14
           else "N/A"
       )
 
-      pe_ratio = info.get("trailingPE")
+      # Name & Fundamentaldaten
+      info = {}
+      try:
+        info = stock.info or {}
+      except Exception:
+        pass
+
+      company_name = (
+          info.get("shortName")
+          or info.get("longName")
+          or raw_input.capitalize()
+      )
+
+      pe_ratio = info.get("trailingPE") or info.get("forwardPE")
       pe_str = f"{pe_ratio:.1f}" if pe_ratio else "N/A"
 
       target_price = info.get("targetMeanPrice")
@@ -199,14 +292,17 @@ def get_stock_data(tickers):
         if stock.news:
           for item in stock.news[:2]:
             if "title" in item:
-              direct_news.append(f"[{t}] {item['title']}")
+              direct_news.append(f"[{company_name} / {t}] {item['title']}")
       except Exception:
         pass
 
       data.append({
+          "Name / Aktie": company_name,
           "Ticker": t,
           "Kurs": (
-              f"{price:.2f} {currency}" if price is not None else "N/A"
+              f"{price:.2f} {currency}"
+              if (price is not None and not pd.isna(price))
+              else "N/A"
           ),
           "RSI (14D)": rsi_val,
           "KGV (P/E)": pe_str,
@@ -215,6 +311,7 @@ def get_stock_data(tickers):
       })
     except Exception:
       data.append({
+          "Name / Aktie": raw_input,
           "Ticker": t,
           "Kurs": "N/A",
           "RSI (14D)": "N/A",
@@ -223,7 +320,7 @@ def get_stock_data(tickers):
           "Nächste Earnings": "Nicht gefunden",
       })
 
-  return pd.DataFrame(data), direct_news
+  return pd.DataFrame(data), direct_news, resolved_tickers_list
 
 
 tab1, tab2, tab3 = st.tabs(
@@ -237,29 +334,35 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
         " Settings -> Secrets eintragen."
     )
   else:
-    # Automatisch im Hintergrund auch beim Klick auf Analyse speichern
     save_portfolio_to_file(portfolio_input)
 
     client = Groq(api_key=GROQ_KEY.strip())
-    tickers = [
-        t.strip().upper() for t in portfolio_input.split(",") if t.strip()
+    raw_tickers = [
+        t.strip() for t in portfolio_input.split(",") if t.strip()
     ]
 
     with st.spinner(
-        f"Lade Daten & analysiere mit Modell '{selected_model}'..."
+        f"Löse Ticker auf, lade Daten & analysiere mit Modell"
+        f" '{selected_model}'..."
     ):
       news_data = fetch_all_headlines(RSS_SOURCES)
       news_text = "\n".join(news_data)
-      stock_df, ticker_news = get_stock_data(tickers)
+
+      stock_df, ticker_news, resolved_tickers = get_stock_data(raw_tickers)
       ticker_news_text = (
           "\n".join(ticker_news)
           if ticker_news
           else "Keine direkten Ad-hocs gefunden."
       )
 
-      metrics_summary = stock_df[
-          ["Ticker", "Kurs", "RSI (14D)", "KGV (P/E)", "Analysten-Kursziel"]
-      ].to_string(index=False)
+      metrics_summary = stock_df[[
+          "Name / Aktie",
+          "Ticker",
+          "Kurs",
+          "RSI (14D)",
+          "KGV (P/E)",
+          "Analysten-Kursziel",
+      ]].to_string(index=False)
 
       prompt_market = f"""
 Aktuelle weltweite Wirtschaftsnachrichten (45+ Quellen & ETF-Feeds):
@@ -273,13 +376,13 @@ Bewerte am Ende kurz die Marktstimmung (Bullisch / Neutral / Bärisch).
 Depot-Werte & Kennzahlen:
 {metrics_summary}
 
-Spezifische News zu deinen Ticker-Symbolen:
+Spezifische News zu deinen Titeln:
 {ticker_news_text}
 
 Allgemeine Makro-Nachrichten:
 {news_text}
 
-Erstelle für jeden Wert ({', '.join(tickers)}) eine fundierte Analyse:
+Erstelle für jeden Wert eine fundierte Analyse:
 1. **Sentiment**: 🟢 Bullisch, 🟡 Neutral oder 🔴 Bärisch
 2. **Technik & Bewertung**: Interpretiere kurz den RSI (unter 30 = überverkauft, über 70 = überkauft), das KGV und das Analysten-Kursziel.
 3. **Fokus/News**: Relevante Meldungen oder Einflussfaktoren.
@@ -311,6 +414,7 @@ Erstelle für jeden Wert ({', '.join(tickers)}) eine fundierte Analyse:
           st.subheader("Depot-Kennzahlen & Kurse")
           st.dataframe(
               stock_df[[
+                  "Name / Aktie",
                   "Ticker",
                   "Kurs",
                   "RSI (14D)",
@@ -325,7 +429,13 @@ Erstelle für jeden Wert ({', '.join(tickers)}) eine fundierte Analyse:
         with tab3:
           st.subheader("📅 Anstehende Quartalszahlen")
           st.dataframe(
-              stock_df[["Ticker", "Kurs", "Nächste Earnings"]], hide_index=True
+              stock_df[[
+                  "Name / Aktie",
+                  "Ticker",
+                  "Kurs",
+                  "Nächste Earnings",
+              ]],
+              hide_index=True,
           )
 
       except Exception as e:
