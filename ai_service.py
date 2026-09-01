@@ -3,14 +3,23 @@ from groq import Groq
 import re
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
-STATIC_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "gemma2-9b-it"
-]
 
 def get_account_models(api_key):
-    return STATIC_MODELS
+    """Fragt die tatsächlich auf deinem Groq-Account aktiven Modelle live ab."""
+    if not api_key:
+        return [DEFAULT_MODEL]
+    try:
+        client = Groq(api_key=api_key)
+        models_data = client.models.list()
+        active_ids = [m.id for m in models_data.data if m.id and "whisper" not in m.id]
+        
+        # Bevorzuge 70b oder Llama 3.3
+        preferred = [m for m in active_ids if "llama-3.3" in m or "70b" in m]
+        if preferred:
+            return preferred + [m for m in active_ids if m not in preferred]
+        return active_ids if active_ids else [DEFAULT_MODEL]
+    except Exception:
+        return [DEFAULT_MODEL, "llama-3.3-70b-specdec"]
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
@@ -79,7 +88,9 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"]
+    # Dynamische Modell-Auswahl ohne veraltete IDs
+    chosen_model = model_name if model_name else DEFAULT_MODEL
+    models_to_try = [chosen_model, "llama-3.3-70b-versatile", "llama-3.3-70b-specdec"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -141,7 +152,7 @@ Aktie B: {stock_b_info}
 """
     try:
         res = client.chat.completions.create(
-            model=model_name if model_name in STATIC_MODELS else DEFAULT_MODEL,
+            model=model_name if model_name else DEFAULT_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
