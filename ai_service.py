@@ -28,80 +28,40 @@ def get_account_models(api_key):
         return [DEFAULT_MODEL]
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
-    combined_prompt = f"""
-Du bist ein quantitativer Chef-Aktienanalyst und Portfoliomanager. Erstelle eine detaillierte, vollständige Finanzanalyse auf Deutsch. 
-WICHTIG: Schreibe alle Punkte direkt aus und nutze exakt die vier Trennmarker.
+    prompt = f"""
+Du bist ein führender quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
+Schreibe alle Punkte direkt aus und nutze exakt die vier Überschriften:
 
-AKTUELLE NACHRICHTENLAGE:
-{news_text}
+### 1. MARKTANALYSE
+- **TOP 10 Marktnachrichten**: Schreibe genau 10 konkrete Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
+- **Gesamtstimmung der Börse**: 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit 3 Sätzen Begründung.
 
-BESTEHENDE DEPOTWERTE & HISTORISCHE DATEN DES NUTZERS:
+### 2. DEPOT-BEWERTUNG
+Analysiere alle im Depot gehaltenen Aktien einzeln mit aktuellem Status vs. 3-Monats-Rückblick:
 {metrics_summary}
 
-DEPOT-STRUKTUR:
-{cluster_context}
+Für jedes Unternehmen:
+- **🟢/🟡/🔴 Aktuelle Empfehlung & Begründung**: (KGV, Fair Value, Auftragslage, Kurspotenzial).
+- **⏱️ Rückblick vor 3 Monaten**: Damalige Einstufung und damalige Ausgangslage.
+- **📈 Trend & Fazit**: Entwicklung in den letzten 3 Monaten und nächster Schritt.
 
-Gliedere deine Antwort zwingend mit diesen 4 exakten Markern:
+### 3. TOP 5 KAUFEMPFEHLUNGEN
+Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot liegen) zur Portfolio-Erweiterung:
+1. Aktie 1 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
+2. Aktie 2 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
+3. Aktie 3 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
+4. Aktie 4 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
+5. Aktie 5 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
+- **🔴 Aktuell meiden**: 3 Branchen mit erhöhtem Abwärtsrisiko.
 
-===MARKT===
-### 🌍 TOP 10 Marktnachrichten
-Formuliere genau 10 konkrete, aktuelle Stichpunkte zur weltweiten Konjunktur, Zinspolitik von Fed & EZB, Rohstoffen, Halbleiter- und Tech-Märkten sowie geopolitischen Risiken.
-
-### 🧭 Gesamtstimmung der Börse
-Bewerte die Börsenlage mit 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig und begründe dies in 3-4 Sätzen.
-
-===DEPOT===
-### 💼 KAUF- & VERKAUFSEMPFEHLUNGEN FÜR DEINE BESTEHENDEN AKTIEN (KOMBINIERTE GESAMTANALYSE)
-Analysiere JEDE im Depot gehaltene Aktie ausnahmslos einzeln nach diesem Schema:
-
-#### 📌 [Unternehmensname] ([Ticker])
-- **🟢/🟡/🔴 Aktuelle Empfehlung:** [KAUFEN / AUFSTOCKEN / HALTEN / VERKAUFEN]
-  - **Aktuelle Begründung:** Fundamentale Kennzahlen (KGV, Fair Value, Auftragslage, Kurspotenzial).
-- **⏱️ Rückblick vor 3 Monaten:** [Damalige Empfehlung]
-  - **Damalige Ausgangslage:** Welche Faktoren damals die Bewertung bestimmt haben.
-- **📈 Trend & Fazit:** Entwicklung der Anlagethese in den letzten 3 Monaten und konkreter nächster Handlungsschritt.
-
-===SIGNALE===
-### 🎯 TOP 5 NEUE KAUF-EMPFEHLUNGEN (Zur Portfolio-Erweiterung)
-Empfehle genau 5 konkrete, kaufenswerte Qualitätsaktien oder ETFs zur Diversifikation (keine Werte, die schon im Depot liegen):
-
-1. **[Aktie 1]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:** Gering / Mittel / Hoch
-
-2. **[Aktie 2]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-3. **[Aktie 3]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-4. **[Aktie 4]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-5. **[Aktie 5]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-#### 🔴 AKTUELL MEIDEN:
-Nenne 3-4 Branchen oder Aktiengruppen mit erhöhtem Abwärtsrisiko.
-
-===KLUMPEN===
-### 🛡️ Risikostreuung & Depot-Optimierung
-1. **Risiko-Score**: 1 (Sehr konservativ) bis 10 (Sehr spekulativ).
-2. **Erläuterung der Streuung**: Wo liegen aktuell Übergewichtungen (z. B. Tech, Rüstung)?
-3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 neuen Aktien das Depot am besten absichert.
+### 4. RISIKOSTREUUNG
+- **Risiko-Score**: 1 (Sehr konservativ) bis 10 (Sehr spekulativ).
+- **Analyse der Branchen- & Länder-Gewichtung**.
+- **Konkreter Absicherungs-Tipp**.
 """
 
-    target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
-    models_to_try = [target_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
+    duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    models_to_try = [duel_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -113,8 +73,8 @@ Nenne 3-4 Branchen oder Aktiengruppen mit erhöhtem Abwärtsrisiko.
             res = client.chat.completions.create(
                 model=m_id,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte immer auf Deutsch und formuliere alle 4 Abschnitte vollständig und sauber getrennt aus."},
-                    {"role": "user", "content": combined_prompt}
+                    {"role": "system", "content": "Du bist ein präziser deutscher Börsenanalyst. Verwende exakt die Überschriften '### 1. MARKTANALYSE', '### 2. DEPOT-BEWERTUNG', '### 3. TOP 5 KAUFEMPFEHLUNGEN' und '### 4. RISIKOSTREUUNG'."},
+                    {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
                 max_tokens=3500,
@@ -131,16 +91,16 @@ Nenne 3-4 Branchen oder Aktiengruppen mit erhöhtem Abwärtsrisiko.
         err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
         return err_msg, err_msg, err_msg, err_msg
 
-    # Robuste Trennung der 4 Abschnitte
-    pattern_m = re.search(r'={2,5}\s*MARKT\s*={2,5}(.*?)(?=={2,5}\s*DEPOT\s*={2,5}|$)', full_text, re.DOTALL | re.IGNORECASE)
-    pattern_d = re.search(r'={2,5}\s*DEPOT\s*={2,5}(.*?)(?=={2,5}\s*SIGNALE\s*={2,5}|$)', full_text, re.DOTALL | re.IGNORECASE)
-    pattern_s = re.search(r'={2,5}\s*SIGNALE\s*={2,5}(.*?)(?=={2,5}\s*KLUMPEN\s*={2,5}|$)', full_text, re.DOTALL | re.IGNORECASE)
-    pattern_c = re.search(r'={2,5}\s*KLUMPEN\s*={2,5}(.*?)$', full_text, re.DOTALL | re.IGNORECASE)
+    # Sichere Zerlegung nach den 4 Hauptkapiteln
+    m_match = re.search(r'###\s*1\.\s*MARKTANALYSE(.*?)(?=###\s*2\.\s*DEPOT-BEWERTUNG|$)', full_text, re.DOTALL | re.IGNORECASE)
+    d_match = re.search(r'###\s*2\.\s*DEPOT-BEWERTUNG(.*?)(?=###\s*3\.\s*TOP\s*5\s*KAUFEMPFEHLUNGEN|$)', full_text, re.DOTALL | re.IGNORECASE)
+    s_match = re.search(r'###\s*3\.\s*TOP\s*5\s*KAUFEMPFEHLUNGEN(.*?)(?=###\s*4\.\s*RISIKOSTREUUNG|$)', full_text, re.DOTALL | re.IGNORECASE)
+    c_match = re.search(r'###\s*4\.\s*RISIKOSTREUUNG(.*?)$', full_text, re.DOTALL | re.IGNORECASE)
 
-    out_market = pattern_m.group(1).strip() if pattern_m else full_text[:800]
-    out_depot = pattern_d.group(1).strip() if pattern_d else "Kombinierte Empfehlungen geladen."
-    out_signals = pattern_s.group(1).strip() if pattern_s else "Kaufempfehlungen werden berechnet..."
-    out_cluster = pattern_c.group(1).strip() if pattern_c else "Risikostreuung erstellt."
+    out_market = m_match.group(1).strip() if m_match else "Marktanalyse geladen."
+    out_depot = d_match.group(1).strip() if d_match else "Depotbewertung geladen."
+    out_signals = s_match.group(1).strip() if s_match else "Top 5 Empfehlungen geladen."
+    out_cluster = c_match.group(1).strip() if c_match else "Streuungsanalyse geladen."
 
     return out_market, out_depot, out_signals, out_cluster
 
