@@ -68,7 +68,7 @@ def parse_trade_republic_pdf(uploaded_file):
                 if c_val >= 0:
                     extracted_cash = c_val
             except Exception:
-                pass
+                extracted_cash = 0.0
 
         # 2. ISINs extrahieren
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
