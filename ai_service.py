@@ -1,5 +1,6 @@
 import streamlit as st
 from groq import Groq
+import re
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
@@ -20,6 +21,23 @@ def get_account_models(api_key):
     except Exception:
         return [DEFAULT_MODEL, "llama-3.1-70b-versatile"]
 
+def extract_section(text, tag, next_tags):
+    pattern = rf"(?:={2,5}\s*{tag}\s*={2,5}|\*\*\s*={2,5}\s*{tag}\s*={2,5}\s*\*\*|###\s*{tag})"
+    m = re.search(pattern, text, re.IGNORECASE)
+    if not m:
+        return None
+    start = m.end()
+    
+    end = len(text)
+    for nt in next_tags:
+        n_pattern = rf"(?:={2,5}\s*{nt}\s*={2,5}|\*\*\s*={2,5}\s*{nt}\s*={2,5}\s*\*\*|###\s*{nt})"
+        nm = re.search(n_pattern, text[start:], re.IGNORECASE)
+        if nm:
+            end = min(end, start + nm.start())
+            
+    res = text[start:end].strip()
+    return res if res else None
+
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
 Du bist ein quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnachrichten sowie das bestehende Depot des Nutzers und erstelle fundierte Empfehlungen.
@@ -33,11 +51,11 @@ Du bist ein quantitativer Chef-Anlagestratege. Analysiere die aktuellen Weltnach
 [DEPOT-AUFTEILUNG]
 {cluster_context}
 
-Erstelle deine strukturierte Analyse strikt getrennt nach diesen 4 Markern:
+Antworte strukturiert und verwende exakt diese Trennmarken:
 
 ===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
-10 prägnante Stichpunkte zur aktuellen globalen Wirtschaftslage.
+10 prägnante Stichpunkte zur aktuellen weltweiten Wirtschaftslage.
 
 ### 🧭 Gesamtstimmung der Börse
 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit kurzer Begründung.
@@ -48,10 +66,10 @@ Kurzer Statusbericht zu den bestehenden Aktien des Nutzers:
 
 ===SIGNALE===
 ### 🎯 TOP 5 KAUF-EMPFEHLUNGEN (Stand Jetzt zur Portfolio-Erweiterung)
-Wähle basierend auf den Nachrichten und Markttrends genau 5 konkrete, liquide Qualitätsaktien/ETFs aus (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
+Wähle basierend auf den Nachrichten genau 5 konkrete Qualitätsaktien/ETFs (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
 
 1. **[Aktie 1]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?** (Konkreter Treiber: z. B. Energie-Infrastruktur, Zinsgewinner, Rüstung, Basiskonsum)
+   - **Warum JETZT kaufen?** (Konkreter Treiber)
    - **Chance / Kurspotenzial:** z. B. +15 % bis +25 %
    - **Risikobewertung:** Gering / Mittel / Hoch
 
@@ -94,7 +112,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                 model=target_model,
                 messages=[{"role": "user", "content": combined_prompt}],
                 temperature=0.2,
-                max_tokens=2200,
+                max_tokens=2400,
             )
             full_text = res.choices[0].message.content
             if full_text:
@@ -106,25 +124,11 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     if not full_text:
         raise last_err if last_err else RuntimeError("Keine Antwort von der KI erhalten.")
 
-    out_market = "Keine Daten."
-    out_depot = "Keine Daten."
-    out_signals = "Keine Daten."
-    out_cluster = "Keine Daten."
-
-    if "===MARKT===" in full_text:
-        parts = full_text.split("===MARKT===")[1]
-        if "===DEPOT===" in parts:
-            out_market, rest = parts.split("===DEPOT===", 1)
-            if "===SIGNALE===" in rest:
-                out_depot, rest2 = rest.split("===SIGNALE===", 1)
-                if "===KLUMPEN===" in rest2:
-                    out_signals, out_cluster = rest2.split("===KLUMPEN===", 1)
-                else:
-                    out_signals = rest2
-            else:
-                out_depot = rest
-        else:
-            out_market = parts
+    # Robuste Extraktion via Regex
+    out_market = extract_section(full_text, "MARKT", ["DEPOT", "SIGNALE", "KLUMPEN"]) or "Marktanalyse liegt vor:\n\n" + full_text[:600]
+    out_depot = extract_section(full_text, "DEPOT", ["SIGNALE", "KLUMPEN"]) or "Depot-Auswertung wird aktualisiert..."
+    out_signals = extract_section(full_text, "SIGNALE", ["KLUMPEN"]) or "Kaufempfehlungen werden generiert..."
+    out_cluster = extract_section(full_text, "KLUMPEN", []) or "Risikobewertung wird berechnet..."
 
     return out_market.strip(), out_depot.strip(), out_signals.strip(), out_cluster.strip()
 
