@@ -6,8 +6,7 @@ DEFAULT_MODEL = "openai/gpt-oss-120b"
 STATIC_MODELS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
-    "qwen/qwen3.6-27b"
+    "llama-3.3-70b-versatile"
 ]
 
 def get_account_models(api_key):
@@ -79,14 +78,17 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    target = model_name if model_name in STATIC_MODELS else DEFAULT_MODEL
+    models_to_try = [model_name, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
+    seen = set()
+    models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
+
     full_text = ""
     last_err_msg = ""
 
-    for model_to_try in [target, "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]:
+    for target_model in models_to_try:
         try:
             res = client.chat.completions.create(
-                model=model_to_try,
+                model=target_model,
                 messages=[
                     {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
                     {"role": "user", "content": combined_prompt}
