@@ -19,7 +19,7 @@ st.title("📈 KI Markt- & Depot-Radar")
 # Key aus Streamlit Secrets laden
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# --- FUNKTIONEN ZUM DAUERHAFTEN SPEICHERN ---
+# --- PERSISTENTES SPEICHERN ---
 PORTFOLIO_FILE = "portfolio.txt"
 
 
@@ -142,9 +142,8 @@ def fetch_all_headlines(sources):
 
 
 def resolve_to_ticker(query):
-  """Wandelt Firmennamen/Umgangssprachliche Namen automatisch in den passenden Yahoo-Ticker um."""
+  """Wandelt Firmennamen/Umgangssprachliche Namen in Börsenkürzel um."""
   q = query.strip()
-  # Bekannte deutsche Direkt-Zuordnungen für maximale Treffsicherheit
   alias_map = {
       "MERCEDES": "MBG.DE",
       "MERCEDES-BENZ": "MBG.DE",
@@ -183,7 +182,6 @@ def resolve_to_ticker(query):
   if upper_q in alias_map:
     return alias_map[upper_q]
 
-  # Falls bereits ein gültiger Ticker mit Länderkürzel (z. B. MBG.DE, AAPL)
   if "." in q or len(q) <= 5 and q.isalpha() and q.isupper():
     try:
       test_stock = yf.Ticker(q)
@@ -192,7 +190,6 @@ def resolve_to_ticker(query):
     except Exception:
       pass
 
-  # Automatische Yahoo Search API für alle anderen Namen / ETFs
   try:
     headers = {"User-Agent": "Mozilla/5.0"}
     url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(q)}&quotesCount=3&newsCount=0"
@@ -201,7 +198,6 @@ def resolve_to_ticker(query):
       data = resp.json()
       quotes = data.get("quotes", [])
       if quotes:
-        # Bevorzuge deutsches Listing falls vorhanden (.DE), sonst erstes Ergebnis
         for item in quotes:
           sym = item.get("symbol", "")
           if sym.endswith(".DE") or sym.endswith(".F"):
@@ -239,23 +235,19 @@ def get_stock_data(user_inputs):
       stock = yf.Ticker(t)
       fast = stock.fast_info
 
-      # Sichere Kursermittlung
       price = fast.last_price
       currency = fast.currency if hasattr(fast, "currency") else "USD"
 
-      # Falls fast_info leer ist, Fallback auf history
       hist = stock.history(period="1mo")
       if (price is None or pd.isna(price)) and not hist.empty:
         price = hist["Close"].iloc[-1]
 
-      # RSI (14 Tage)
       rsi_val = (
           calculate_rsi(hist["Close"])
           if not hist.empty and len(hist) > 14
           else "N/A"
       )
 
-      # Name & Fundamentaldaten
       info = {}
       try:
         info = stock.info or {}
@@ -277,6 +269,11 @@ def get_stock_data(user_inputs):
         target_str = f"{target_price:.2f} {currency} ({upside:+.1f}%)"
       else:
         target_str = "N/A"
+
+      # Offizielles Analysten-Rating abrufen (z. B. Buy, Hold, Sell)
+      recommendation = (
+          info.get("recommendationKey", "N/A").replace("_", " ").upper()
+      )
 
       earnings_date = "Unbekannt"
       try:
@@ -307,6 +304,7 @@ def get_stock_data(user_inputs):
           "RSI (14D)": rsi_val,
           "KGV (P/E)": pe_str,
           "Analysten-Kursziel": target_str,
+          "Konsens-Rating": recommendation,
           "Nächste Earnings": earnings_date,
       })
     except Exception:
@@ -317,15 +315,20 @@ def get_stock_data(user_inputs):
           "RSI (14D)": "N/A",
           "KGV (P/E)": "N/A",
           "Analysten-Kursziel": "N/A",
+          "Konsens-Rating": "N/A",
           "Nächste Earnings": "Nicht gefunden",
       })
 
   return pd.DataFrame(data), direct_news, resolved_tickers_list
 
 
-tab1, tab2, tab3 = st.tabs(
-    ["🌍 Markt Top 10", "💼 Sentiment & Depot", "📅 Earnings-Kalender"]
-)
+# JETZT 4 TABS: Neuer Tab "🎯 Kauf- / Verkauf-Signale" ergänzt
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🌍 Markt Top 10",
+    "💼 Sentiment & Depot",
+    "📅 Earnings-Kalender",
+    "🎯 Kauf- / Verkauf-Signale",
+])
 
 if st.button("🚀 KI-Analyse starten", use_container_width=True):
   if not GROQ_KEY:
@@ -337,9 +340,7 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
     save_portfolio_to_file(portfolio_input)
 
     client = Groq(api_key=GROQ_KEY.strip())
-    raw_tickers = [
-        t.strip() for t in portfolio_input.split(",") if t.strip()
-    ]
+    raw_tickers = [t.strip() for t in portfolio_input.split(",") if t.strip()]
 
     with st.spinner(
         f"Löse Ticker auf, lade Daten & analysiere mit Modell"
@@ -362,6 +363,7 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
           "RSI (14D)",
           "KGV (P/E)",
           "Analysten-Kursziel",
+          "Konsens-Rating",
       ]].to_string(index=False)
 
       prompt_market = f"""
@@ -389,6 +391,26 @@ Erstelle für jeden Wert eine fundierte Analyse:
 4. **Tipp für Anleger**: Konkrete Beobachtungspunkte für die kommenden Tage.
 """
 
+      # Spezieller Prompt für verlässliche Kauf-/Verkauf-Signale
+      prompt_signals = f"""
+Du bist ein quantitativer Portfolio-Analyst. Hier sind die Echtzeitdaten der Aktien:
+{metrics_summary}
+
+News & Makro-Umfeld:
+{ticker_news_text}
+{news_text}
+
+Erstelle für JEDE Aktie einzeln eine strukturierte Handlungsempfehlung nach diesem Schema:
+
+### [Name der Aktie] ([Ticker])
+- **Signal**: 🟢 **KAUFEN** / 🟡 **HALTEN** / 🔴 **VERKAUFEN**
+- **Begründung**: (Kombination aus RSI-Charttechnik, KGV-Bewertung und Analysten-Kursziel)
+- **Risikolevel**: Niedrig / Mittel / Hoch
+- **Empfohlener Anlagehorizont**: Kurzfristig (Trading) / Mittelfristig / Langfristig (Buy & Hold)
+
+Wichtig: Begründe das Signal objektiv mit den harten Kennzahlen (z. B. RSI über 70 = Gewinnmitnahme/Halten statt Neukauf).
+"""
+
       try:
         res_market = client.chat.completions.create(
             model=selected_model,
@@ -405,6 +427,14 @@ Erstelle für jeden Wert eine fundierte Analyse:
             max_tokens=1000,
         )
         out_depot = res_depot.choices[0].message.content
+
+        res_signals = client.chat.completions.create(
+            model=selected_model,
+            messages=[{"role": "user", "content": prompt_signals}],
+            temperature=0.2,
+            max_tokens=1000,
+        )
+        out_signals = res_signals.choices[0].message.content
 
         with tab1:
           st.caption(f"🤖 Verwendetes Modell: `{selected_model}`")
@@ -437,6 +467,21 @@ Erstelle für jeden Wert eine fundierte Analyse:
               ]],
               hide_index=True,
           )
+
+        with tab4:
+          st.subheader("🎯 Handlungsempfehlungen & Signale")
+          st.dataframe(
+              stock_df[[
+                  "Name / Aktie",
+                  "Ticker",
+                  "Kurs",
+                  "Konsens-Rating",
+                  "Analysten-Kursziel",
+              ]],
+              hide_index=True,
+          )
+          st.divider()
+          st.markdown(out_signals)
 
       except Exception as e:
         st.error(
