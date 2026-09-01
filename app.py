@@ -73,7 +73,7 @@ with tab5:
   with c2:
     chart_mode = st.radio(
         "Darstellung:",
-        ["Performance in %", "Absolute Kurse"],
+        ["Performance in %", "Preis pro Aktie (in Geld)"],
         horizontal=True,
     )
 
@@ -84,11 +84,10 @@ with tab5:
       chart_df = get_historical_chart_data(resolved_list, period=timeframe)
 
     if not chart_df.empty and len(chart_df) > 1:
-      # Optionaler Einzelfilter für maximale Übersichtlichkeit
       view_options = ["Alle Aktien gleichzeitig"] + list(chart_df.columns)
       selected_view = st.selectbox("Fokus-Auswahl:", view_options, index=0)
 
-      # 1. Schnelle Metrik-Karten oben drüber
+      # 1. Metrik-Karten oben drüber
       metric_cols = st.columns(min(len(chart_df.columns), 4))
       for idx, col in enumerate(chart_df.columns):
         series_clean = chart_df[col].dropna()
@@ -103,7 +102,6 @@ with tab5:
                 delta=f"{diff_pct:+.2f}% ({timeframe.upper()})",
             )
 
-      # 2. Farbpalette für hohe Erkennbarkeit
       palette = [
           "#00D084",
           "#0693E3",
@@ -113,7 +111,6 @@ with tab5:
           "#00ACC1",
           "#FF6900",
       ]
-
       fig = go.Figure()
       cols_to_plot = (
           chart_df.columns
@@ -139,20 +136,23 @@ with tab5:
                 )
             )
 
-        # Horizontale 0%-Referenzlinie
         fig.add_hline(
             y=0,
             line_dash="dash",
             line_color="rgba(150,150,150,0.6)",
-            annotation_text="Start (0%)",
+            annotation_text="Ausgangswert (0%)",
             annotation_position="bottom right",
         )
 
         fig.update_layout(
-            title=f"Performance seit Start ({timeframe.upper()})",
-            xaxis=dict(showgrid=True, gridcolor="rgba(200,200,200,0.15)"),
+            title=f"Wertentwicklung in Prozent seit Start ({timeframe.upper()})",
+            xaxis=dict(
+                title="Datum / Uhrzeit",
+                showgrid=True,
+                gridcolor="rgba(200,200,200,0.15)",
+            ),
             yaxis=dict(
-                title="Rendite (%)",
+                title="Gewinn / Verlust (%)",
                 ticksuffix="%",
                 showgrid=True,
                 gridcolor="rgba(200,200,200,0.15)",
@@ -167,7 +167,7 @@ with tab5:
         )
 
       else:
-        # Absolute Kurse
+        # Preis pro Aktie
         for i, col in enumerate(cols_to_plot):
           color = palette[i % len(palette)]
           fig.add_trace(
@@ -177,15 +177,21 @@ with tab5:
                   mode="lines",
                   name=col,
                   line=dict(width=2.5, color=color),
-                  hovertemplate=f"<b>{col}</b>: %{{y:.2f}}<extra></extra>",
+                  hovertemplate=(
+                      f"<b>{col}</b>: %{{y:.2f}} (EUR/USD)<extra></extra>"
+                  ),
               )
           )
 
         fig.update_layout(
-            title=f"Kursverlauf ({timeframe.upper()})",
-            xaxis=dict(showgrid=True, gridcolor="rgba(200,200,200,0.15)"),
+            title=f"Preis pro Einzelaktie in Geld ({timeframe.upper()})",
+            xaxis=dict(
+                title="Datum / Uhrzeit",
+                showgrid=True,
+                gridcolor="rgba(200,200,200,0.15)",
+            ),
             yaxis=dict(
-                title="Kurs",
+                title="Preis pro Aktie (in EUR / USD)",
                 showgrid=True,
                 gridcolor="rgba(200,200,200,0.15)",
             ),
@@ -203,106 +209,6 @@ with tab5:
           config={"displayModeBar": False, "responsive": True},
       )
     else:
-      st.info(
-          "Aktuell werden Kursdaten synchronisiert. Bitte versuche einen"
-          " anderen Zeitraum."
-      )
+      st.info("Aktuell werden Kursdaten synchronisiert...")
   else:
     st.warning("Bitte gib mindestens eine Aktie in der Seitenleiste ein.")
-
-# BUTTON FÜR KI-ANALYSE
-if st.button("🚀 KI-Analyse starten", use_container_width=True):
-  if not GROQ_KEY:
-    st.error(
-        "⚠️ Kein GROQ_API_KEY in den Streamlit Secrets gefunden! Bitte unter"
-        " Settings -> Secrets eintragen."
-    )
-  else:
-    save_portfolio_to_file(portfolio_input)
-    client = Groq(api_key=GROQ_KEY.strip())
-
-    with st.spinner(
-        f"Löse Ticker auf, lade Daten & analysiere mit Modell"
-        f" '{selected_model}'..."
-    ):
-      news_data = fetch_all_headlines()
-      news_text = "\n".join(news_data)
-
-      stock_df, ticker_news, resolved_tickers = get_stock_data(raw_tickers)
-      ticker_news_text = (
-          "\n".join(ticker_news)
-          if ticker_news
-          else "Keine direkten Ad-hocs gefunden."
-      )
-
-      metrics_summary = stock_df[[
-          "Name / Aktie",
-          "Ticker",
-          "Kurs",
-          "RSI (14D)",
-          "KGV (P/E)",
-          "Analysten-Kursziel",
-          "Konsens-Rating",
-      ]].to_string(index=False)
-
-      try:
-        out_market, out_depot, out_signals = run_analysis(
-            client,
-            selected_model,
-            news_text,
-            metrics_summary,
-            ticker_news_text,
-        )
-
-        with tab1:
-          st.caption(f"🤖 Verwendetes Modell: `{selected_model}`")
-          st.markdown(out_market)
-
-        with tab2:
-          st.subheader("Depot-Kennzahlen & Kurse")
-          st.dataframe(
-              stock_df[[
-                  "Name / Aktie",
-                  "Ticker",
-                  "Kurs",
-                  "RSI (14D)",
-                  "KGV (P/E)",
-                  "Analysten-Kursziel",
-              ]],
-              hide_index=True,
-          )
-          st.divider()
-          st.markdown(out_depot)
-
-        with tab3:
-          st.subheader("📅 Anstehende Quartalszahlen")
-          st.dataframe(
-              stock_df[[
-                  "Name / Aktie",
-                  "Ticker",
-                  "Kurs",
-                  "Nächste Earnings",
-              ]],
-              hide_index=True,
-          )
-
-        with tab4:
-          st.subheader("🎯 Handlungsempfehlungen & Signale")
-          st.dataframe(
-              stock_df[[
-                  "Name / Aktie",
-                  "Ticker",
-                  "Kurs",
-                  "Konsens-Rating",
-                  "Analysten-Kursziel",
-              ]],
-              hide_index=True,
-          )
-          st.divider()
-          st.markdown(out_signals)
-
-      except Exception as e:
-        st.error(
-            f"Fehler mit Modell '{selected_model}': {str(e)}\n\n👉 Wähle in der"
-            " Seitenleiste einfach ein anderes Modell aus dem Dropdown aus."
-        )
