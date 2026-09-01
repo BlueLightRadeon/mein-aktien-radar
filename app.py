@@ -43,12 +43,9 @@ else:
     for item in st.session_state.my_portfolio:
         item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
 
-# Cash-Guthaben aus Auszug (Fallback: 0.0 wenn kein PDF geladen)
+# Cash-Guthaben
 if "tr_cash" not in st.session_state:
-    st.session_state.tr_cash = 194.02
-
-if "last_auto_run" not in st.session_state:
-    st.session_state.last_auto_run = 0.0
+    st.session_state.tr_cash = 51.57
 
 def fmt_eur(val):
     try:
@@ -78,13 +75,12 @@ def execute_ai_analysis(portfolio_data, stock_dataframe, selected_model_name):
     st.session_state["ai_signals"] = out_s
     st.session_state["ai_cluster"] = out_c
     st.session_state["last_analysis_time"] = get_berlin_time_str()
-    st.session_state.last_auto_run = time.time()
 
 # --- SEITENLEISTE ---
 with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
-    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
+    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=False):
         st.caption("Lade deinen Auszug hoch. Positionen, Kurswerte und Cash werden vollautomatisch eingelesen.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_uploader")
         if tr_pdf is not None:
@@ -94,18 +90,15 @@ with st.sidebar:
                 if imported_cash is not None:
                     st.session_state.tr_cash = imported_cash
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) übernommen!")
+                st.success(f"✅ {len(imported_items)} Positionen übernommen!")
                 st.rerun()
 
-    # Cash-Anzeige (Read-Only direkt aus Auszug)
-    st.info(f"💶 **Cash-Guthaben (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
-
-    st.divider()
-    auto_refresh_active = st.checkbox("🔄 Live-Modus (Automatisch alle 5 Min aktualisieren)", value=True)
+    # Cash-Anzeige (Read-Only aus Auszug)
+    st.info(f"💶 **Cash-Guthaben:** `{fmt_eur(st.session_state.tr_cash)}`")
 
     st.divider()
     st.subheader("🔍 Aktie hinzufügen:")
-    search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Apple, Tesla, Allianz...")
+    search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Apple, Tesla...")
     if search_query:
         results = search_ticker_candidates(search_query)
         if results:
@@ -150,7 +143,7 @@ with st.sidebar:
     else:
         selected_model = "llama-3.3-70b-versatile"
 
-# KORREKTE GESAMTBERECHNUNG
+# BERECHNUNG DER DATEN
 if st.session_state.my_portfolio:
     stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
     total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
@@ -161,7 +154,7 @@ if st.session_state.my_portfolio:
 
     c_m1, c_m2, c_m3 = st.columns(3)
     with c_m1:
-        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld (aus Auszug) + Gesamtwert deiner Aktien")
+        st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Bargeld + Gesamtwert deiner Aktien")
     with c_m2:
         st.metric("Eingezahltes Geld", fmt_eur(total_invested), help="Dein tatsächlich eingesetztes Kapital")
     with c_m3:
@@ -174,15 +167,8 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
-# AUTOMATISCHER 5-MINUTEN AUSWERTUNGS-TRIGGER
-current_time = time.time()
-if auto_refresh_active and (current_time - st.session_state.last_auto_run > 300) and GROQ_KEY and not stock_df.empty:
-    with st.spinner("🔄 Live-Modus: Aktualisiere KI-Auswertung automatisch (alle 5 Min)..."):
-        execute_ai_analysis(st.session_state.my_portfolio, stock_df, selected_model)
-        st.rerun()
-
-# MANUELLER AUSWERTUNGS-BUTTON
-if st.button("🚀 Jetzt sofort KI-Auswertung starten", use_container_width=True, type="primary"):
+# MANUELLER AUSWERTUNGS-BUTTON (OHNE ENDLOSSCHLEIFE)
+if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt!")
     elif not st.session_state.my_portfolio:
@@ -207,10 +193,10 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 
 # TAB 0: TR KONTO
 with tab0:
-    st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash aus Auszug) und dem aktuellen Wert deiner Wertpapiere.")
+    st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash) und dem aktuellen Wert deiner Wertpapiere.")
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
-        st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(st.session_state.tr_cash)}")
+        st.success(f"💶 **Bargeld (Cash):** {fmt_eur(st.session_state.tr_cash)}")
     with col_tr2:
         st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
         
@@ -229,10 +215,10 @@ with tab0:
 with tab1:
     st.info("ℹ️ **Kurzinfo:** Scannt weltweite Finanzquellen und fasst die 10 wichtigsten Markt-Ereignisse zusammen.")
     if "ai_market" in st.session_state and st.session_state["ai_market"]:
-        st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
+        st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_market"])
     else:
-        st.info("Klicke oben auf den Button oder aktiviere den Live-Modus, um die Analyse zu laden.")
+        st.info("Klicke oben auf **'🚀 Jetzt KI-Auswertung starten'**, um die Meldungen abzurufen.")
 
 # TAB 2: STIMMUNG & DEPOT
 with tab2:
@@ -252,16 +238,16 @@ with tab2:
 
 # TAB 3: TERMINE & CASHFLOW
 with tab3:
-    st.info("ℹ️ **Kurzinfo:** Zeigt die konkreten Termine für Quartalszahlen und dein passives Einkommen (Ausschüttungen in €) auf dein Verrechnungskonto.")
+    st.info("ℹ️ **Kurzinfo:** Zeigt Termine für Quartalszahlen und dein passives Einkommen (Ausschüttungen in €).")
     if not stock_df.empty:
         total_annual_div = stock_df["_raw_cashflow"].sum()
         col_cf1, col_cf2 = st.columns(2)
         with col_cf1:
             st.success(f"💰 **Erwartete Ausschüttung:** `{total_annual_div:.2f} € / Jahr`")
         with col_cf2:
-            st.info(f"📊 **Durchschnittliche Dividendenrendite:** `{(total_annual_div / stock_val * 100) if stock_val > 0 else 0.0:.2f} % p.a.`")
+            st.info(f"📊 **Durchschnittliche Rendite:** `{(total_annual_div / stock_val * 100) if stock_val > 0 else 0.0:.2f} % p.a.`")
 
-        st.subheader("📅 Terminkalender & Ausschüttungen im Detail:")
+        st.subheader("📅 Terminkalender & Ausschüttungen:")
         st.dataframe(
             stock_df[[
                 "Unternehmen", "Nächste Quartalszahlen", 
@@ -271,14 +257,14 @@ with tab3:
             use_container_width=True
         )
 
-# TAB 4: KAUF-TIPPS & PORTFOLIO-ERWEITERUNG
+# TAB 4: KAUF-TIPPS & ERWEITERUNG
 with tab4:
-    st.info("ℹ️ **Kurzinfo:** Konkrete Handlungsempfehlungen der KI: Externe Qualitätsaktien und ETFs zur optimalen Erweiterung deines Portfolios.")
+    st.info("ℹ️ **Kurzinfo:** Konkrete Handlungsempfehlungen: Externe Qualitätsaktien und ETFs zur Portfolio-Erweiterung.")
     if "ai_signals" in st.session_state and st.session_state["ai_signals"]:
-        st.caption(f"🕒 Aktualisiert um **{st.session_state.get('last_analysis_time', '')}** (Europe/Berlin)")
+        st.caption(f"🕒 Stand: **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(st.session_state["ai_signals"])
     else:
-        st.info("Klicke oben auf **'🚀 Jetzt sofort KI-Auswertung starten'**, um die neuen Kaufkandidaten zu laden.")
+        st.info("Klicke oben auf **'🚀 Jetzt KI-Auswertung starten'**, um die Empfehlungen zu laden.")
 
 # TAB 5: CHARTS
 with tab5:
