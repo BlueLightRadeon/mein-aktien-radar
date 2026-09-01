@@ -42,38 +42,39 @@ def fmt_eur(val):
     except Exception:
         return f"{val} €"
 
-# --- SEITENLEISTE: KLAR STRUKTURIERT ---
+# --- SEITENLEISTE ---
 with st.sidebar:
-    st.header("💼 Mein Trade Republic Depot")
+    st.header("💼 Trade Republic Depot")
     
-    # 1. PDF-Import (Automatisch auslesen)
+    # 1. PDF Upload mit direkter Fehlerdiagnose
     with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
-        st.caption("Lade hier deinen PDF-Auszug hoch. Die App liest deine echten Aktien, Kaufwerte und dein Cash automatisch aus.")
-        tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"])
-        if tr_pdf:
+        st.caption("Lade deinen Auszug hoch. Die App liest echte Positionen, Kaufwerte und Cash automatisch ein.")
+        tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_uploader")
+        if tr_pdf is not None:
             imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
             if imported_items:
                 st.session_state.my_portfolio = imported_items
                 if imported_cash is not None:
                     st.session_state.tr_cash = imported_cash
                 save_portfolio_to_file(st.session_state.my_portfolio)
-                st.success(f"✅ {len(imported_items)} Positionen aus Auszug übernommen!")
+                st.success(f"✅ {len(imported_items)} Positionen erfolgreich aus PDF geladen!")
                 st.rerun()
+            else:
+                st.warning("⚠️ Im PDF wurden keine ISINs/Aktien erkannt. Bitte prüfe das Dokument oder füge Aktien manuell hinzu.")
 
-    # 2. Bargeld (Cash)
+    # 2. Cash-Guthaben
     st.session_state.tr_cash = st.number_input(
         "💶 TR Bargeld-Guthaben (Cash in €):",
         min_value=0.0,
         value=float(st.session_state.tr_cash),
         step=10.0,
-        help="Dein uninvestiertes Bargeld auf Trade Republic."
+        help="Dein uninvestiertes Guthaben bei Trade Republic."
     )
 
     st.divider()
 
-    # 3. Neue Aktie suchen & prüfen
-    st.subheader("🔍 Aktie suchen / hinzufügen:")
-    st.caption("Füge neue Aktien hinzu, um sie zu testen oder zu beobachten:")
+    # 3. Aktie suchen & hinzufügen
+    st.subheader("🔍 Aktie hinzufügen:")
     search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Apple, Tesla, Rheinmetall...")
     if search_query:
         results = search_ticker_candidates(search_query)
@@ -81,7 +82,7 @@ with st.sidebar:
             selected_cand = st.selectbox("Treffer:", results, key="side_search_select")
             in_money = st.number_input("Investierter Betrag (€):", min_value=1.0, value=50.0, step=10.0)
             
-            if st.button("➕ Zur Depot-Liste hinzufügen", use_container_width=True):
+            if st.button("➕ Hinzufügen", use_container_width=True):
                 sym = clean_ticker(selected_cand)
                 disp_name = get_display_name(sym)
                 st.session_state.my_portfolio.append({
@@ -131,7 +132,7 @@ with st.sidebar:
 if st.session_state.my_portfolio:
     stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
     total_invested = sum([float(x.get("buy_price", 0.0)) for x in st.session_state.my_portfolio])
-    stock_val = stock_df["_raw_val"].sum() if stock_df["_raw_val"].sum() > 0 else total_invested
+    stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
     total_tr_account = stock_val + st.session_state.tr_cash
     stock_pnl = stock_val - total_invested
     stock_pnl_pct = (stock_pnl / total_invested * 100) if total_invested > 0 else 0.0
@@ -151,12 +152,20 @@ else:
     total_invested = 0.0
     total_tr_account = st.session_state.tr_cash
 
+    c_m1, c_m2, c_m3 = st.columns(3)
+    with c_m1:
+        st.metric("TR Gesamtkonto", fmt_eur(st.session_state.tr_cash))
+    with c_m2:
+        st.metric("Eingezahltes Geld", "0,00 €")
+    with c_m3:
+        st.metric("Gewinn / Verlust", "0,00 €")
+
 # BUTTON FÜR KI-ANALYSE
 if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt!")
     elif not st.session_state.my_portfolio:
-        st.error("⚠️ Bitte füge zuerst Aktien zum Depot hinzu!")
+        st.error("⚠️ Bitte lade zuerst ein PDF hoch oder füge Aktien hinzu!")
     else:
         save_portfolio_to_file(st.session_state.my_portfolio)
         client = Groq(api_key=GROQ_KEY.strip())
@@ -216,6 +225,8 @@ with tab0:
             hide_index=True,
             use_container_width=True
         )
+    else:
+        st.info("Noch keine Positionen vorhanden. Lade links deinen TR-Auszug hoch.")
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
