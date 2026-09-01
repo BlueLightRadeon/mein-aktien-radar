@@ -103,7 +103,6 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 """
 
     models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"]
-    # Duplikate entfernen, Reihenfolge wahren
     seen = set()
     models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
     
@@ -129,13 +128,12 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             continue
 
     if not full_text:
-        # Robuster Notfall-Fallback, damit die Tabs niemals leer bleiben
         err_msg = str(last_err) if last_err else "Unbekannter API-Fehler"
         return (
-            f"⚠️ **Fehler beim Abruf der Marktdaten:** `{err_msg}`\n\nBitte prüfe deinen GROQ_API_KEY in den Streamlit Secrets.",
-            "Keine Daten empfangen.",
-            "Keine Kaufempfehlungen verfügbar.",
-            "Risikoanalyse nicht verfügbar."
+            f"⚠️ **Fehler bei Groq API:** `{err_msg}`",
+            "Keine Daten.",
+            "Keine Daten.",
+            "Keine Daten."
         )
 
     out_market = extract_section(full_text, "MARKT", ["DEPOT", "SIGNALE", "KLUMPEN"]) or full_text[:600]
