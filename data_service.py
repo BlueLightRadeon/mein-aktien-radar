@@ -149,24 +149,42 @@ def search_ticker_candidates(query):
     return candidates
 
 def parse_trade_republic_pdf(uploaded_file):
+    """Liest alle Trade Republic Auszüge robust aus (ISINs, Stückzahlen, Kurswerte & Cash)."""
     found_items = []
     extracted_cash = None
+    
     try:
         reader = pypdf.PdfReader(uploaded_file)
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # Cash ermitteln
-        cash_match = re.search(r"(?:Verrechnungskonto|Saldo|Guthaben|Cash)[^\d]*([\d.,]+)\s*€", full_text, re.IGNORECASE)
-        if cash_match:
-            try:
-                cash_str = cash_match.group(1).replace(".", "").replace(",", ".")
-                extracted_cash = float(cash_str)
-            except Exception:
-                pass
+        # 1. Cash / Verrechnungskonto suchen
+        cash_patterns = [
+            r"(?:Verrechnungskonto|Saldo|Guthaben|Cash|Geldkonto)[^\d]*([\d.,]+)\s*€",
+            r"(?:Verrechnungskonto|Saldo|Guthaben|Cash)[^\d]*EUR\s*([\d.,]+)",
+            r"([\d.,]+)\s*EUR\s*(?:Guthaben|Saldo)"
+        ]
+        for pat in cash_patterns:
+            cash_match = re.search(pat, full_text, re.IGNORECASE)
+            if cash_match:
+                try:
+                    c_str = cash_match.group(1).replace(".", "").replace(",", ".")
+                    val = float(c_str)
+                    if val >= 0:
+                        extracted_cash = val
+                        break
+                except Exception:
+                    pass
 
+        # 2. Alle ISINs finden
         isin_matches = re.findall(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b", full_text)
         unique_isins = list(dict.fromkeys(isin_matches))
         
+        # Falls keine ISINs, nach Ticker / bekannten Namen suchen
+        if not unique_isins:
+            for isin, (sym, name) in ISIN_MAP.items():
+                if sym.upper() in full_text.upper() or name.upper() in full_text.upper():
+                    unique_isins.append(isin)
+
         for isin in unique_isins:
             if isin in ISIN_MAP:
                 sym, disp_name = ISIN_MAP[isin]
@@ -177,23 +195,28 @@ def parse_trade_republic_pdf(uploaded_file):
                 
             invested_val = 50.0
             
-            # Betrag im Umfeld der ISIN im PDF suchen
+            # Wert um die ISIN herum parsen
             isin_pos = full_text.find(isin)
             if isin_pos != -1:
-                snippet = full_text[max(0, isin_pos-120):min(len(full_text), isin_pos+180)]
-                amount_match = re.search(r"([\d.,]+)\s*(?:EUR|€)", snippet)
-                if amount_match:
+                snippet = full_text[max(0, isin_pos-150):min(len(full_text), isin_pos+200)]
+                
+                # Betrag suchen (z. B. "50,00 EUR", "125,50 €")
+                val_matches = re.findall(r"([\d.,]+)\s*(?:EUR|€)", snippet)
+                for vm in val_matches:
                     try:
-                        am_str = amount_match.group(1).replace(".", "").replace(",", ".")
-                        val = float(am_str)
-                        if val > 0:
-                            invested_val = val
+                        vm_clean = vm.replace(".", "").replace(",", ".")
+                        parsed_val = float(vm_clean)
+                        if 1.0 <= parsed_val <= 100000.0:
+                            invested_val = parsed_val
+                            break
                     except Exception:
                         pass
                         
             found_items.append({"ticker": sym, "name": disp_name, "shares": 1.0, "buy_price": invested_val})
+            
     except Exception as e:
-        st.error(f"Fehler beim PDF-Lesen: {e}")
+        st.error(f"Fehler beim Auslesen des PDFs: {e}")
+        
     return found_items, extracted_cash
 
 def fetch_all_headlines():
@@ -248,6 +271,9 @@ def assign_dynamic_role(sector, country, ticker):
         return "🎯 Nischenwert / Sonstiges"
 
 def get_stock_data(portfolio_list):
+    if not portfolio_list:
+        return pd.DataFrame(), [], []
+
     clean_tickers = [clean_ticker(x["ticker"]) for x in portfolio_list]
     data = []
     direct_news = []
@@ -302,7 +328,7 @@ def get_stock_data(portfolio_list):
         profile = q_data.get("assetProfile", {})
         cal_events = q_data.get("calendarEvents", {})
 
-        earnings_str = "In Kürze (Q2/Q3)"
+        earnings_str = "In Kürze"
         if "earnings" in cal_events and "earningsDate" in cal_events["earnings"]:
             raw_dates = cal_events["earnings"]["earningsDate"]
             if raw_dates and len(raw_dates) > 0:
@@ -379,6 +405,8 @@ def get_stock_data(portfolio_list):
     return pd.DataFrame(data), direct_news, clean_tickers
 
 def get_individual_series_dict(portfolio_list, period="1mo"):
+    if not portfolio_list:
+        return {}
     clean_tickers = [clean_ticker(x["ticker"]) for x in portfolio_list]
     series_dict = {}
     interval = "5m" if period == "1d" else ("15m" if period == "5d" else "1d")
