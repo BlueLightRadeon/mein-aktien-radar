@@ -125,18 +125,17 @@ with c_m2:
 with c_m3:
     st.metric("Gewinn / Verlust", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
-# KI-AUSWERTUNGS BUTTON
+# KI-AUSWERTUNG DIREKT AUSFÜHREN
 if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
     else:
         with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
             try:
-                client = Groq(api_key=GROQ_KEY.strip())
+                client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
                 news_data = fetch_all_headlines()
                 news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
-                # Crash-Sichere Erstellung der Zusammenfassung
                 if not stock_df.empty and "Unternehmen" in stock_df.columns:
                     summary_cols = [c for c in ["Unternehmen", "Börsenkurs", "RSI (14D)", "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"] if c in stock_df.columns]
                     metrics_summary = stock_df[summary_cols].to_string(index=False)
