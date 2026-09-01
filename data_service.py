@@ -60,7 +60,6 @@ def parse_trade_republic_pdf(uploaded_file):
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         full_text = "\n".join([page.extract_text() or "" for page in reader.pages])
         
-        # 1. Cash extrahieren
         cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto|Verrechnungskonto)\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"(?:Cashkonto|Cash|Saldo|Geldkonto)[^\d]*([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
@@ -72,7 +71,6 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 extracted_cash = 0.0
 
-        # 2. ISINs suchen
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -85,7 +83,6 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            # Präzise Werte-Extraktion: Sucht nach Beträgen (z.B. 49,95 €) im Umfeld der ISIN
             pattern = re.compile(re.escape(isin) + r".*?([\d.,]+)\s*(?:€|EUR)", re.DOTALL | re.IGNORECASE)
             match = pattern.search(full_text)
             val = 0.0
@@ -158,17 +155,19 @@ def get_stock_data(portfolio_list):
         "AAPL": "USA", "MSFT": "USA"
     }
 
-    # Kauf-/Verkaufsempfehlungen für bestehende Aktien
-    def get_stock_action(sym):
-        s = sym.upper()
-        if s in ["NVDA", "AVGO", "RHM.DE", "TSM"]:
-            return "🟢 KAUFEN / AUFSTOCKEN"
-        elif s in ["PANW", "EUNL.DE", "MSFT", "AAPL"]:
-            return "🟡 HALTEN"
-        elif s in ["FORA.TO"]:
-            return "🔴 VERKAUFEN / UMSCHICHTEN"
-        else:
-            return "🟡 HALTEN"
+    # Fundierte Begründungen pro Aktie
+    stock_analysis_map = {
+        "NVDA": ("🟢 KAUFEN / AUFSTOCKEN", "Monopolstellung bei KI-Chips, ungebrochene Nachfrage der Cloud-Riesen, hohes Gewinnwachstum."),
+        "AVGO": ("🟢 KAUFEN / AUFSTOCKEN", "Starke Synergien durch VMware-Integration, führend bei maßgeschneiderten KI-Netzwerk-Chips."),
+        "RHM.DE": ("🟢 KAUFEN / AUFSTOCKEN", "Rekord-Auftragsbestände der NATO-Staaten sichern mehrjähriges, zweistelliges Umsatzwachstum."),
+        "TSM": ("🟢 KAUFEN / AUFSTOCKEN", "Weltweit unersetzlicher Chip-Auftragsfertiger mit hoher Preissetzungsmacht bei modernsten Node-Größen."),
+        "PANW": ("🟡 HALTEN", "Solide Position im IT-Security-Sektor, Plattform-Strategie greift, jedoch bereits anspruchsvoll bewertet."),
+        "EUNL.DE": ("🟡 HALTEN", "Ideales Kern-Investment zur weltweiten Risikostreuung. Keine Eile zu Handlungen, kontinuierlich besparen."),
+        "MSFT": ("🟡 HALTEN", "Stabiler Cashflow aus Cloud (Azure) und Office, aktuell in einer fairen Konsolidierungsphase."),
+        "AAPL": ("🟡 HALTEN", "Starker Dienstleistungssektor und treue Kundenbasis stützen den Kurs bei moderatem Hardware-Wachstum."),
+        "NVO": ("🟡 HALTEN", "Weltmarktführer bei GLP-1/Abnehmpräparaten, starke Nachfrage bei vorübergehendem Produktionsausbau."),
+        "FORA.TO": ("🔴 VERKAUFEN / UMSCHICHTEN", "Schwaches Umsatzmomentum und Margendruck durch verändertes Werbeumfeld. Kapital besser in Core-Werte umschichten.")
+    }
 
     for idx, item in enumerate(portfolio_list):
         t = clean_ticker(item.get("ticker", "AVGO"))
@@ -182,7 +181,6 @@ def get_stock_data(portfolio_list):
         currency = "EUR" if t.endswith(".DE") else "USD"
         day_change_pct = float(default_changes.get(t, 0.50))
 
-        # Reale Positionsbewertung
         if invested_money > 0:
             pos_val = float(invested_money * (1.0 + (day_change_pct / 100.0)))
             pnl_val = float(pos_val - invested_money)
@@ -203,7 +201,12 @@ def get_stock_data(portfolio_list):
         pe_str = "38.2" if t == "NVDA" else ("31.4" if t == "PANW" else ("19.8" if "RHM" in t else "24.5"))
         fair_value_str = f"{(price * 1.10):.2f} {currency}"
         target_str = f"{(price * 1.15):.2f} {currency} (+15.0%)"
-        action_recommendation = get_stock_action(t)
+        
+        # Handlung + Begründung abrufen
+        rec_action, rec_reason = stock_analysis_map.get(
+            t, 
+            ("🟡 HALTEN", "Unternehmen behauptet seine Marktposition solide im aktuellen Marktumfeld.")
+        )
 
         div_pct = 1.8 if "RHM" in t else (1.45 if t == "AVGO" else (1.3 if t == "NVO" else (1.6 if "EUNL" in t else 0.5)))
         dividend_yield_str = f"{div_pct:.2f}%"
@@ -216,7 +219,8 @@ def get_stock_data(portfolio_list):
         data.append({
             "Unternehmen": company_name,
             "Kürzel": t,
-            "Handelsempfehlung": action_recommendation,
+            "Handelsempfehlung": rec_action,
+            "Begründung & Einschätzung": rec_reason,
             "Dein Geldeinsatz": f"{invested_money:.2f} €",
             "Börsenkurs": f"{price:.2f} {currency}",
             "Aktueller Wert (TR)": f"{pos_val:.2f} €",
