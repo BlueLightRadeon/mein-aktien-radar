@@ -4,15 +4,6 @@ import re
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
-# Bekannte, verifizierte Text-Chat-Modelle auf Groq
-ALLOWED_TEXT_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.3-70b-specdec",
-    "gemma2-9b-it",
-    "qwen-2.5-32b",
-    "deepseek-r1-distill-llama-70b"
-]
-
 def get_account_models(api_key):
     """Filtert die Modell-Liste streng nach reinen Text-/Chat-Modellen."""
     if not api_key:
@@ -24,7 +15,6 @@ def get_account_models(api_key):
         valid_chat_models = []
         for m in models_data.data:
             m_id = str(m.id).lower()
-            # Unerwünschte Audio-, Vision-, Guard-, Embed- und Drittanbieter-Modelle ignorieren
             if any(bad in m_id for bad in ["whisper", "tts", "orpheus", "arabic", "vision", "guard", "embed", "canopylabs"]):
                 continue
             if any(allowed in m_id for allowed in ["llama-3.3", "gemma2", "qwen", "deepseek", "versatile"]):
@@ -40,90 +30,70 @@ def get_account_models(api_key):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein quantitativer Chef-Anlagestratege. Analysiere das Depot und die aktuellen Marktnachrichten auf Deutsch.
+Du bist ein erfahrener Chef-Aktienanalyst. Formuliere eine vollständige, tiefgehende Finanzanalyse auf Deutsch. 
+WICHTIG: Verwende keine Platzhalter oder Mustertexte, sondern schreibe jeden einzelnen Punkt und jede Aktienanalyse vollständig und konkret aus!
 
-[AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
-{news_text[:1000]}
+AKTUELLE NACHRICHTENLAGE:
+{news_text}
 
-[BESTEHENDE DEPOT-WERTE DES NUTZERS]
+BESTEHENDE DEPOTWERTE DES NUTZERS:
 {metrics_summary}
 
-[DEPOT-AUFTEILUNG]
+DEPOT-STRUKTUR:
 {cluster_context}
 
-Gliedere deine Antwort zwingend mit diesen 4 exakten Trennzeilen:
+Gliedere deine Antwort zwingend anhand der folgenden vier Trennmarkierungen:
 
 ===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
-10 prägnante Stichpunkte zur aktuellen globalen Wirtschaftslage.
+Schreibe genau 10 konkrete, aussagekräftige Stichpunkte zu den aktuellen weltweiten Leitbörsen, Zinsentscheiden, Tech-Entwicklungen und makroökonomischen Trends.
 
 ### 🧭 Gesamtstimmung der Börse
-🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit kurzer Begründung.
+Bewerte die Gesamtlage eindeutig mit 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig und begründe dies in 3-4 Sätzen.
 
 ===DEPOT===
 ### 💼 KAUF- & VERKAUFSEMPFEHLUNGEN FÜR DEINE BESTEHENDEN AKTIEN
-Analysiere JEDE bestehende Position des Nutzers mit klarer Handlungsanweisung:
-- **[Unternehmen]**: 🟢 **KAUFEN / AUFSTOCKEN**, 🟡 **HALTEN** oder 🔴 **GEWINNE MITNEHMEN / VERKAUFEN**
-  - *Begründung & Kursziel*: Warum diese Handlung jetzt sinnvoll ist und welches Potenzial besteht.
+Analysiere ausnahmslos JEDE im Depot vorhandene Aktie einzeln:
+- Gib für jede Aktie eine klare Empfehlung (🟢 KAUFEN / AUFSTOCKEN, 🟡 HALTEN oder 🔴 GEWINNE MITNEHMEN / VERKAUFEN).
+- Erläutere jeweils in 2-3 Sätzen die fundamentale Begründung (Chancen, Risiken, Kurspotenzial).
 
 ===SIGNALE===
-### 🎯 TOP 5 NEUE KAUF-EMPFEHLUNGEN (Zur Portfolio-Erweiterung)
-Wähle basierend auf der aktuellen Lage genau 5 konkrete Qualitätsaktien oder ETFs (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
+### 🎯 TOP 5 NEUE KAUF-EMPFEHLUNGEN
+Empfehle 5 konkrete, kaufenswerte Qualitätsaktien oder ETFs zur Portfolio-Ergänzung (keine Werte, die schon im Depot liegen).
+Nenne jeweils:
+1. Name und Ticker
+2. Warum sich der Einstieg jetzt lohnt
+3. Kurspotenzial und Risiko
 
-1. **[Aktie 1]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:** z. B. +15 % bis +25 %
-   - **Risikobewertung:** Gering / Mittel / Hoch
-
-2. **[Aktie 2]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-3. **[Aktie 3]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-4. **[Aktie 4]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-5. **[Aktie 5]** (Ticker | Branche | Land)
-   - **Warum JETZT kaufen?**
-   - **Chance / Kurspotenzial:**
-   - **Risikobewertung:**
-
-#### 🔴 AKTUELL MEIDEN:
-Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
+#### 🔴 AKTUELL MEIDEN
+Nenne 3 Branchen oder Anlagesegmente, die derzeit gemieden werden sollten.
 
 ===KLUMPEN===
 ### 🛡️ Risikostreuung & Depot-Optimierung
-1. **Risiko-Score**: 1 (Sehr gut gestreut) bis 10 (Hohes Risiko).
-2. **Erläuterung der Streuung**: Wo liegen aktuell die Schwerpunkte?
-3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
+1. Risiko-Score von 1 (sehr sicher) bis 10 (sehr spekulativ).
+2. Ausführliche Bewertung der aktuellen Länder- und Branchenstreuung.
+3. Konkreter Ratschlag, wie das Portfolio noch krisenfester aufgestellt werden kann.
 """
 
-    target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
-    models_to_try = [target_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
+    duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    models_to_try = [duel_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
     full_text = ""
     last_err = None
 
-    for model_id in models_to_try:
+    for m_id in models_to_try:
         try:
             res = client.chat.completions.create(
-                model=model_id,
+                model=m_id,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
+                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte immer auf Deutsch und formuliere alle Analysen direkt und ausführlich aus."},
                     {"role": "user", "content": combined_prompt}
                 ],
-                temperature=0.2,
-                max_tokens=2200,
-                timeout=25.0
+                temperature=0.3,
+                max_tokens=3000,
+                timeout=30.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
@@ -151,7 +121,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             sections[sec_name] = sec_content
 
     out_market = sections.get("SECTION_MARKT", full_text)
-    out_depot = sections.get("SECTION_DEPOT", "Handelsempfehlungen liegen im Tab '💼 Stimmung' vor.")
+    out_depot = sections.get("SECTION_DEPOT", "Handelsempfehlungen liegen im Tab '💼 Stimmung & Empfehlungen' vor.")
     out_signals = sections.get("SECTION_SIGNALE", full_text)
     out_cluster = sections.get("SECTION_KLUMPEN", "Streuungsanalyse erstellt.")
 
@@ -159,34 +129,32 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
-Vergleiche als quantitativer Analyst diese beiden Aktien objektiv:
+Vergleiche als quantitativer Analyst diese beiden Aktien objektiv und detailliert auf Deutsch:
 Aktie A: {stock_a_info}
 Aktie B: {stock_b_info}
 
-1. Kennzahlenvergleich (KGV, Dividende, Fair Value, Burggraben)
-2. Klares Fazit: Welche Aktie ist aktuell der bessere Kauf?
+1. Fundamentaler Kennzahlenvergleich (KGV, Dividende, Fair Value, Burggraben)
+2. Klares Fazit: Welche Aktie ist aktuell der bessere Kauf und warum?
 """
-    # Verhindert, dass fremde Nicht-Text-Modelle im Duell aufgerufen werden
     duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
     
     try:
         res = client.chat.completions.create(
             model=duel_model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=600,
-            timeout=15.0
+            temperature=0.3,
+            max_tokens=800,
+            timeout=20.0
         )
         return res.choices[0].message.content
-    except Exception as e:
-        # Fallback auf Standard-Modell
+    except Exception:
         try:
             res_fallback = client.chat.completions.create(
                 model=DEFAULT_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=600,
-                timeout=15.0
+                temperature=0.3,
+                max_tokens=800,
+                timeout=20.0
             )
             return res_fallback.choices[0].message.content
         except Exception as e2:
