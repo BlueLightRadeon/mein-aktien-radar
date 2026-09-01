@@ -1,10 +1,32 @@
 import streamlit as st
+import os
+import glob
+
+# 1. HARTER DATEISYSTEM-RESET: Löscht jede alte JSON-Datei im Server-Ordner
+for json_file in glob.glob("*.json"):
+    try:
+        os.remove(json_file)
+    except Exception:
+        pass
+
+# 2. SESSION-STATE ERZWUNGEN LEEREN
+if "initialized_clean_slate" not in st.session_state:
+    st.session_state.clear()
+    st.session_state.initialized_clean_slate = True
+    st.session_state.my_portfolio = []
+    st.session_state.tr_cash = 0.0
+
+if "my_portfolio" not in st.session_state:
+    st.session_state.my_portfolio = []
+
+if "tr_cash" not in st.session_state:
+    st.session_state.tr_cash = 0.0
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
-import os
 
 try:
     from data_service import (
@@ -23,14 +45,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Säubere alte Festplatten-Dateien restlos
-for cached_file in ["portfolio.json", "portfolio_cache.json"]:
-    if os.path.exists(cached_file):
-        try:
-            os.remove(cached_file)
-        except Exception:
-            pass
-
 st.title("📈 KI Markt- & Depot-Radar")
 
 def get_groq_key():
@@ -46,13 +60,6 @@ GROQ_KEY = get_groq_key()
 def get_berlin_time_str():
     tz_de = timezone(timedelta(hours=2))
     return datetime.now(tz_de).strftime("%H:%M:%S Uhr")
-
-# Session-State: Wenn keine Positionen da sind oder 194.02 drinsteckt -> Hard-Reset auf 0.00 €
-if "my_portfolio" not in st.session_state:
-    st.session_state.my_portfolio = []
-
-if "tr_cash" not in st.session_state or st.session_state.tr_cash == 194.02:
-    st.session_state.tr_cash = 0.0
 
 def fmt_eur(val):
     try:
@@ -70,20 +77,21 @@ with st.sidebar:
         if tr_pdf is not None:
             if st.button("📄 Auszug jetzt einlesen", width="stretch"):
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
-                if imported_items or imported_cash > 0:
-                    st.session_state.my_portfolio = imported_items
-                    st.session_state.tr_cash = float(imported_cash)
-                    st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) eingelesen!")
-                    st.rerun()
+                st.session_state.my_portfolio = imported_items
+                st.session_state.tr_cash = float(imported_cash)
+                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) eingelesen!")
+                st.rerun()
 
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
 
-    # Manuelles Leeren setzt Cash und Portfolio hart auf 0
-    if st.session_state.my_portfolio or st.session_state.tr_cash > 0:
-        if st.button("🗑️ Depot & Cash leeren", width="stretch"):
-            st.session_state.my_portfolio = []
-            st.session_state.tr_cash = 0.0
-            st.rerun()
+    if st.button("🗑️ Depot & Cash leeren", width="stretch"):
+        st.session_state.my_portfolio = []
+        st.session_state.tr_cash = 0.0
+        st.session_state.pop("ai_signals", None)
+        st.session_state.pop("ai_market", None)
+        st.session_state.pop("ai_depot", None)
+        st.session_state.pop("ai_cluster", None)
+        st.rerun()
 
     st.divider()
     st.subheader("🔍 Aktie manuell hinzufügen:")
