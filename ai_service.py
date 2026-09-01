@@ -4,22 +4,39 @@ import re
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
+# Bekannte, verifizierte Text-Chat-Modelle auf Groq
+ALLOWED_TEXT_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.3-70b-specdec",
+    "gemma2-9b-it",
+    "qwen-2.5-32b",
+    "deepseek-r1-distill-llama-70b"
+]
+
 def get_account_models(api_key):
-    """Fragt die tatsächlich auf deinem Groq-Account aktiven Modelle live ab."""
+    """Filtert die Modell-Liste streng nach reinen Text-/Chat-Modellen."""
     if not api_key:
         return [DEFAULT_MODEL]
     try:
         client = Groq(api_key=api_key)
         models_data = client.models.list()
-        active_ids = [m.id for m in models_data.data if m.id and "whisper" not in m.id]
         
-        # Bevorzuge 70b oder Llama 3.3
-        preferred = [m for m in active_ids if "llama-3.3" in m or "70b" in m]
-        if preferred:
-            return preferred + [m for m in active_ids if m not in preferred]
-        return active_ids if active_ids else [DEFAULT_MODEL]
+        valid_chat_models = []
+        for m in models_data.data:
+            m_id = str(m.id).lower()
+            # Unerwünschte Audio-, Vision-, Guard-, Embed- und Drittanbieter-Modelle ignorieren
+            if any(bad in m_id for bad in ["whisper", "tts", "orpheus", "arabic", "vision", "guard", "embed", "canopylabs"]):
+                continue
+            if any(allowed in m_id for allowed in ["llama-3.3", "gemma2", "qwen", "deepseek", "versatile"]):
+                valid_chat_models.append(m.id)
+                
+        if DEFAULT_MODEL in valid_chat_models:
+            valid_chat_models.remove(DEFAULT_MODEL)
+            valid_chat_models.insert(0, DEFAULT_MODEL)
+            
+        return valid_chat_models if valid_chat_models else [DEFAULT_MODEL]
     except Exception:
-        return [DEFAULT_MODEL, "llama-3.3-70b-specdec"]
+        return [DEFAULT_MODEL]
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
@@ -88,19 +105,18 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    # Dynamische Modell-Auswahl ohne veraltete IDs
-    chosen_model = model_name if model_name else DEFAULT_MODEL
-    models_to_try = [chosen_model, "llama-3.3-70b-versatile", "llama-3.3-70b-specdec"]
+    target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    models_to_try = [target_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
     full_text = ""
     last_err = None
 
-    for target_model in models_to_try:
+    for model_id in models_to_try:
         try:
             res = client.chat.completions.create(
-                model=target_model,
+                model=model_id,
                 messages=[
                     {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
                     {"role": "user", "content": combined_prompt}
@@ -150,9 +166,12 @@ Aktie B: {stock_b_info}
 1. Kennzahlenvergleich (KGV, Dividende, Fair Value, Burggraben)
 2. Klares Fazit: Welche Aktie ist aktuell der bessere Kauf?
 """
+    # Verhindert, dass fremde Nicht-Text-Modelle im Duell aufgerufen werden
+    duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    
     try:
         res = client.chat.completions.create(
-            model=model_name if model_name else DEFAULT_MODEL,
+            model=duel_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
@@ -160,4 +179,15 @@ Aktie B: {stock_b_info}
         )
         return res.choices[0].message.content
     except Exception as e:
-        return f"⚠️ Duell-Analyse Fehler: {str(e)}"
+        # Fallback auf Standard-Modell
+        try:
+            res_fallback = client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=600,
+                timeout=15.0
+            )
+            return res_fallback.choices[0].message.content
+        except Exception as e2:
+            return f"⚠️ Duell-Analyse Fehler: {str(e2)}"
