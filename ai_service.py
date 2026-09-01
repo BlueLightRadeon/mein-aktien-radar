@@ -2,12 +2,12 @@ import streamlit as st
 from groq import Groq
 import re
 
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 STATIC_MODELS = [
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "qwen/qwen3.6-27b",
-    "llama-3.3-70b-versatile"
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it"
 ]
 
 def get_account_models(api_key):
@@ -36,12 +36,13 @@ Gliedere deine Antwort zwingend mit diesen 4 exakten Trennzeilen:
 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit kurzer Begründung.
 
 ===DEPOT===
-### 💼 Statusbericht zu deinen Depot-Positionen
-Analysiere die bestehenden Aktien des Nutzers:
-- **[Unternehmen]**: Aktuelle Bewertung, Trend und worauf man jetzt achten muss.
+### 💼 KAUF- & VERKAUFSEMPFEHLUNGEN FÜR DEINE BESTEHENDEN AKTIEN
+Analysiere JEDE bestehende Position des Nutzers mit klarer Handlungsanweisung:
+- **[Unternehmen]**: 🟢 **KAUFEN / AUFSTOCKEN**, 🟡 **HALTEN** oder 🔴 **GEWINNE MITNEHMEN / VERKAUFEN**
+  - *Begründung & Kursziel*: Warum diese Handlung jetzt sinnvoll ist und welches Potenzial besteht.
 
 ===SIGNALE===
-### 🎯 TOP 5 KAUF-EMPFEHLUNGEN (Stand Jetzt zur Portfolio-Erweiterung)
+### 🎯 TOP 5 NEUE KAUF-EMPFEHLUNGEN (Zur Portfolio-Erweiterung)
 Wähle basierend auf der aktuellen Lage genau 5 konkrete Qualitätsaktien oder ETFs (NICHT aus dem aktuellen Bestand), die das Depot ideal ergänzen:
 
 1. **[Aktie 1]** (Ticker | Branche | Land)
@@ -79,7 +80,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -96,7 +97,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                 ],
                 temperature=0.2,
                 max_tokens=2200,
-                timeout=12.0
+                timeout=20.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
@@ -106,7 +107,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             continue
 
     if not full_text:
-        err_msg = f"⚠️ **Groq API Fehler:** `{str(last_err)}`"
+        err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
         return err_msg, err_msg, err_msg, err_msg
 
     normalized_text = full_text
@@ -123,19 +124,10 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             sec_content = parts[i+1].strip() if i+1 < len(parts) else ""
             sections[sec_name] = sec_content
 
-    out_market = sections.get("SECTION_MARKT", "")
-    out_depot = sections.get("SECTION_DEPOT", "")
-    out_signals = sections.get("SECTION_SIGNALE", "")
-    out_cluster = sections.get("SECTION_KLUMPEN", "")
-
-    if not out_market:
-        out_market = full_text
-    if not out_depot:
-        out_depot = "Statusbericht liegt vor:\n\n" + full_text[:500]
-    if not out_signals:
-        out_signals = full_text
-    if not out_cluster:
-        out_cluster = "Die Risikobewertung findest du im Tab '🌍 Nachrichten'."
+    out_market = sections.get("SECTION_MARKT", full_text)
+    out_depot = sections.get("SECTION_DEPOT", "Handelsempfehlungen liegen im Tab '💼 Stimmung' vor.")
+    out_signals = sections.get("SECTION_SIGNALE", full_text)
+    out_cluster = sections.get("SECTION_KLUMPEN", "Streuungsanalyse erstellt.")
 
     return out_market.strip(), out_depot.strip(), out_signals.strip(), out_cluster.strip()
 
@@ -154,7 +146,7 @@ Aktie B: {stock_b_info}
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
-            timeout=8.0
+            timeout=10.0
         )
         return res.choices[0].message.content
     except Exception as e:
