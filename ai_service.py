@@ -15,7 +15,7 @@ def get_account_models(api_key):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein renommierter quantitativer Chef-Anlagestratege. Analysiere das Depot und die aktuellen Marktnachrichten auf Deutsch.
+Du bist ein quantitativer Chef-Anlagestratege. Analysiere das Depot und die aktuellen Marktnachrichten auf Deutsch.
 
 [AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
 {news_text[:1000]}
@@ -131,7 +131,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     if not out_market:
         out_market = full_text
     if not out_depot:
-        out_depot = "Statusbericht zu den Depot-Werten:\n\n" + full_text[:600]
+        out_depot = "Statusbericht liegt vor:\n\n" + full_text[:500]
     if not out_signals:
         out_signals = full_text
     if not out_cluster:
