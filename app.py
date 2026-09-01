@@ -7,9 +7,9 @@ from datetime import datetime, timezone, timedelta
 
 try:
     from data_service import (
-        load_saved_portfolio, save_portfolio_to_file, get_stock_data,
-        get_individual_series_dict, fetch_all_headlines, search_ticker_candidates,
-        clean_ticker, parse_trade_republic_pdf, get_display_name, DEFAULT_HOLDINGS
+        get_stock_data, get_individual_series_dict, fetch_all_headlines, 
+        search_ticker_candidates, clean_ticker, parse_trade_republic_pdf, 
+        get_display_name
     )
     from ai_service import get_account_models, run_analysis, run_duel_analysis
 except Exception as e:
@@ -38,15 +38,12 @@ def get_berlin_time_str():
     tz_de = timezone(timedelta(hours=2))
     return datetime.now(tz_de).strftime("%H:%M:%S Uhr")
 
-# Portfolio initialisieren
-if "my_portfolio" not in st.session_state or not st.session_state.my_portfolio:
-    st.session_state.my_portfolio = load_saved_portfolio()
-
-if not st.session_state.my_portfolio:
-    st.session_state.my_portfolio = [dict(x) for x in DEFAULT_HOLDINGS]
+# Portfolio initialisieren (Standardmäßig komplett leer)
+if "my_portfolio" not in st.session_state:
+    st.session_state.my_portfolio = []
 
 if "tr_cash" not in st.session_state:
-    st.session_state.tr_cash = 194.02
+    st.session_state.tr_cash = 0.0
 
 def fmt_eur(val):
     try:
@@ -58,7 +55,7 @@ def fmt_eur(val):
 with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
-    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=False):
+    with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
         st.caption("Lade deinen Auszug hoch und klicke auf 'Auszug jetzt einlesen'.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         if tr_pdf is not None:
@@ -67,14 +64,13 @@ with st.sidebar:
                 if imported_items:
                     st.session_state.my_portfolio = imported_items
                     st.session_state.tr_cash = float(imported_cash)
-                    save_portfolio_to_file(st.session_state.my_portfolio)
-                    st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) übernommen!")
+                    st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) eingelesen!")
                     st.rerun()
 
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(st.session_state.tr_cash)}`")
 
     st.divider()
-    st.subheader("🔍 Aktie hinzufügen:")
+    st.subheader("🔍 Aktie manuell hinzufügen:")
     search_query = st.text_input("Name oder Symbol:", placeholder="z. B. Apple, Tesla...")
     if search_query:
         results = search_ticker_candidates(search_query)
@@ -91,12 +87,11 @@ with st.sidebar:
                     "shares": 1.0,
                     "buy_price": float(in_money)
                 })
-                save_portfolio_to_file(st.session_state.my_portfolio)
                 st.success(f"✅ {disp_name} hinzugefügt!")
                 st.rerun()
 
     st.divider()
-    st.subheader("📋 Aktive Depot-Positionen:")
+    st.subheader("📋 Eingelesene Positionen:")
     if st.session_state.my_portfolio:
         for idx, item in enumerate(list(st.session_state.my_portfolio)):
             disp_name = get_display_name(item.get("ticker", ""), item.get("name"))
@@ -107,10 +102,9 @@ with st.sidebar:
             with col_pos_b:
                 if st.button("❌", key=f"del_item_{idx}_{item.get('ticker','')}"):
                     st.session_state.my_portfolio.pop(idx)
-                    save_portfolio_to_file(st.session_state.my_portfolio)
                     st.rerun()
     else:
-        st.info("Keine Positionen hinterlegt.")
+        st.info("Noch kein Auszug geladen.")
 
     st.divider()
     st.header("🤖 KI-Modell")
@@ -137,6 +131,8 @@ with c_m3:
 if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"):
     if not GROQ_KEY:
         st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
+    elif not st.session_state.my_portfolio:
+        st.warning("⚠️ Bitte lade zuerst deinen Trade Republic PDF-Auszug in der linken Seitenleiste hoch.")
     else:
         with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen mit Groq KI..."):
             try:
@@ -150,8 +146,8 @@ if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"
                     cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in stock_df.columns]
                     cluster_context = stock_df[cluster_cols].to_string(index=False)
                 else:
-                    metrics_summary = "Standarddepot: Broadcom, Rheinmetall, NVIDIA, Novo Nordisk, MSCI World ETF, Palo Alto Networks, TSMC."
-                    cluster_context = "Sektoren: Halbleiter, Verteidigung, Gesundheit, Welt-ETF, Cyber-Sicherheit."
+                    metrics_summary = "Keine Einzelwerte hinterlegt."
+                    cluster_context = "Keine Sektoraufteilung vorhanden."
 
                 out_m, out_d, out_s, out_c = run_analysis(
                     client, selected_model, news_text, metrics_summary, "", cluster_context
@@ -195,6 +191,8 @@ with tab0:
     if not stock_df.empty:
         disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
+    else:
+        st.info("📂 Lade deinen Trade Republic Kontoauszug (PDF) in der linken Seitenleiste hoch, um deine Werte hier zu sehen.")
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
@@ -232,6 +230,8 @@ with tab3:
         st.subheader("📅 Terminkalender & Ausschüttungen:")
         disp_cols = [c for c in ["Unternehmen", "Nächste Quartalszahlen", "Dividendenrendite", "Ausschüttung pro Jahr", "Ausschüttungs-Monate"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
+    else:
+        st.info("Keine Positionen eingelesen.")
 
 # TAB 4: TOP 5 KAUFEMPFEHLUNGEN
 with tab4:
@@ -245,35 +245,38 @@ with tab4:
 # TAB 5: CHARTS
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Diagramme für alle Aktien aus deinem Portfolio.")
-    series_dict = get_individual_series_dict(st.session_state.my_portfolio)
-    if series_dict:
-        available_names = list(series_dict.keys())
-        selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
-        
-        palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA"]
-        fig = go.Figure()
-        names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
+    if st.session_state.my_portfolio:
+        series_dict = get_individual_series_dict(st.session_state.my_portfolio)
+        if series_dict:
+            available_names = list(series_dict.keys())
+            selected_view = st.selectbox("Fokus:", ["Alle Aktien gleichzeitig"] + available_names, index=0)
+            
+            palette = ["#00D084", "#0693E3", "#FCB900", "#EB144C", "#9B51E0", "#00ACC1", "#FF6900", "#D81B60", "#8E24AA"]
+            fig = go.Figure()
+            names_to_plot = available_names if selected_view == "Alle Aktien gleichzeitig" else [selected_view]
 
-        for i, name in enumerate(names_to_plot):
-            s = series_dict[name]
-            base_val = s.iloc[0]
-            pct_series = ((s - base_val) / base_val) * 100.0
-            fig.add_trace(go.Scatter(
-                x=s.index, y=pct_series, mode="lines", name=name,
-                line=dict(width=2.5, color=palette[i % len(palette)]),
-                hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
-            ))
-        
-        fig.update_layout(
-            title="Performance (Letzte 30 Tage)",
-            xaxis_title="Datum",
-            yaxis_title="Gewinn / Verlust (%)",
-            yaxis_ticksuffix="%",
-            hovermode="x unified",
-            margin=dict(l=5, r=5, t=40, b=5),
-            height=380
-        )
-        st.plotly_chart(fig, width="stretch")
+            for i, name in enumerate(names_to_plot):
+                s = series_dict[name]
+                base_val = s.iloc[0]
+                pct_series = ((s - base_val) / base_val) * 100.0
+                fig.add_trace(go.Scatter(
+                    x=s.index, y=pct_series, mode="lines", name=name,
+                    line=dict(width=2.5, color=palette[i % len(palette)]),
+                    hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
+                ))
+            
+            fig.update_layout(
+                title="Performance (Letzte 30 Tage)",
+                xaxis_title="Datum",
+                yaxis_title="Gewinn / Verlust (%)",
+                yaxis_ticksuffix="%",
+                hovermode="x unified",
+                margin=dict(l=5, r=5, t=40, b=5),
+                height=380
+            )
+            st.plotly_chart(fig, width="stretch")
+    else:
+        st.info("Lade ein PDF hoch, um Kursverläufe anzuzeigen.")
 
 # TAB 6: RISIKOSTREUUNG
 with tab6:
@@ -351,3 +354,5 @@ with tab7:
                 with st.spinner("Analysiere Duell..."):
                     res_duel = run_duel_analysis(cl, selected_model, str(row_a), str(row_b))
                     st.markdown(res_duel)
+    else:
+        st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
