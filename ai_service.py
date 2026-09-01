@@ -34,7 +34,7 @@ Du bist ein renommierter quantitativer Chef-Anlagestratege. Analysiere die aktue
 [DEPOT-AUFTEILUNG]
 {cluster_context}
 
-Gliedere deine Antwort zwingend mit diesen 4 Trennmarkern:
+Gliedere deine Antwort zwingend mit diesen 4 exakten Trennzeilen:
 
 ===MARKT===
 ### 🌍 TOP 10 Marktnachrichten
@@ -99,7 +99,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             res = client.chat.completions.create(
                 model=target_model,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und verwende exakt die Trennmarker ===MARKT===, ===DEPOT===, ===SIGNALE=== und ===KLUMPEN===."},
+                    {"role": "system", "content": "Du bist ein führender Börsen- und Finanzanalyst. Antworte auf Deutsch und halte dich exakt an die geforderten Abschnitte."},
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.2,
@@ -116,28 +116,41 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
         err_display = f"⚠️ **Groq API Fehler:** `{last_err_msg}`\n\nBitte prüfe deinen API-Key in den Streamlit Secrets."
         return err_display, err_display, err_display, err_display
 
-    # Universelle Zerlegung mittels Regex
-    sections = {"markt": "", "depot": "", "signale": "", "klumpen": ""}
-    pattern = re.compile(r'(?:={2,5}|#{1,4}|\*\*)\s*(MARKT|DEPOT|SIGNALE|KLUMPEN)\s*(?:={2,5}|\*\*)?', re.IGNORECASE)
-    splits = pattern.split(full_text)
+    # Unfehlbare Normalisierung: Bereinigt alle Sternchen, Rauten und Leerzeichen um die Tags
+    normalized_text = full_text
+    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*MARKT\s*={2,5}\*{0,2}|#{1,4}\s*MARKT)', '<<<SECTION_MARKT>>>', normalized_text, flags=re.IGNORECASE)
+    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*DEPOT\s*={2,5}\*{0,2}|#{1,4}\s*DEPOT)', '<<<SECTION_DEPOT>>>', normalized_text, flags=re.IGNORECASE)
+    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*(?:SIGNALE|KAUF|EMPFEHLUNGEN)\s*={2,5}\*{0,2}|#{1,4}\s*(?:SIGNALE|KAUF|EMPFEHLUNGEN))', '<<<SECTION_SIGNALE>>>', normalized_text, flags=re.IGNORECASE)
+    normalized_text = re.sub(r'(\*{0,2}={2,5}\s*(?:KLUMPEN|RISIKO|STREUUNG)\s*={2,5}\*{0,2}|#{1,4}\s*(?:KLUMPEN|RISIKO|STREUUNG))', '<<<SECTION_KLUMPEN>>>', normalized_text, flags=re.IGNORECASE)
 
-    if len(splits) > 1:
-        for i in range(1, len(splits), 2):
-            key = splits[i].lower()
-            val = splits[i+1].strip() if i+1 < len(splits) else ""
-            if key in sections:
-                sections[key] = val
+    sections = {}
+    parts = re.split(r'<<<(SECTION_[A-Z]+)>>>', normalized_text)
+    if len(parts) >= 3:
+        for i in range(1, len(parts), 2):
+            sec_name = parts[i]
+            sec_content = parts[i+1].strip() if i+1 < len(parts) else ""
+            sections[sec_name] = sec_content
 
-    out_market = sections["markt"] if sections["markt"] else full_text
-    out_depot = sections["depot"] if sections["depot"] else "Statusbericht im Reiter '🌍 Nachrichten' einsehbar."
-    out_signals = sections["signale"] if sections["signale"] else full_text
-    out_cluster = sections["klumpen"] if sections["klumpen"] else "Risikobewertung im Reiter '🌍 Nachrichten' einsehbar."
+    out_market = sections.get("SECTION_MARKT", "")
+    out_depot = sections.get("SECTION_DEPOT", "")
+    out_signals = sections.get("SECTION_SIGNALE", "")
+    out_cluster = sections.get("SECTION_KLUMPEN", "")
 
-    return out_market, out_depot, out_signals, out_cluster
+    # Sicherheits-Fallbacks: Niemals wieder "Keine Daten." anzeigen!
+    if not out_market:
+        out_market = full_text
+    if not out_depot:
+        out_depot = "Statusbericht zu den Depotwerten liegt vor:\n\n" + full_text[:500]
+    if not out_signals:
+        out_signals = full_text
+    if not out_cluster:
+        out_cluster = "Die Risikobewertung ist in der Marktanalyse unter '🌍 Nachrichten' enthalten."
+
+    return out_market.strip(), out_depot.strip(), out_signals.strip(), out_cluster.strip()
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
-Vergleiche als quantitativer Analyst diese beiden Aktien:
+Vergleiche als quantitativer Analyst diese beiden Aktien objektiv:
 Aktie A: {stock_a_info}
 Aktie B: {stock_b_info}
 
