@@ -26,8 +26,12 @@ st.title("📈 KI Markt- & Depot-Radar")
 
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
+# Portfolio laden & Klarnamen erzwingen
 if "my_portfolio" not in st.session_state:
     st.session_state.my_portfolio = load_saved_portfolio()
+else:
+    for item in st.session_state.my_portfolio:
+        item["name"] = get_display_name(item.get("ticker", ""), item.get("name"))
 
 if "tr_cash" not in st.session_state:
     st.session_state.tr_cash = 0.0
@@ -38,12 +42,12 @@ def fmt_eur(val):
     except Exception:
         return f"{val} €"
 
-# --- SEITENLEISTE: VOLL DYNAMISCHE POSITIONEN ---
+# --- SEITENLEISTE: EINGABEN & PDF ---
 with st.sidebar:
     st.header("💼 Depot & Trade Republic")
     
     with st.expander("📥 TR-Kontoauszug (PDF) hochladen"):
-        st.caption("Lade deinen Auszug hoch. Die App übernimmt deine echten Positionen und dein Cash und überschreibt alte Schätzwerte.")
+        st.caption("Lade deinen Auszug hoch. Die echten Werte und Klarnamen überschreiben alle manuellen Eingaben.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"])
         if tr_pdf:
             imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
@@ -89,7 +93,7 @@ with st.sidebar:
     portfolio_changed = False
     if st.session_state.my_portfolio:
         for idx, item in enumerate(st.session_state.my_portfolio):
-            current_invested = float(item.get("buy_price", 50.0))
+            current_invested = float(item.get("buy_price", 0.0))
             display_label = get_display_name(item.get("ticker", ""), item.get("name"))
             col_a, col_b = st.columns([3, 1])
             with col_a:
@@ -98,7 +102,7 @@ with st.sidebar:
                     min_value=0.0,
                     value=float(current_invested),
                     step=10.0,
-                    key=f"money_{idx}_{item['ticker']}"
+                    key=f"money_input_{idx}_{item['ticker']}"
                 )
             with col_b:
                 st.write("")
@@ -115,7 +119,7 @@ with st.sidebar:
         
         if portfolio_changed or st.button("💾 Speichern", use_container_width=True):
             save_portfolio_to_file(st.session_state.my_portfolio)
-            st.success("✅ Gespeichert & neu berechnet!")
+            st.success("✅ Gespeichert & aktualisiert!")
             st.rerun()
     else:
         st.info("Noch keine Positionen im Depot.")
@@ -162,7 +166,7 @@ if st.button("🚀 Gesamte KI-Auswertung starten", use_container_width=True):
         save_portfolio_to_file(st.session_state.my_portfolio)
         client = Groq(api_key=GROQ_KEY.strip())
 
-        with st.spinner("Analysiere deine aktuellen Positionen und Marktnachrichten..."):
+        with st.spinner("Analysiere deine Positionen und Marktnachrichten..."):
             news_data = fetch_all_headlines()
             news_text = "\n".join(news_data)
             ticker_news_text = "\n".join(ticker_news) if ticker_news else "Keine aktuellen Sondermeldungen."
@@ -200,7 +204,7 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 
 # TAB 0: TR KONTO
 with tab0:
-    st.info("ℹ️ **Kurzinfo:** Spiegelt dein reales Trade Republic Depot wider – mit deinem aktuellen Bargeld und deinen echten Aktienwerten.")
+    st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash) und dem aktuellen Wert deiner Wertpapiere.")
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
         st.success(f"💶 **Bargeld (Cash):** {fmt_eur(st.session_state.tr_cash)}")
@@ -344,9 +348,9 @@ with tab5:
 
             st.plotly_chart(fig, use_container_width=True)
 
-# TAB 6: RISIKOSTREUUNG (100 % DYNAMISCH FÜR ALLE DEINE AKTIEN)
+# TAB 6: RISIKOSTREUUNG
 with tab6:
-    st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder, damit ein Branchen-Rücksetzer dein Depot nicht gefährdet.")
+    st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines Geldes auf Rollen, Branchen und Länder.")
     
     if not stock_df.empty:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
@@ -379,7 +383,6 @@ with tab6:
             fig_geo.update_traces(textposition="inside", textinfo="percent+label")
             st.plotly_chart(fig_geo, use_container_width=True)
 
-        # DYNAMISCHE KARTEN BASIEREND AUF DEINEN TATSÄCHLICHEN AKTIEN
         st.divider()
         st.subheader("🧩 Wie verteilen sich deine tatsächlichen Aktien?")
         
