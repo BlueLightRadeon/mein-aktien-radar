@@ -2,12 +2,12 @@ import streamlit as st
 from groq import Groq
 import re
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 STATIC_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b"
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
+    "llama-3.3-70b-versatile"
 ]
 
 def get_account_models(api_key):
@@ -15,10 +15,10 @@ def get_account_models(api_key):
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     combined_prompt = f"""
-Du bist ein quantitativer Chef-Anlagestratege. Analysiere das Depot und die aktuellen Marktnachrichten auf Deutsch.
+Du bist ein renommierter quantitativer Chef-Anlagestratege. Analysiere das Depot und die aktuellen Marktnachrichten auf Deutsch.
 
 [AKTUELLE WELT- & WIRTSCHAFTSNACHRICHTEN]
-{news_text[:1200]}
+{news_text[:1000]}
 
 [BESTEHENDE DEPOT-WERTE DES NUTZERS]
 {metrics_summary}
@@ -79,7 +79,7 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
 3. **Erweiterungs-Tipp**: Welche der oben empfohlenen 5 Aktien das Depot am besten absichert.
 """
 
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b"]
+    models_to_try = [model_name, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -95,8 +95,8 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
                     {"role": "user", "content": combined_prompt}
                 ],
                 temperature=0.2,
-                max_tokens=2500,
-                timeout=20.0
+                max_tokens=2200,
+                timeout=12.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
@@ -106,10 +106,9 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
             continue
 
     if not full_text:
-        err_msg = f"⚠️ **Groq API Fehler:** `{str(last_err)}`\n\nBitte prüfe deinen API-Key und das gewählte Modell."
+        err_msg = f"⚠️ **Groq API Fehler:** `{str(last_err)}`"
         return err_msg, err_msg, err_msg, err_msg
 
-    # Regex Trennung
     normalized_text = full_text
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*MARKT\s*={2,5}\*{0,2}|#{1,4}\s*MARKT)', '<<<SECTION_MARKT>>>', normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r'(\*{0,2}={2,5}\s*DEPOT\s*={2,5}\*{0,2}|#{1,4}\s*DEPOT)', '<<<SECTION_DEPOT>>>', normalized_text, flags=re.IGNORECASE)
@@ -129,7 +128,6 @@ Nenne 3-4 Branchen oder Aktienarten mit erhöhtem Risiko.
     out_signals = sections.get("SECTION_SIGNALE", "")
     out_cluster = sections.get("SECTION_KLUMPEN", "")
 
-    # Fallbacks für sauberes Rendering
     if not out_market:
         out_market = full_text
     if not out_depot:
@@ -156,7 +154,7 @@ Aktie B: {stock_b_info}
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=600,
-            timeout=10.0
+            timeout=8.0
         )
         return res.choices[0].message.content
     except Exception as e:
