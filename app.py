@@ -283,7 +283,7 @@ with tab4:
     else:
         st.info("Lade ein Depot ein, um die Kaufempfehlungen zu sehen.")
 
-# TAB 5: CHARTS (Mit Zeitraum- & Fokus-Auswahl)
+# TAB 5: CHARTS (SOFORTIGE AKTUALISIERUNG BEI AUSWAHL)
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Performance-Verläufe deiner Aktien im gewählten Zeitraum.")
     if portfolio_list:
@@ -291,10 +291,10 @@ with tab5:
         
         series_names = [get_display_name(x.get("ticker", ""), x.get("name")) for x in portfolio_list]
         with col_chart_focus:
-            selected_view = st.selectbox("Fokus-Ansicht:", ["Alle Aktien gleichzeitig"] + series_names, index=0)
+            selected_view = st.selectbox("Fokus-Ansicht:", ["Alle Aktien gleichzeitig"] + series_names, index=0, key="chart_focus_view")
             
         with col_chart_period:
-            selected_period = st.radio("Zeitraum:", ["1W", "1M", "6M", "1J", "Max"], index=1, horizontal=True)
+            selected_period = st.radio("Zeitraum:", ["1W", "1M", "6M", "1J", "Max"], index=1, horizontal=True, key="chart_period_radio")
 
         series_dict = get_individual_series_dict(portfolio_list, period=selected_period)
         if series_dict:
@@ -307,21 +307,34 @@ with tab5:
                 if name in series_dict:
                     s = series_dict[name]
                     fig.add_trace(go.Scatter(
-                        x=s.index, y=s.values, mode="lines", name=name,
+                        x=s.index, 
+                        y=s.values, 
+                        mode="lines", 
+                        name=name,
                         line=dict(width=2.5, color=palette[i % len(palette)]),
-                        hovertemplate=f"<b>{name}</b>: %{{y:+.2f}}%<extra></extra>"
+                        hovertemplate=f"<b>{name}</b> (%{{x|%d.%m.%Y}}): %{{y:+.2f}}%<extra></extra>"
                     ))
             
+            # Autorange & dynamischer Datumsbereich erzwingt Live-Skalierung
             fig.update_layout(
                 title=f"Performance-Entwicklung ({selected_period})",
-                xaxis_title="Datum",
-                yaxis_title="Rendite / Entwicklung (%)",
-                yaxis_ticksuffix="%",
+                xaxis=dict(
+                    title="Datum",
+                    type="date",
+                    autorange=True
+                ),
+                yaxis=dict(
+                    title="Rendite / Entwicklung (%)",
+                    ticksuffix="%",
+                    autorange=True
+                ),
                 hovermode="x unified",
                 margin=dict(l=5, r=5, t=40, b=5),
-                height=400
+                height=420,
+                uirevision=f"{selected_period}_{selected_view}"
             )
-            st.plotly_chart(fig, width="stretch")
+            # Eindeutiger Key erzwingt das sofortige Neurendern in Streamlit
+            st.plotly_chart(fig, width="stretch", key=f"plotly_chart_perf_{selected_period}_{selected_view}")
     else:
         st.info("Lade deinen TR-Kontoauszug hoch, um die Performance-Diagramme anzuzeigen.")
 
@@ -343,7 +356,7 @@ with tab6:
                 color_discrete_sequence=["#2E93fA", "#66DA26", "#FF9800", "#546E7A"]
             )
             fig_role.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_role, width="stretch")
+            st.plotly_chart(fig_role, width="stretch", key="pie_role")
 
         with c_pie2:
             fig_sec = px.pie(
@@ -352,7 +365,7 @@ with tab6:
                 color_discrete_sequence=custom_colors
             )
             fig_sec.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_sec, width="stretch")
+            st.plotly_chart(fig_sec, width="stretch", key="pie_sec")
 
         with c_pie3:
             fig_geo = px.pie(
@@ -361,7 +374,7 @@ with tab6:
                 color_discrete_sequence=custom_colors
             )
             fig_geo.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_geo, width="stretch")
+            st.plotly_chart(fig_geo, width="stretch", key="pie_geo")
 
         st.divider()
         st.subheader("🧩 Wie verteilen sich deine tatsächlichen Aktien?")
@@ -393,11 +406,11 @@ with tab7:
         cd1, cd2 = st.columns(2)
         names_list = stock_df["Unternehmen"].tolist()
         with cd1:
-            duel_a = st.selectbox("Erste Aktie:", names_list, index=0)
+            duel_a = st.selectbox("Erste Aktie:", names_list, index=0, key="duel_sel_a")
         with cd2:
-            duel_b = st.selectbox("Zweite Aktie:", names_list, index=1)
+            duel_b = st.selectbox("Zweite Aktie:", names_list, index=1, key="duel_sel_b")
         
-        if st.button("⚡ Duell auswerten", width="stretch"):
+        if st.button("⚡ Duell auswerten", width="stretch", key="btn_duel_run"):
             if GROQ_KEY:
                 cl = Groq(api_key=GROQ_KEY)
                 row_a = stock_df[stock_df["Unternehmen"] == duel_a].iloc[0].to_dict()
