@@ -111,11 +111,8 @@ with st.sidebar:
 
     st.divider()
     st.header("🤖 KI-Modell")
-    if GROQ_KEY:
-        available_models = get_account_models(GROQ_KEY)
-        selected_model = st.selectbox("Auswahl:", available_models, index=0)
-    else:
-        selected_model = "openai/gpt-oss-120b"
+    available_models = get_account_models(GROQ_KEY)
+    selected_model = st.selectbox("Auswahl:", available_models, index=0)
 
 # BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
@@ -141,13 +138,13 @@ else:
 # KI-AUSWERTUNGS BUTTON
 if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type="primary"):
     if not GROQ_KEY:
-        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte in den Secrets eintragen.")
+        st.error("⚠️ Kein GROQ_API_KEY hinterlegt! Bitte trage deinen Key in den Streamlit Secrets ein.")
     elif not st.session_state.my_portfolio:
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
         with st.spinner("Analysiere Weltlage und erstelle Top-5-Kaufempfehlungen..."):
             try:
-                client = Groq(api_key=GROQ_KEY.strip(), timeout=12.0)
+                client = Groq(api_key=GROQ_KEY.strip(), timeout=10.0)
                 news_data = fetch_all_headlines()
                 news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
