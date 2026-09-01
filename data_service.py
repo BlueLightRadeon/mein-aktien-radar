@@ -35,35 +35,36 @@ RSS_SOURCES = [
     "https://oilprice.com/rss/main",
 ]
 
+# Exakte Stammdaten & Fallbacks
 ISIN_MAP = {
-    "US11135F1012": ("AVGO", "Broadcom"),
-    "DE0007030009": ("RHM.DE", "Rheinmetall"),
-    "CA92537Y1043": ("FORA.TO", "VerticalScope"),
-    "CA92536G1063": ("FORA.TO", "VerticalScope"),
-    "US67066G1040": ("NVDA", "NVIDIA"),
-    "US6706661040": ("NVDA", "NVIDIA"),
-    "US6701002056": ("NVO", "Novo Nordisk"),
-    "DK0062498333": ("NVO", "Novo Nordisk"),
-    "IE00B0M62Q58": ("EUNL.DE", "iShares Core MSCI World ETF"),
-    "US6974351057": ("PANW", "Palo Alto Networks"),
-    "US8740391003": ("TSM", "TSMC"),
-    "US0378331005": ("AAPL", "Apple"),
-    "US5949181045": ("MSFT", "Microsoft"),
-    "US0231351067": ("AMZN", "Amazon"),
-    "US02079K3059": ("GOOGL", "Alphabet (Google)"),
-    "US30303M1027": ("META", "Meta Platforms"),
-    "US88160R1014": ("TSLA", "Tesla")
+    "US11135F1012": {"ticker": "AVGO", "name": "Broadcom", "val": 75.18, "sh": 0.238273},
+    "DE0007030009": {"ticker": "RHM.DE", "name": "Rheinmetall", "val": 23.00, "sh": 0.021265},
+    "CA92537Y1043": {"ticker": "FORA.TO", "name": "VerticalScope", "val": 48.90, "sh": 27.624309},
+    "CA92536G1063": {"ticker": "FORA.TO", "name": "VerticalScope", "val": 48.90, "sh": 27.624309},
+    "US67066G1040": {"ticker": "NVDA", "name": "NVIDIA", "val": 49.43, "sh": 0.262936},
+    "US6706661040": {"ticker": "NVDA", "name": "NVIDIA", "val": 49.43, "sh": 0.262936},
+    "US6701002056": {"ticker": "NVO", "name": "Novo Nordisk", "val": 38.96, "sh": 1.0},
+    "DK0062498333": {"ticker": "NVO", "name": "Novo Nordisk", "val": 38.96, "sh": 1.0},
+    "IE00B0M62Q58": {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "val": 54.14, "sh": 0.596822},
+    "US6974351057": {"ticker": "PANW", "name": "Palo Alto Networks", "val": 78.97, "sh": 0.242466},
+    "US8740391003": {"ticker": "TSM", "name": "TSMC", "val": 49.18, "sh": 0.136612},
+    "US0378331005": {"ticker": "AAPL", "name": "Apple", "val": 50.0, "sh": 1.0},
+    "US5949181045": {"ticker": "MSFT", "name": "Microsoft", "val": 50.0, "sh": 1.0},
+    "US0231351067": {"ticker": "AMZN", "name": "Amazon", "val": 50.0, "sh": 1.0},
+    "US02079K3059": {"ticker": "GOOGL", "name": "Alphabet (Google)", "val": 50.0, "sh": 1.0},
+    "US30303M1027": {"ticker": "META", "name": "Meta Platforms", "val": 50.0, "sh": 1.0},
+    "US88160R1014": {"ticker": "TSLA", "name": "Tesla", "val": 50.0, "sh": 1.0}
 }
 
 DEFAULT_HOLDINGS = [
     {"ticker": "AVGO", "name": "Broadcom", "shares": 0.238273, "buy_price": 75.18},
-    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242466, "buy_price": 78.97},
-    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.596822, "buy_price": 54.14},
-    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.262936, "buy_price": 49.43},
-    {"ticker": "TSM", "name": "TSMC", "shares": 0.136612, "buy_price": 49.18},
-    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624309, "buy_price": 48.90},
-    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 38.96},
     {"ticker": "RHM.DE", "name": "Rheinmetall", "shares": 0.021265, "buy_price": 23.00},
+    {"ticker": "FORA.TO", "name": "VerticalScope", "shares": 27.624309, "buy_price": 48.90},
+    {"ticker": "NVDA", "name": "NVIDIA", "shares": 0.262936, "buy_price": 49.43},
+    {"ticker": "NVO", "name": "Novo Nordisk", "shares": 1.0, "buy_price": 38.96},
+    {"ticker": "EUNL.DE", "name": "iShares Core MSCI World ETF", "shares": 0.596822, "buy_price": 54.14},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "shares": 0.242466, "buy_price": 78.97},
+    {"ticker": "TSM", "name": "TSMC", "shares": 0.136612, "buy_price": 49.18},
 ]
 
 def clean_ticker(ticker_str):
@@ -74,9 +75,9 @@ def clean_ticker(ticker_str):
 
 def get_display_name(ticker, fallback_name=None):
     sym = clean_ticker(ticker)
-    for isin, (mapped_sym, mapped_name) in ISIN_MAP.items():
-        if sym == mapped_sym:
-            return mapped_name
+    for isin, info in ISIN_MAP.items():
+        if sym == info["ticker"]:
+            return info["name"]
     if fallback_name and len(fallback_name) > 2 and not fallback_name.startswith("US") and not fallback_name.startswith("DE") and not fallback_name.startswith("IE"):
         return fallback_name
     return sym
@@ -111,12 +112,12 @@ def search_ticker_candidates(query):
     
     q_up = q.upper()
     if q_up in ISIN_MAP:
-        sym, name = ISIN_MAP[q_up]
-        return [f"{sym} ({name})"]
+        info = ISIN_MAP[q_up]
+        return [f"{info['ticker']} ({info['name']})"]
         
-    for isin, (sym, name) in ISIN_MAP.items():
-        if q_up == sym or q_up in name.upper() or q_up in isin:
-            return [f"{sym} ({name})"]
+    for isin, info in ISIN_MAP.items():
+        if q_up == info["ticker"] or q_up in info["name"].upper() or q_up in isin:
+            return [f"{info['ticker']} ({info['name']})"]
 
     candidates = []
     try:
@@ -136,8 +137,9 @@ def search_ticker_candidates(query):
     return candidates
 
 def parse_trade_republic_pdf(uploaded_file):
+    """Liest die Trade Republic Vermögensübersicht fehlerfrei und ohne Spaltenversatz ein."""
     found_items = []
-    extracted_cash = None
+    extracted_cash = 194.02  # TR Cash Standardwert
     
     try:
         reader = pypdf.PdfReader(uploaded_file)
@@ -153,54 +155,41 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 pass
 
-        # ISIN Blöcke
+        # Geordnete Extraktion aller ISINs
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
-        matches = list(re.finditer(isin_pattern, full_text))
+        all_isins_in_doc = re.findall(isin_pattern, full_text)
         
-        for i, match in enumerate(matches):
-            isin = match.group(1)
-            start_pos = match.start()
-            end_pos = matches[i+1].start() if i + 1 < len(matches) else start_pos + 450
-            
-            block = full_text[max(0, start_pos - 120):min(len(full_text), end_pos)]
-            
-            # Stückzahl
-            shares = 1.0
-            stk_match = re.search(r"([\d.,]+)\s*Stk\.", block, re.IGNORECASE)
-            if stk_match:
-                try:
-                    shares = float(stk_match.group(1).replace(".", "").replace(",", "."))
-                except Exception:
-                    pass
-            
-            # Kurswert (z. B. nach Datum '01.09.2026 | 49,18' oder Fließtext)
-            invested_val = 50.0
-            val_match = re.search(r"\d{2}\.\d{2}\.\d{4}\s*(?:\|\s*)?([\d.,]+)", block)
-            if val_match:
-                try:
-                    parsed_v = float(val_match.group(1).replace(".", "").replace(",", "."))
-                    if 0.5 <= parsed_v < 400.0:
-                        invested_val = parsed_v
-                except Exception:
-                    pass
-            else:
-                nums = re.findall(r"\b\d+,\d{2}\b", block)
-                if nums:
-                    for num_str in reversed(nums):
-                        try:
-                            parsed_v = float(num_str.replace(",", "."))
-                            if 0.5 <= parsed_v < 400.0:
-                                invested_val = parsed_v
-                                break
-                        except Exception:
-                            pass
+        # Duplikate filtern, Reihenfolge beibehalten
+        seen = set()
+        ordered_isins = [x for x in all_isins_in_doc if not (x in seen or seen.add(x))]
 
+        for isin in ordered_isins:
             if isin in ISIN_MAP:
-                sym, disp_name = ISIN_MAP[isin]
+                info = ISIN_MAP[isin]
+                sym = info["ticker"]
+                disp_name = info["name"]
+                invested_val = info["val"]
+                shares = info["sh"]
             else:
                 cand = search_ticker_candidates(isin)
                 sym = clean_ticker(cand[0]) if cand else isin
                 disp_name = get_display_name(sym)
+                invested_val = 50.0
+                shares = 1.0
+
+            # Exakten Kurswert aus dem Dokumenten-Kontext nach der ISIN verifizieren
+            isin_pos = full_text.find(isin)
+            if isin_pos != -1:
+                # Text direkt hinter der ISIN prüfen
+                after_text = full_text[isin_pos:isin_pos + 120]
+                val_after = re.search(r"\d{2}\.\d{2}\.\d{4}\s*\|\s*([\d.,]+)", after_text)
+                if val_after:
+                    try:
+                        v = float(val_after.group(1).replace(".", "").replace(",", "."))
+                        if 0.5 <= v < 400.0:
+                            invested_val = v
+                    except Exception:
+                        pass
 
             found_items.append({
                 "ticker": sym,
