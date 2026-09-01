@@ -149,29 +149,26 @@ if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type=
         st.error("⚠️ Keine Aktien im Depot vorhanden.")
     else:
         with st.spinner("Analysiere Weltlage, Makrodaten und Positionen mit Groq KI..."):
-            try:
-                client = Groq(api_key=GROQ_KEY.strip())
-                news_data = fetch_all_headlines()
-                news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
+            client = Groq(api_key=GROQ_KEY.strip())
+            news_data = fetch_all_headlines()
+            news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
 
-                metrics_summary = stock_df[[
-                    "Unternehmen", "Börsenkurs", "RSI (14D)", 
-                    "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
-                ]].to_string(index=False)
+            metrics_summary = stock_df[[
+                "Unternehmen", "Börsenkurs", "RSI (14D)", 
+                "KGV (P/E)", "Fair Value", "Analysten-Kursziel", "Konsens-Rating", "Dividendenrendite"
+            ]].to_string(index=False)
 
-                cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
+            cluster_context = stock_df[["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"]].to_string(index=False)
 
-                out_m, out_d, out_s, out_c = run_analysis(
-                    client, selected_model, news_text, metrics_summary, "", cluster_context
-                )
-                st.session_state["ai_market"] = out_m
-                st.session_state["ai_depot"] = out_d
-                st.session_state["ai_signals"] = out_s
-                st.session_state["ai_cluster"] = out_c
-                st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.success("✅ Auswertung abgeschlossen!")
-            except Exception as e:
-                st.error(f"Fehler: {str(e)}")
+            out_m, out_d, out_s, out_c = run_analysis(
+                client, selected_model, news_text, metrics_summary, "", cluster_context
+            )
+            st.session_state["ai_market"] = out_m
+            st.session_state["ai_depot"] = out_d
+            st.session_state["ai_signals"] = out_s
+            st.session_state["ai_cluster"] = out_c
+            st.session_state["last_analysis_time"] = get_berlin_time_str()
+            st.rerun()
 
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -229,6 +226,8 @@ with tab2:
         st.divider()
         st.subheader("🤖 KI-Stimmungsbericht:")
         st.markdown(st.session_state["ai_depot"])
+    else:
+        st.info("Klicke oben auf den Button, um den Stimmungsbericht zu laden.")
 
 # TAB 3: TERMINE & CASHFLOW
 with tab3:
