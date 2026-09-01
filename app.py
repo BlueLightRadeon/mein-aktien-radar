@@ -115,7 +115,7 @@ with st.sidebar:
         available_models = get_account_models(GROQ_KEY)
         selected_model = st.selectbox("Auswahl:", available_models, index=0)
     else:
-        selected_model = "openai/gpt-oss-120b"
+        selected_model = "llama-3.3-70b-versatile"
 
 # BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(st.session_state.my_portfolio)
@@ -166,7 +166,6 @@ if st.button("🚀 Jetzt KI-Auswertung starten", use_container_width=True, type=
                 st.session_state["ai_signals"] = out_s
                 st.session_state["ai_cluster"] = out_c
                 st.session_state["last_analysis_time"] = get_berlin_time_str()
-                st.rerun()
             except Exception as e:
                 st.error(f"Fehler: {str(e)}")
 
