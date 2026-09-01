@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
+# Smartphone-optimierte Seitenkonfiguration
 st.set_page_config(
     page_title="KI Markt- & Depot-Radar",
     page_icon="📈",
@@ -13,7 +14,7 @@ st.set_page_config(
 
 st.title("📈 KI Markt- & Depot-Radar")
 
-# Key aus Secrets laden
+# Key aus Streamlit Secrets laden
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 with st.sidebar:
@@ -47,13 +48,15 @@ def fetch_all_headlines(sources):
   for url in sources:
     try:
       feed = feedparser.parse(url)
-      for entry in feed.entries[:2]:  # 2 Top-Headlines je Feed
+      for entry in feed.entries[:2]:
         if hasattr(entry, "title") and entry.title:
-          headlines.append(f"- {entry.title.strip()}")
+          title = entry.title.strip()
+          if title and title not in headlines:
+            headlines.append(f"- {title}")
     except Exception:
       continue
-  # Auf 40 Schlagzeilen limitieren, um Free-Tier-Limits niemals zu überschreiten
-  return headlines[:40]
+  # Strikt auf 25 Schlagzeilen begrenzen, um Groq-Limits sicher einzuhalten
+  return headlines[:25]
 
 
 def get_stock_data(tickers):
@@ -84,79 +87,76 @@ def get_stock_data(tickers):
   return pd.DataFrame(data)
 
 
-def run_groq_completion(client, prompt):
-  # Liste robuster Chat-Modelle (schließt Whisper/Embeddings aus)
-  chat_models = [
-      "llama-3.3-70b-versatile",
-      "llama-3.1-8b-instant",
-      "llama3-70b-8192",
-      "llama3-8b-8192",
-      "gemma2-9b-it",
-      "mixtral-8x7b-32768",
-  ]
-  for model_name in chat_models:
-    try:
-      res = client.chat.completions.create(
-          model=model_name,
-          messages=[{"role": "user", "content": prompt}],
-          temperature=0.5,
-          max_tokens=1024,
-      )
-      return res.choices[0].message.content
-    except Exception:
-      continue
-  raise RuntimeError("Keines der Chat-Modelle konnte aufgerufen werden.")
-
-
 tab1, tab2, tab3 = st.tabs(
     ["🌍 Markt Top 10", "💼 Sentiment & Depot", "📅 Earnings-Kalender"]
 )
 
 if st.button("🚀 KI-Analyse starten", use_container_width=True):
   if not GROQ_KEY:
-    st.error("⚠️ Kein GROQ_API_KEY in den Streamlit Secrets gefunden!")
+    st.error(
+        "⚠️ Kein GROQ_API_KEY in den Streamlit Secrets gefunden! Bitte unter"
+        " Settings -> Secrets eintragen."
+    )
   else:
     client = Groq(api_key=GROQ_KEY.strip())
     tickers = [
         t.strip().upper() for t in portfolio_input.split(",") if t.strip()
     ]
 
-    with st.spinner("Scanne 40+ Quellen und erstelle Auswertung..."):
+    with st.spinner("Scanne 40+ Quellen und werte Daten per KI aus..."):
       news_data = fetch_all_headlines(RSS_SOURCES)
       news_text = "\n".join(news_data)
       stock_df = get_stock_data(tickers)
 
       prompt_market = f"""
-Hier sind aktuelle weltweite Wirtschaftsnachrichten:
+Aktuelle globale Finanz- und Wirtschaftsnachrichten:
 {news_text}
 
-Fasse die **TOP 10 wichtigsten Markt-Informationen** des Tages prägnant auf Deutsch zusammen.
-Bewerte am Ende kurz die Marktstimmung (Bullisch / Neutral / Bärisch).
+Fasse die **TOP 10 wichtigsten Markt-Informationen** prägnant auf Deutsch zusammen.
+Bewerte am Ende kurz die Gesamt-Marktstimmung (Bullisch / Neutral / Bärisch).
 """
 
       prompt_depot = f"""
 Depot-Aktien: {', '.join(tickers)}
-Wirtschaftsnachrichten:
+Nachrichtenlage:
 {news_text}
 
-Erstelle für jede Aktie einzeln:
+Erstelle für jede Aktie ({', '.join(tickers)}):
 1. **Sentiment**: 🟢 Bullisch, 🟡 Neutral oder 🔴 Bärisch
-2. **Fokus/News**: Relevante Trends oder Neuigkeiten dazu.
+2. **Fokus/News**: Aktuelle Trends oder Einflussfaktoren.
 3. **Tipp für Anleger**: Worauf die nächsten Tage geachtet werden sollte.
 """
 
-      out_market = run_groq_completion(client, prompt_market)
-      out_depot = run_groq_completion(client, prompt_depot)
+      # Wir fragen das offizielle, stabile Llama-Modell gezielt ab
+      try:
+        res_market = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt_market}],
+            temperature=0.4,
+            max_tokens=800,
+        )
+        out_market = res_market.choices[0].message.content
 
-    with tab1:
-      st.markdown(out_market)
+        res_depot = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt_depot}],
+            temperature=0.4,
+            max_tokens=800,
+        )
+        out_depot = res_depot.choices[0].message.content
 
-    with tab2:
-      st.subheader("Aktuelle Kurse")
-      st.dataframe(stock_df[["Ticker", "Kurs"]], hide_index=True)
-      st.divider()
-      st.markdown(out_depot)
+        with tab1:
+          st.markdown(out_market)
 
-    with tab3:
-      st.subheader("📅 Anstehende Quartalszahlen")
-      st.dataframe(stock_df, hide_index=True)
+        with tab2:
+          st.subheader("Aktuelle Kurse")
+          st.dataframe(stock_df[["Ticker", "Kurs"]], hide_index=True)
+          st.divider()
+          st.markdown(out_depot)
+
+        with tab3:
+          st.subheader("📅 Anstehende Quartalszahlen")
+          st.dataframe(stock_df, hide_index=True)
+
+      except Exception as e:
+        st.error(f"Fehler bei der Groq-Abfrage: {str(e)}")
