@@ -1,6 +1,6 @@
 from datetime import datetime
 from ai_service import get_account_models, run_analysis
-from data_service import clean_ticker, fetch_all_headlines, get_historical_chart_data, get_stock_data, load_saved_portfolio, save_portfolio_to_file, search_ticker_candidates
+from data_service import clean_ticker, fetch_all_headlines, get_individual_series_dict, get_stock_data, load_saved_portfolio, save_portfolio_to_file, search_ticker_candidates
 from groq import Groq
 import pandas as pd
 import plotly.graph_objects as go
@@ -42,7 +42,7 @@ with st.sidebar:
           st.success("Hinzugefügt!")
           st.rerun()
     else:
-      st.caption("Keine exakten Treffer gefunden.")
+      st.caption("Keine Treffer gefunden.")
 
   st.divider()
 
@@ -80,7 +80,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Live-Charts & Performance",
 ])
 
-# TAB 5: Live-Charts
+# TAB 5: Live-Charts & Performance
 with tab5:
   st.subheader("📊 Kursentwicklung & Performance")
 
@@ -108,25 +108,26 @@ with tab5:
 
   if st.session_state.my_portfolio:
     with st.spinner("Lade Chartdaten für alle ausgewählten Werte..."):
-      chart_df = get_historical_chart_data(
+      series_dict = get_individual_series_dict(
           st.session_state.my_portfolio, period=timeframe
       )
 
-    if not chart_df.empty and len(chart_df) > 1:
-      view_options = ["Alle Aktien gleichzeitig"] + list(chart_df.columns)
+    if series_dict:
+      available_tickers = list(series_dict.keys())
+      view_options = ["Alle Aktien gleichzeitig"] + available_tickers
       selected_view = st.selectbox("Fokus-Auswahl:", view_options, index=0)
 
-      # Metrik-Karten
-      metric_cols = st.columns(min(len(chart_df.columns), 4))
-      for idx, col in enumerate(chart_df.columns):
-        series_clean = chart_df[col].dropna()
-        if len(series_clean) >= 2:
-          start_p = series_clean.iloc[0]
-          end_p = series_clean.iloc[-1]
+      # 1. Metrik-Karten oben drüber für alle geladenen Aktien
+      metric_cols = st.columns(min(len(available_tickers), 4))
+      for idx, t in enumerate(available_tickers):
+        s = series_dict[t]
+        if len(s) >= 2:
+          start_p = s.iloc[0]
+          end_p = s.iloc[-1]
           diff_pct = ((end_p - start_p) / start_p) * 100
           with metric_cols[idx % len(metric_cols)]:
             st.metric(
-                label=col,
+                label=t,
                 value=f"{end_p:.2f}",
                 delta=f"{diff_pct:+.2f}% ({timeframe.upper()})",
             )
@@ -141,27 +142,27 @@ with tab5:
           "#FF6900",
       ]
       fig = go.Figure()
-      cols_to_plot = (
-          chart_df.columns
+      tickers_to_plot = (
+          available_tickers
           if selected_view == "Alle Aktien gleichzeitig"
           else [selected_view]
       )
 
       if chart_mode == "Performance in %":
-        for i, col in enumerate(cols_to_plot):
-          series_clean = chart_df[col].dropna()
-          if not series_clean.empty and series_clean.iloc[0] > 0:
-            base_val = series_clean.iloc[0]
-            pct_series = ((chart_df[col] - base_val) / base_val) * 100
+        for i, t in enumerate(tickers_to_plot):
+          s = series_dict[t]
+          if not s.empty and s.iloc[0] > 0:
+            base_val = s.iloc[0]
+            pct_series = ((s - base_val) / base_val) * 100
             color = palette[i % len(palette)]
             fig.add_trace(
                 go.Scatter(
-                    x=chart_df.index,
+                    x=s.index,
                     y=pct_series,
                     mode="lines",
-                    name=col,
+                    name=t,
                     line=dict(width=2.5, color=color),
-                    hovertemplate=f"<b>{col}</b>: %{{y:+.2f}}%<extra></extra>",
+                    hovertemplate=f"<b>{t}</b>: %{{y:+.2f}}%<extra></extra>",
                 )
             )
 
@@ -169,7 +170,7 @@ with tab5:
             y=0,
             line_dash="dash",
             line_color="rgba(150,150,150,0.6)",
-            annotation_text="Ausgangswert (0%)",
+            annotation_text="Start (0%)",
             annotation_position="bottom right",
         )
 
@@ -192,20 +193,21 @@ with tab5:
                 orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0
             ),
             margin=dict(l=10, r=10, t=60, b=10),
-            height=420,
+            height=430,
         )
       else:
-        for i, col in enumerate(cols_to_plot):
+        for i, t in enumerate(tickers_to_plot):
+          s = series_dict[t]
           color = palette[i % len(palette)]
           fig.add_trace(
               go.Scatter(
-                  x=chart_df.index,
-                  y=chart_df[col],
+                  x=s.index,
+                  y=s,
                   mode="lines",
-                  name=col,
+                  name=t,
                   line=dict(width=2.5, color=color),
                   hovertemplate=(
-                      f"<b>{col}</b>: %{{y:.2f}} (EUR/USD)<extra></extra>"
+                      f"<b>{t}</b>: %{{y:.2f}} (EUR/USD)<extra></extra>"
                   ),
               )
           )
@@ -227,7 +229,7 @@ with tab5:
                 orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0
             ),
             margin=dict(l=10, r=10, t=60, b=10),
-            height=420,
+            height=430,
         )
 
       st.plotly_chart(
@@ -257,7 +259,7 @@ if st.button("🚀 KI-Analyse starten", use_container_width=True):
 
     with st.spinner(
         f"Lade Daten für alle {len(st.session_state.my_portfolio)} Aktien &"
-        f" analysiere mit '{selected_model}'..."
+        f" erstelle KI-Auswertung..."
     ):
       news_data = fetch_all_headlines()
       news_text = "\n".join(news_data)
