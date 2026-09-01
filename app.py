@@ -5,12 +5,12 @@ import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
 
-# Eindeutige Keys für Null-Start
-if "tr_user_portfolio" not in st.session_state:
-    st.session_state["tr_user_portfolio"] = []
+# Initialisierung auf 0.0
+if "v_portfolio" not in st.session_state:
+    st.session_state["v_portfolio"] = []
 
-if "tr_user_cash" not in st.session_state:
-    st.session_state["tr_user_cash"] = 0.0
+if "v_cash" not in st.session_state:
+    st.session_state["v_cash"] = 0.0
 
 try:
     from data_service import (
@@ -62,17 +62,18 @@ with st.sidebar:
         if tr_pdf is not None:
             if st.button("📄 Auszug jetzt einlesen", width="stretch"):
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
-                st.session_state["tr_user_portfolio"] = imported_items
-                st.session_state["tr_user_cash"] = float(imported_cash)
-                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['tr_user_cash'])}) eingelesen!")
+                st.session_state["v_portfolio"] = imported_items
+                st.session_state["v_cash"] = float(imported_cash)
+                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) eingelesen!")
                 st.rerun()
 
-    current_cash = float(st.session_state.get("tr_user_cash", 0.0))
-    st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(current_cash)}`")
+    # Cash Anzeige
+    display_cash = float(st.session_state.get("v_cash", 0.0))
+    st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
 
     if st.button("🗑️ Depot & Cash leeren", width="stretch"):
-        st.session_state["tr_user_portfolio"] = []
-        st.session_state["tr_user_cash"] = 0.0
+        st.session_state["v_portfolio"] = []
+        st.session_state["v_cash"] = 0.0
         st.session_state.pop("ai_signals", None)
         st.session_state.pop("ai_market", None)
         st.session_state.pop("ai_depot", None)
@@ -91,7 +92,7 @@ with st.sidebar:
             if st.button("➕ Hinzufügen", width="stretch"):
                 sym = clean_ticker(selected_cand)
                 disp_name = get_display_name(sym)
-                st.session_state["tr_user_portfolio"].append({
+                st.session_state["v_portfolio"].append({
                     "ticker": sym,
                     "name": disp_name,
                     "shares": 1.0,
@@ -102,7 +103,7 @@ with st.sidebar:
 
     st.divider()
     st.subheader("📋 Eingelesene Positionen:")
-    portfolio_list = st.session_state.get("tr_user_portfolio", [])
+    portfolio_list = st.session_state.get("v_portfolio", [])
     if portfolio_list:
         for idx, item in enumerate(list(portfolio_list)):
             disp_name = get_display_name(item.get("ticker", ""), item.get("name"))
@@ -112,7 +113,7 @@ with st.sidebar:
                 st.caption(f"Einsatz: {fmt_eur(float(item.get('buy_price', 0.0)))}")
             with col_pos_b:
                 if st.button("❌", key=f"del_item_{idx}_{item.get('ticker','')}"):
-                    st.session_state["tr_user_portfolio"].pop(idx)
+                    st.session_state["v_portfolio"].pop(idx)
                     st.rerun()
     else:
         st.info("Noch kein Auszug geladen (0 Positionen).")
@@ -126,7 +127,7 @@ with st.sidebar:
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 total_invested = sum([float(x.get("buy_price", 0.0)) for x in portfolio_list])
 stock_val = stock_df["_raw_val"].sum() if not stock_df.empty and stock_df["_raw_val"].sum() > 0 else total_invested
-total_tr_account = stock_val + current_cash
+total_tr_account = stock_val + display_cash
 stock_pnl = stock_val - total_invested
 stock_pnl_pct = (stock_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
 
@@ -194,7 +195,7 @@ with tab0:
     st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash aus Auszug) und dem aktuellen Wert deiner Wertpapiere.")
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
-        st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(current_cash)}")
+        st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(display_cash)}")
     with col_tr2:
         st.success(f"📈 **Aktueller Wert deiner Aktien:** {fmt_eur(stock_val)}")
         
