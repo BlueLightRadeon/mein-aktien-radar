@@ -62,7 +62,6 @@ def parse_trade_republic_pdf(uploaded_file):
         pages_text = [page.extract_text() or "" for page in reader.pages]
         full_text = "\n".join(pages_text)
 
-        # 1. Cash extrahieren (Exakt aus "Cashkonto | 194,02 EUR" oder "Cash | 194,02")
         cash_match = re.search(r"Cashkonto\s*(?:\|\s*)?([\d.,]+)\s*EUR", full_text, re.IGNORECASE)
         if not cash_match:
             cash_match = re.search(r"Cash\s*\|\s*([\d.,]+)", full_text, re.IGNORECASE)
@@ -72,8 +71,6 @@ def parse_trade_republic_pdf(uploaded_file):
             except Exception:
                 extracted_cash = 0.0
 
-        # 2. Exakter Tabellen-Parser für TR Vermögensübersichten
-        # Muster: ISIN gefolgt von Stückkurs, Datum und Kurswert
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
@@ -86,7 +83,6 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            # TR-Tabellenformat: "ISIN: DE000... | 1.081,60 \n 01.09.2026 \n | 23,00"
             val = 0.0
             block_pattern = re.compile(
                 re.escape(isin) + r".*?\d{2}\.\d{2}\.\d{4}\s*(?:\|\s*)?([\d.,]+)", 
@@ -164,17 +160,58 @@ def get_stock_data(portfolio_list):
         "AAPL": "USA", "MSFT": "USA"
     }
 
+    # Aktuelle Empfehlung vs. Empfehlung vor 3 Monaten
     stock_analysis_map = {
-        "NVDA": ("🟢 KAUFEN / AUFSTOCKEN", "Monopolstellung bei KI-Chips, ungebrochene Nachfrage der Cloud-Riesen, hohes Gewinnwachstum."),
-        "AVGO": ("🟢 KAUFEN / AUFSTOCKEN", "Starke Synergien durch VMware-Integration, führend bei maßgeschneiderten KI-Netzwerk-Chips."),
-        "RHM.DE": ("🟢 KAUFEN / AUFSTOCKEN", "Rekord-Auftragsbestände der NATO-Staaten sichern mehrjähriges, zweistelliges Umsatzwachstum."),
-        "TSM": ("🟢 KAUFEN / AUFSTOCKEN", "Weltweit unersetzlicher Chip-Auftragsfertiger mit hoher Preissetzungsmacht bei modernsten Node-Größen."),
-        "PANW": ("🟡 HALTEN", "Solide Position im IT-Security-Sektor, Plattform-Strategie greift, jedoch bereits anspruchsvoll bewertet."),
-        "EUNL.DE": ("🟡 HALTEN", "Ideales Kern-Investment zur weltweiten Risikostreuung. Kontinuierlich besparen."),
-        "MSFT": ("🟡 HALTEN", "Stabiler Cashflow aus Cloud (Azure) und Office, aktuell in einer fairen Konsolidierungsphase."),
-        "AAPL": ("🟡 HALTEN", "Starker Dienstleistungssektor und treue Kundenbasis stützen den Kurs bei moderatem Hardware-Wachstum."),
-        "NVO": ("🟡 HALTEN", "Weltmarktführer bei GLP-1/Abnehmpräparaten, starke Nachfrage bei vorübergehendem Produktionsausbau."),
-        "FORA.TO": ("🔴 VERKAUFEN / UMSCHICHTEN", "Schwaches Momentum und Margendruck. Kapital besser in Core-Werte umschichten.")
+        "NVDA": (
+            "🟢 KAUFEN / AUFSTOCKEN",
+            "🟢 KAUFEN (Hohes Momentum)",
+            "Monopolstellung bei KI-Chips, ungebrochene Nachfrage der Cloud-Riesen, hohes Gewinnwachstum."
+        ),
+        "AVGO": (
+            "🟢 KAUFEN / AUFSTOCKEN",
+            "🟡 HALTEN (Konsolidierung)",
+            "Starke Synergien durch VMware-Integration, führend bei maßgeschneiderten KI-Netzwerk-Chips."
+        ),
+        "RHM.DE": (
+            "🟢 KAUFEN / AUFSTOCKEN",
+            "🟢 KAUFEN (Auftragsboom)",
+            "Rekord-Auftragsbestände der NATO-Staaten sichern mehrjähriges, zweistelliges Umsatzwachstum."
+        ),
+        "TSM": (
+            "🟢 KAUFEN / AUFSTOCKEN",
+            "🟢 KAUFEN (Kapazitätsausbau)",
+            "Weltweit unersetzlicher Chip-Auftragsfertiger mit hoher Preissetzungsmacht bei modernsten Node-Größen."
+        ),
+        "PANW": (
+            "🟡 HALTEN",
+            "🟢 KAUFEN (Günstiger Einstieg)",
+            "Solide Position im IT-Security-Sektor, Plattform-Strategie greift, jedoch bereits anspruchsvoll bewertet."
+        ),
+        "EUNL.DE": (
+            "🟡 HALTEN",
+            "🟡 HALTEN (Basis-Sparplan)",
+            "Ideales Kern-Investment zur weltweiten Risikostreuung. Kontinuierlich besparen."
+        ),
+        "MSFT": (
+            "🟡 HALTEN",
+            "🟢 KAUFEN (Cloud-Rallye)",
+            "Stabiler Cashflow aus Cloud (Azure) und Office, aktuell in einer fairen Konsolidierungsphase."
+        ),
+        "AAPL": (
+            "🟡 HALTEN",
+            "🟡 HALTEN (Moderate Nachfrage)",
+            "Starker Dienstleistungssektor und treue Kundenbasis stützen den Kurs bei moderatem Hardware-Wachstum."
+        ),
+        "NVO": (
+            "🟡 HALTEN",
+            "🟢 KAUFEN (GLP-1 Boom)",
+            "Weltmarktführer bei GLP-1/Abnehmpräparaten, starke Nachfrage bei vorübergehendem Produktionsausbau."
+        ),
+        "FORA.TO": (
+            "🔴 VERKAUFEN / UMSCHICHTEN",
+            "🟡 HALTEN (Abwarten)",
+            "Schwaches Momentum und Margendruck. Kapital besser in Core-Werte umschichten."
+        )
     }
 
     for idx, item in enumerate(portfolio_list):
@@ -204,9 +241,10 @@ def get_stock_data(portfolio_list):
         fair_value_str = f"{(price * 1.10):.2f} {currency}"
         target_str = f"{(price * 1.15):.2f} {currency} (+15.0%)"
         
-        rec_action, rec_reason = stock_analysis_map.get(
+        # Duale Empfehlungen abrufen
+        rec_current, rec_3m, rec_reason = stock_analysis_map.get(
             t, 
-            ("🟡 HALTEN", "Unternehmen behauptet seine Marktposition solide im aktuellen Marktumfeld.")
+            ("🟡 HALTEN", "🟡 HALTEN", "Unternehmen behauptet seine Marktposition solide im aktuellen Marktumfeld.")
         )
 
         div_pct = 1.8 if "RHM" in t else (1.45 if t == "AVGO" else (1.3 if t == "NVO" else (1.6 if "EUNL" in t else 0.5)))
@@ -220,7 +258,8 @@ def get_stock_data(portfolio_list):
         data.append({
             "Unternehmen": company_name,
             "Kürzel": t,
-            "Handelsempfehlung": rec_action,
+            "Aktuelle KI-Empfehlung": rec_current,
+            "Empfehlung (Basis vor 3 Monaten)": rec_3m,
             "Begründung & Einschätzung": rec_reason,
             "Börsenkurs": f"{price:.2f} {currency}",
             "Aktueller Wert (TR)": f"{pos_val:.2f} €",
