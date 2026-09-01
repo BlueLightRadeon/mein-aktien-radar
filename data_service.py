@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pypdf
 import yfinance as yf
+from groq import Groq
 import streamlit as st
 
 ISIN_MAP = {
@@ -52,35 +53,77 @@ def search_ticker_candidates(query):
             return [f"{info['ticker']} ({info['name']})"]
     return []
 
-def parse_trade_republic_pdf(uploaded_file):
+def parse_trade_republic_pdf(uploaded_file, api_key=None):
     found_items = []
     extracted_cash = 0.0
+    
     try:
         pdf_bytes = uploaded_file.read() if hasattr(uploaded_file, "read") else uploaded_file
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        
         pages_text = [page.extract_text() or "" for page in reader.pages]
         full_text = "\n".join(pages_text)
-        
-        # 1. Cash extrahieren (Saldo / Verrechnungskonto)
-        cash_match = re.search(r"(?:Cashkonto|Saldo|Geldkonto|Verrechnungskonto)[^\d\n]*([\d.,]+)\s*(?:EUR|€)", full_text, re.IGNORECASE)
-        if cash_match:
-            try:
-                c_val = float(cash_match.group(1).replace(".", "").replace(",", "."))
-                if 0.0 <= c_val <= 500000.0:
-                    extracted_cash = c_val
-            except Exception:
-                extracted_cash = 0.0
 
-        # 2. ISINs identifizieren
+        # 1. KI-GESTÜTZTE ANALYSE MIT GROQ (Präzise JSON-Extraktion)
+        if api_key:
+            try:
+                client = Groq(api_key=api_key)
+                prompt = f"""
+Du bist ein präziser Finanz-Parser. Extrahiere aus dem folgenden Trade Republic Kontoauszug/Depotauszug exakt zwei Daten im reinen JSON-Format:
+
+1. "cash": Der reale, aktuelle Bargeldbestand (Verrechnungskonto / Cashkonto / Endsaldo) als Fließkommazahl (z.B. 51.42). 
+   WICHTIG: Nicht alte Anfangssalden, Überweisungssummen oder Transaktionsbeträge nehmen, sondern den tatsächlichen aktuellen Cash-Bestand.
+2. "positions": Eine Liste aller Wertpapiere mit:
+   - "isin": 12-stellige ISIN (z.B. "DE0007030009")
+   - "name": Name des Wertpapiers
+   - "value": Der aktuelle Kurswert / Depotwert dieser Position in EUR als Zahl (z.B. 45.20).
+
+Hier ist der Text des Auszugs:
+{full_text[:4000]}
+
+Antworte NUR mit gültigem JSON, ohne Markdown-Fences (```json), ohne zusätzlichen Text:
+{{"cash": 51.42, "positions": [{{"isin": "DE0007030009", "name": "Rheinmetall", "value": 75.20}}]}}
+"""
+                res = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=1000
+                )
+                raw_json = res.choices[0].message.content.strip()
+                raw_json = re.sub(r"^```json\s*", "", raw_json)
+                raw_json = re.sub(r"\s*```$", "", raw_json).strip()
+                
+                parsed_data = json.loads(raw_json)
+                extracted_cash = float(parsed_data.get("cash", 0.0))
+                
+                for pos in parsed_data.get("positions", []):
+                    isin = str(pos.get("isin", "")).strip()
+                    val = float(pos.get("value", 35.0))
+                    name = str(pos.get("name", isin)).strip()
+                    
+                    sym = isin
+                    if isin in ISIN_MAP:
+                        sym = ISIN_MAP[isin]["ticker"]
+                        name = ISIN_MAP[isin]["name"]
+                    
+                    found_items.append({
+                        "ticker": sym,
+                        "name": name,
+                        "shares": 1.0,
+                        "buy_price": val
+                    })
+                    
+                if found_items:
+                    return found_items, extracted_cash
+            except Exception as e_groq:
+                st.info("Nutze Standard-Extraktion...")
+
+        # 2. FALLBACK-REGULÄRE AUSDRÜCKE (Falls kein API-Key da ist)
         isin_pattern = r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b"
         all_isins_in_doc = re.findall(isin_pattern, full_text)
         seen = set()
         ordered_isins = [x for x in all_isins_in_doc if not (x in seen or seen.add(x))]
 
-        # 3. Präzise Zeilenanalyse für echte Bestände
-        lines = full_text.split("\n")
-        
         for isin in ordered_isins:
             disp_name = isin
             sym = isin
@@ -88,39 +131,11 @@ def parse_trade_republic_pdf(uploaded_file):
                 sym = ISIN_MAP[isin]["ticker"]
                 disp_name = ISIN_MAP[isin]["name"]
 
-            val = 0.0
-            
-            # Suche gezielt in der Zeile der ISIN und den 2 Folgezeilen
-            for i, line in enumerate(lines):
-                if isin in line:
-                    context = " ".join(lines[max(0, i):min(len(lines), i + 3)])
-                    
-                    # Suche nach Mustern wie "Kurswert ... EUR" oder "Einstandswert ... EUR" oder Beträge
-                    # Ignoriere Überweisungsbeträge > 5000 € oder Datumsangaben
-                    matches = re.findall(r"([\d]+(?:[.,]\d{1,2})?)\s*(?:€|EUR)", context, re.IGNORECASE)
-                    candidates = []
-                    for m in matches:
-                        try:
-                            num = float(m.replace(".", "").replace(",", ".")) if "," in m else float(m)
-                            if 0.5 <= num <= 2500.0:  # Realistische Depotposition
-                                candidates.append(num)
-                        except Exception:
-                            pass
-                    
-                    if candidates:
-                        # Nimm den letzten oder kleinsten plausiblen Betrag der Position (meist Einstandswert / Kurswert)
-                        val = candidates[0]
-                    break
-
-            # Falls kein Wert gefunden, Standardwert von 35.0 € setzen
-            if val <= 0.0:
-                val = 35.0
-
             found_items.append({
                 "ticker": sym,
                 "name": disp_name,
                 "shares": 1.0,
-                "buy_price": float(val)
+                "buy_price": 35.0
             })
 
     except Exception as e:
@@ -196,6 +211,8 @@ def get_stock_data(portfolio_list):
         t = clean_ticker(item.get("ticker", "AVGO"))
         try:
             invested_money = float(item.get("buy_price", 0.0))
+            if invested_money <= 0:
+                invested_money = 35.0
         except Exception:
             invested_money = 35.0
             
