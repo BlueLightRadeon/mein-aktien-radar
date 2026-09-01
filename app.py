@@ -35,7 +35,7 @@ if "my_portfolio" not in st.session_state or not st.session_state.my_portfolio:
     st.session_state.my_portfolio = load_saved_portfolio()
 
 if not st.session_state.my_portfolio:
-    st.session_state.my_portfolio = list(DEFAULT_HOLDINGS)
+    st.session_state.my_portfolio = [dict(x) for x in DEFAULT_HOLDINGS]
 
 if "tr_cash" not in st.session_state:
     st.session_state.tr_cash = 194.02
@@ -54,13 +54,12 @@ with st.sidebar:
         st.caption("Lade deinen Auszug hoch. Positionen, Kurswerte und Cash werden vollautomatisch eingelesen.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         if tr_pdf is not None:
-            # Hash-Check, um Mehrfachausführung bei jedem Rerun zu verhindern
-            if st.session_state.get("last_uploaded_name") != tr_pdf.name:
+            if st.session_state.get("last_uploaded_pdf_name") != tr_pdf.name:
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
                 if imported_items:
                     st.session_state.my_portfolio = imported_items
                     st.session_state.tr_cash = float(imported_cash)
-                    st.session_state["last_uploaded_name"] = tr_pdf.name
+                    st.session_state["last_uploaded_pdf_name"] = tr_pdf.name
                     save_portfolio_to_file(st.session_state.my_portfolio)
                     st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state.tr_cash)}) übernommen!")
 
@@ -158,6 +157,11 @@ if st.button("🚀 Jetzt KI-Auswertung starten", width="stretch", type="primary"
             except Exception as e:
                 st.error(f"Fehler: {str(e)}")
 
+# DIREKTE ERGEBNIS-BOX ÜBER DEN TABS
+if st.session_state.get("ai_signals"):
+    with st.expander(f"✨ **Aktuelle KI-Auswertung (Stand: {st.session_state.get('last_analysis_time', '')})**", expanded=True):
+        st.markdown(st.session_state["ai_signals"])
+
 # 8 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🏦 TR-Konto",
@@ -183,6 +187,11 @@ with tab0:
     if not stock_df.empty:
         disp_cols = [c for c in ["Unternehmen", "Dein Geldeinsatz", "Börsenkurs", "Aktueller Wert (TR)", "Gewinn / Verlust"] if c in stock_df.columns]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
+
+    if st.session_state.get("ai_depot"):
+        st.divider()
+        st.subheader("🤖 KI-Statusbericht zu deinen Positionen:")
+        st.markdown(st.session_state["ai_depot"])
 
 # TAB 1: WELT-NACHRICHTEN
 with tab1:
