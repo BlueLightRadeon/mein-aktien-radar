@@ -344,57 +344,87 @@ with tab5:
 
       st.plotly_chart(fig, use_container_width=True)
 
-# TAB 6: RISIKOSTREUUNG (ERWEITERT UM AUSFÜHRLICHE ERKLÄRUNG)
+# TAB 6: RISIKOSTREUUNG (MIT 3-DIAGRAMM-AUFTEILUNG & ROLLEN-ZUORDNUNG)
 with tab6:
-  st.info("ℹ️ **Kurzinfo:** Prüft, wie dein Geld auf verschiedene Branchen und Länder verteilt ist. Ziel ist es, nicht das gesamte Vermögen an einen einzigen Sektor zu binden.")
+  st.info("ℹ️ **Kurzinfo:** Prüft, wie dein Geld auf verschiedene Funktionen, Branchen und Länder verteilt ist, damit ein Einbruch in einem Sektor dich nicht voll erwischt.")
   
   if not stock_df.empty:
-    col_d1, col_d2 = st.columns(2)
-    custom_colors = ["#2E93fA", "#66DA26", "#546E7A", "#E91E63", "#FF9800", "#9C27B0", "#00ACC1"]
-    with col_d1:
+    # 1. Rollen-Zuweisung für die Aktien
+    def get_role(row):
+      t = row.get("Kürzel", "")
+      if any(x in t for x in ["NVDA", "AVGO", "TSM"]):
+        return "🚀 Wachstums-Motoren (Halbleiter/KI)"
+      elif any(x in t for x in ["RHM", "NVO"]):
+        return "🛡️ Krisen-Puffer (Rüstung/Pharma)"
+      elif "PANW" in t:
+        return "🔒 Tech-Schutzschild (Cybersecurity)"
+      else:
+        return "🎯 Nischenwert (Medien/Sonstiges)"
+
+    df_plot = stock_df.copy()
+    df_plot["Rolle"] = df_plot.apply(get_role, axis=1)
+
+    # 3 Spalten mit Ringdiagrammen
+    c_pie1, c_pie2, c_pie3 = st.columns(3)
+    custom_colors = ["#2E93fA", "#66DA26", "#FF9800", "#E91E63", "#546E7A", "#9C27B0", "#00ACC1"]
+    
+    with c_pie1:
+      fig_role = px.pie(
+          df_plot, names="Rolle", values="_raw_val",
+          title="1. Risiko-Rollen im Depot", hole=0.45,
+          color_discrete_sequence=["#2E93fA", "#66DA26", "#FF9800", "#546E7A"]
+      )
+      fig_role.update_traces(textposition="inside", textinfo="percent+label")
+      st.plotly_chart(fig_role, use_container_width=True)
+
+    with c_pie2:
       fig_sec = px.pie(
-          stock_df, names="Sektor", values="_raw_val",
-          title="Branchen-Aufteilung (Sektoren)", hole=0.4,
+          df_plot, names="Sektor", values="_raw_val",
+          title="2. Branchen-Aufteilung", hole=0.45,
           color_discrete_sequence=custom_colors
       )
       fig_sec.update_traces(textposition="inside", textinfo="percent+label")
       st.plotly_chart(fig_sec, use_container_width=True)
-    with col_d2:
+
+    with c_pie3:
       fig_geo = px.pie(
-          stock_df, names="Land", values="_raw_val",
-          title="Länder-Aufteilung (Regionen)", hole=0.4,
+          df_plot, names="Land", values="_raw_val",
+          title="3. Länder-Aufteilung", hole=0.45,
           color_discrete_sequence=custom_colors
       )
       fig_geo.update_traces(textposition="inside", textinfo="percent+label")
       st.plotly_chart(fig_geo, use_container_width=True)
 
-    # AUSFÜHRLICHE ERKLÄRUNG UNTERHALB DER DIAGRAMME
+    # ERKLÄRUNGS-MATRIX ZU DEN ROLLEN DER ECHTEN AKTIEN
     st.divider()
-    st.subheader("📖 Was sagen diese Ringdiagramme über dein Depot aus?")
+    st.subheader("🧩 Was bedeuten diese Diagramme konkret für deine Aktien?")
     
-    st.markdown("""
-    Die beiden Ringdiagramme zeigen deine **Risikoverteilung (Diversifikation)**:
+    col_card1, col_card2 = st.columns(2)
+    with col_card1:
+      with st.container(border=True):
+        st.markdown("### 🚀 Wachstums-Motoren (~45% deines Geldes)")
+        st.write("**Aktien:** NVIDIA, Broadcom, TSMC")
+        st.write("**Warum im Depot?** Treiben die Rendite an, wenn der globale KI- und Halbleiter-Boom läuft.")
+        st.caption("⚠️ **Risiko:** Wenn Big-Tech schwächelt, fallen alle drei gleichzeitig.")
 
-    1. **Linker Ring (Branchen-Aufteilung):**
-       * Zeigt, in welchen Wirtschaftszweigen dein Geld arbeitet.
-       * **Deine Zuordnung:** 
-         * *Halbleiter & KI / Chipherstellung:* **NVIDIA**, **Broadcom**, **TSMC** (ca. 40–50 % deines Depots)
-         * *Cyber-Sicherheit:* **Palo Alto Networks**
-         * *Verteidigung & Rüstung:* **Rheinmetall**
-         * *Pharma & Gesundheit:* **Novo Nordisk**
-         * *Digitale Medien:* **VerticalScope**
+      with st.container(border=True):
+        st.markdown("### 🔒 Tech-Schutzschild (~15% deines Geldes)")
+        st.write("**Aktie:** Palo Alto Networks")
+        st.write("**Warum im Depot?** Cybersecurity wird von Unternehmen auch bei Sparmaßnahmen nicht gekündigt.")
+        st.caption("🛡️ **Wirkung:** Schwankt weniger extrem als reine Hardware-Chips.")
 
-    2. **Rechter Ring (Länder-Aufteilung):**
-       * Zeigt, welchen Währungen und regionalen Märkten du ausgesetzt bist.
-       * **Deine Zuordnung:** Ein großer Teil deines Geldes liegt in den **USA** (NVIDIA, Palo Alto, Broadcom) und wird in US-Dollar bewertet. Dazu kommen **Deutschland** (Rheinmetall), **Dänemark** (Novo Nordisk), **Taiwan** (TSMC) und **Kanada** (VerticalScope).
+    with col_card2:
+      with st.container(border=True):
+        st.markdown("### 🛡️ Krisen-Puffer & Gegengewichte (~35% deines Geldes)")
+        st.write("**Aktien:** Rheinmetall, Novo Nordisk")
+        st.write("**Warum im Depot?** Laufen völlig unabhängig von Tech-Trends (Verteidigungsausgaben & Medikamente).")
+        st.caption("💡 **Wirkung:** Fangen Verluste ab, wenn die Tech-Börsen im Minus sind.")
 
-    ---
-
-    ### ⚖️ Was bedeutet das für dein Risiko?
-    * **Klumpenrisiko im Tech-/KI-Sektor:** Da NVIDIA, Broadcom und TSMC alle an der weltweiten Chip- und KI-Nachfrage hängen, bewegen sie sich oft im Gleichschritt. Fällt der Halbleitermarkt, spürst du das direkt in mehreren Werten gleichzeitig.
-    * **Starke Gegengewichte:** Mit **Rheinmetall** (profitiert von Rüstungsbudgets unabhängig von Tech) und **Novo Nordisk** (krisenfester Gesundheitssektor) hast du bereits zwei solide Gegengewichte im Portfolio, die dein Gesamtrisiko dämpfen.
-    * **Währungseinfluss:** Bei deinen US-Aktien beeinflusst auch der Euro/Dollar-Wechselkurs deine Rendite.
-    """)
+      with st.container(border=True):
+        st.markdown("### 🎯 Nischenwert (~5% deines Geldes)")
+        st.write("**Aktie:** VerticalScope")
+        st.write("**Warum im Depot?** Unabhängiger Nebenwert im kanadischen Markt.")
+        st.caption("🔍 **Wirkung:** Geringe Auswirkung auf das Gesamtdepot.")
 
   if "ai_cluster" in st.session_state:
     st.divider()
