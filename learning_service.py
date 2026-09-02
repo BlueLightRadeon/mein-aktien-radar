@@ -10,13 +10,11 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import streamlit as st
 
-# Absoluter Pfad im App-Verzeichnis
 MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stock_memory.json")
 
 def sync_to_github(memory_data):
-    """Sichert die JSON-Datei automatisch im GitHub-Repo, falls Token vorhanden."""
     token = st.secrets.get("GITHUB_TOKEN", "")
-    repo = st.secrets.get("GITHUB_REPO", "")  # Format: "benutzername/repo-name"
+    repo = st.secrets.get("GITHUB_REPO", "")
     if not token or not repo:
         return
     try:
@@ -26,8 +24,6 @@ def sync_to_github(memory_data):
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "Streamlit-Stock-Radar"
         }
-        
-        # SHA des bestehenden Files abrufen
         sha = None
         req = urllib.request.Request(url, headers=headers)
         try:
@@ -39,7 +35,6 @@ def sync_to_github(memory_data):
 
         content_str = json.dumps(memory_data, indent=2, ensure_ascii=False)
         content_b64 = base64.b64encode(content_str.encode()).decode()
-
         payload = {
             "message": "Update KI-Wissensspeicher [Automatischer Sync]",
             "content": content_b64
@@ -76,12 +71,9 @@ def save_memory(memory_data):
         pass
 
 def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status, days=30, simulations=1000):
-    """Berechnet aktienspezifische Monte-Carlo-Pfade basierend auf echtem Trend & Volatilität."""
     try:
         dt = 1.0 / 252.0
         sigma = max(volatility_annual / 100.0, 0.12)
-        
-        # Trend-abhängiger dynamischer Drift statt statischem Festwert
         if "Starker Aufwärtstrend" in trend_status:
             mu = min(0.35, max(0.08, (return_365d / 100.0) * 0.35))
         elif "Aufwärtstrend" in trend_status:
@@ -104,6 +96,67 @@ def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status,
     except Exception:
         factor = 1.04 if "Aufwärtstrend" in trend_status else 0.96
         return round(current_price * 0.90, 2), round(current_price * factor, 2), round(current_price * 1.12, 2)
+
+def generate_realistic_forecast_path(last_date, p_curr, t_7, t_30, t_90, t_bull, t_bear, volatility_pct, ticker_seed=""):
+    """Erzeugt einen authentischen, täglichen Börsenverlauf (Brownian Bridge) hin zu den KI-Kurszielen."""
+    end_date = last_date + timedelta(days=92)
+    future_dates = pd.bdate_range(start=last_date, end=end_date)
+    if len(future_dates) < 20:
+        future_dates = pd.date_range(start=last_date, periods=65, freq="B")
+        
+    n_days = len(future_dates)
+    idx_7 = min(5, n_days - 3)
+    idx_30 = min(21, n_days - 2)
+    idx_90 = n_days - 1
+
+    seed_val = int(abs(hash(str(ticker_seed) + str(last_date))) % (2**31 - 1))
+    rng = np.random.default_rng(seed_val)
+
+    daily_vol = max(0.007, min(0.032, (volatility_pct / 100.0) / np.sqrt(252))) * 0.75
+
+    def brownian_bridge(start_v, end_v, steps):
+        if steps <= 1:
+            return np.array([start_v, end_v]) if steps == 1 else np.array([start_v])
+        shocks = rng.normal(0, daily_vol, size=steps)
+        w = np.cumsum(shocks)
+        bridge = w - (np.arange(1, steps + 1) / steps) * w[-1]
+        t_linear = np.linspace(start_v, end_v, steps + 1)
+        path = t_linear[1:] + start_v * bridge
+        return np.insert(path, 0, start_v)
+
+    seg1 = brownian_bridge(p_curr, t_7, idx_7)
+    seg2 = brownian_bridge(t_7, t_30, idx_30 - idx_7)[1:]
+    seg3 = brownian_bridge(t_30, t_90, idx_90 - idx_30)[1:]
+    forecast_prices = np.concatenate([seg1, seg2, seg3])
+
+    t_steps = np.arange(n_days)
+    time_factor_30 = np.sqrt(t_steps / max(idx_30, 1))
+
+    bull_spread = max(0.0, t_bull - p_curr)
+    bear_spread = max(0.0, p_curr - t_bear)
+
+    bull_envelope = p_curr + bull_spread * time_factor_30
+    bear_envelope = p_curr - bear_spread * time_factor_30
+
+    noise_bull = rng.normal(0, daily_vol * 0.2, size=n_days).cumsum()
+    noise_bear = rng.normal(0, daily_vol * 0.2, size=n_days).cumsum()
+    
+    bull_curve = bull_envelope + p_curr * (noise_bull - (t_steps / n_days) * noise_bull[-1])
+    bear_curve = bear_envelope - p_curr * (noise_bear - (t_steps / n_days) * noise_bear[-1])
+
+    bull_curve[0] = p_curr
+    bear_curve[0] = p_curr
+
+    bull_curve = np.maximum(bull_curve, forecast_prices * 1.003)
+    bear_curve = np.minimum(bear_curve, forecast_prices * 0.997)
+
+    milestones = {
+        "dates": [future_dates[0], future_dates[idx_7], future_dates[idx_30], future_dates[idx_90]],
+        "prices": [p_curr, forecast_prices[idx_7], forecast_prices[idx_30], forecast_prices[idx_90]],
+        "labels": ["Aktuell", "Ziel 7T", "Ziel 30T", "Ziel 90T"]
+    }
+
+    return future_dates, forecast_prices, bull_curve, bear_curve, milestones
 
 def fetch_fundamental_and_wallstreet(ticker_sym):
     fund = {
@@ -349,8 +402,6 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     full_output = re.sub(r'^.*?Here\'s a thinking process.*?\n\n', '', full_output, flags=re.DOTALL | re.IGNORECASE).strip()
 
     p_curr = stats['current_price']
-    
-    # Trend-basierte Fallbacks, falls Regex fehlschlägt
     fallback_trend_factor = 1.03 if "Aufwärtstrend" in stats['trend_status'] else (0.97 if "Abwärtstrend" in stats['trend_status'] else 1.0)
     fb_7 = round(p_curr * (1.0 + (fallback_trend_factor - 1.0) * 0.3), 2)
     fb_30 = round(p_curr * fallback_trend_factor, 2)
