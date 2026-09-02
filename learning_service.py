@@ -20,7 +20,6 @@ def load_memory():
     return {}
 
 def save_memory(memory_data):
-    """Speichert den Wissensstand lokal ab, ohne GitHub-Reboot-Schleifen auszulösen."""
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, indent=2, ensure_ascii=False)
@@ -45,8 +44,8 @@ def audit_and_update_learning(ticker_sym, current_price, history_series, memory)
 
     for entry in history:
         entry_ts = entry.get("timestamp")
-        entry_price = float(entry.get("price", current_price))
-        t_30 = float(entry.get("target_30d", entry_price))
+        entry_price = float(entry.get("price", current_price) or current_price)
+        t_30 = float(entry.get("target_30d", entry_price) or entry_price)
 
         if not entry_ts:
             continue
@@ -65,7 +64,7 @@ def audit_and_update_learning(ticker_sym, current_price, history_series, memory)
                 if pred_up == actual_up:
                     direction_hits += 1
 
-                err_signed = ((t_30 - actual_price) / actual_price) * 100.0
+                err_signed = ((t_30 - actual_price) / actual_price) * 100.0 if actual_price > 0 else 0.0
                 err_abs = abs(err_signed)
 
                 abs_errors.append(err_abs)
@@ -258,7 +257,7 @@ def fetch_365d_stats(ticker_sym, bias_factor=1.0):
 
         current_p = float(close.iloc[-1])
         start_p = float(close.iloc[0])
-        ret_365d = ((current_p - start_p) / start_p) * 100.0
+        ret_365d = ((current_p - start_p) / start_p) * 100.0 if start_p > 0 else 0.0
 
         sma20 = float(close.tail(20).mean())
         sma50 = float(close.tail(50).mean())
