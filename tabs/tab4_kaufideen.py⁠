@@ -1,0 +1,10 @@
+import streamlit as st
+
+def render(last_analysis_time):
+    st.info("ℹ️ **Kurzinfo:** KI-Ratgeber zur Portfolio-Erweiterung: 5 konkrete Top-Aktien basierend auf der aktuellen Welt- und Marktlage.")
+    signals_text = st.session_state.get("ai_signals", "")
+    if signals_text and len(signals_text.strip()) > 15:
+        st.caption(f"🕒 Stand (deutsche Zeit): **{last_analysis_time}**")
+        st.markdown(signals_text)
+    else:
+        st.info("Klicke oben auf '🚀 Jetzt sofort manuell aktualisieren', um die Kaufempfehlungen zu laden.")
