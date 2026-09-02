@@ -24,6 +24,62 @@ def save_memory(memory_data):
     except Exception:
         pass
 
+def run_monte_carlo(current_price, volatility_annual, days=30, simulations=1000):
+    """Berechnet 1.000 Monte-Carlo-Zukunftspfade auf Basis statistischer Drift & Volatilitaet."""
+    try:
+        dt = 1.0 / 252.0
+        sigma = max(volatility_annual / 100.0, 0.10)
+        mu = 0.05  # Konservativer Basis-Drift p.a.
+        drift = (mu - 0.5 * sigma**2) * dt
+        diffusion = sigma * np.sqrt(dt) * np.random.normal(size=(days, simulations))
+        daily_multipliers = np.exp(drift + diffusion)
+        price_paths = current_price * np.cumprod(daily_multipliers, axis=0)
+        final_prices = price_paths[-1]
+
+        p5 = float(np.percentile(final_prices, 5))    # 95% Absicherungs-Level
+        p50 = float(np.percentile(final_prices, 50))  # Statistischer Median
+        p95 = float(np.percentile(final_prices, 95))  # 95% Best-Case
+        return round(p5, 2), round(p50, 2), round(p95, 2)
+    except Exception:
+        return round(current_price * 0.93, 2), round(current_price * 1.03, 2), round(current_price * 1.10, 2)
+
+def fetch_fundamental_and_wallstreet(ticker_sym):
+    """Zieht offizielle Wall-Street-Kursziele und Quartalstermine ab."""
+    fund = {
+        "target_mean": None,
+        "target_high": None,
+        "target_low": None,
+        "recommendation": "Keine Einstufung",
+        "forward_pe": "k. A.",
+        "peg_ratio": "k. A.",
+        "next_earnings": "Nicht terminiert"
+    }
+    try:
+        t = yf.Ticker(ticker_sym)
+        inf = getattr(t, "info", {})
+        if inf:
+            fund["target_mean"] = inf.get("targetMeanPrice")
+            fund["target_high"] = inf.get("targetHighPrice")
+            fund["target_low"] = inf.get("targetLowPrice")
+            fund["recommendation"] = inf.get("recommendationKey", "Halten").upper()
+            if inf.get("forwardPE"):
+                fund["forward_pe"] = f"{inf.get('forwardPE'):.1f}"
+            if inf.get("pegRatio"):
+                fund["peg_ratio"] = f"{inf.get('pegRatio'):.2f}"
+
+        # Terminkalender pruefen
+        cal = getattr(t, "calendar", None)
+        if cal is not None and not (isinstance(cal, pd.DataFrame) and cal.empty):
+            if isinstance(cal, dict) and "Earnings Date" in cal:
+                dates = cal["Earnings Date"]
+                if dates:
+                    fund["next_earnings"] = str(dates[0])
+            elif isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
+                fund["next_earnings"] = str(cal.loc["Earnings Date"].iloc[0])
+    except Exception:
+        pass
+    return fund
+
 def fetch_365d_stats(ticker_sym):
     try:
         data = yf.download(ticker_sym, period="1y", interval="1d", progress=False, auto_adjust=True)
@@ -67,6 +123,9 @@ def fetch_365d_stats(ticker_sym):
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
         trend_status = "Starker Aufwärtstrend" if current_p > sma20 > sma50 else ("Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase"))
 
+        # Monte-Carlo Leitplanken berechnen
+        mc_worst, mc_median, mc_best = run_monte_carlo(current_p, volatility, days=30, simulations=1000)
+
         stats_dict = {
             "current_price": round(current_p, 2),
             "return_365d_pct": round(ret_365d, 2),
@@ -79,6 +138,9 @@ def fetch_365d_stats(ticker_sym):
             "volatility_pct": round(volatility, 2),
             "volume_ratio": vol_ratio,
             "trend_status": trend_status,
+            "mc_worst_30d": mc_worst,
+            "mc_median_30d": mc_median,
+            "mc_best_30d": mc_best,
             "last_5_days": recent_trend,
             "data_points": len(close)
         }
@@ -105,41 +167,65 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     past_stock_memory = memory.get(t, {})
     past_predictions = past_stock_memory.get("history", [])
 
+    # Fundamentaldaten & Wall-Street-Konsens holen
+    fund = fetch_fundamental_and_wallstreet(ticker_sym)
+
+    # 1. Mathematische Fehleranalyse & Bias-Korrektur
     accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen für diesen Ticker gespeichert."
+    bias_correction_instruction = ""
     if past_predictions:
+        errors = []
         accuracy_eval = "HISTORISCHE ABWEICHUNGEN AUS DEINEM SPEICHER:\n"
-        for entry in past_predictions[-3:]:
+        for entry in past_predictions[-4:]:
             prev_p = entry.get("price", 0.0)
             target = entry.get("target_30d", prev_p)
             date_str = entry.get("date", "Unbekannt")
             if target > 0:
-                diff_pct = abs((stats["current_price"] - target) / target) * 100.0
-                accuracy_eval += f"- {date_str}: Kurs damals {prev_p:.2f} € -> Ziel war {target:.2f} €. Realkurs heute: {stats['current_price']:.2f} € (Differenz: {diff_pct:.1f}%)\n"
+                diff_pct = ((target - stats["current_price"]) / stats["current_price"]) * 100.0
+                errors.append(diff_pct)
+                accuracy_eval += f"- {date_str}: Prognostiziertes 30T-Ziel war {target:.2f} € -> Realkurs heute: {stats['current_price']:.2f} € (Abweichung: {diff_pct:+.1f}%)\n"
+        
+        if errors:
+            avg_bias = sum(errors) / len(errors)
+            if abs(avg_bias) > 2.0:
+                bias_correction_instruction = f"WICHTIGE KALIBRIERUNG: Du warst in früheren Prognosen im Schnitt um {avg_bias:+.1f} % zu optimistisch/pessimistisch. Passe dein neues 30-Tage-Ziel rechnerisch um genau diesen Faktor an, um Übertreibungen zu eliminieren!"
 
     specific_news = fetch_company_specific_news(ticker_sym)
 
     prompt_lines = [
-        "Du musst ausnahmslos auf DEUTSCH antworten. Kein einziges Wort auf Englisch!",
+        "Du bist ein quantitativer Chef-Anlagestratege. Antworte zu 100 % AUF DEUTSCH.",
+        "Verwende niemals englische Denkprozesse, Floskeln oder englische Abschnitte!",
         "",
         f"[UNTERNEHMEN: {company_name} ({t})]",
-        "[AKTUELLE WELTMARKTLAGE]",
-        macro_news,
         "",
-        "[AKTUELLE MELDUNGEN ZU DIESER AKTIE]",
+        "[1. INSTITUTIONELLE FUNDAMENTALDATEN & WALL-STREET-KONSENS]",
+        f"- Offizielles Analysten-Konsenskursziel: {fund['target_mean'] if fund['target_mean'] else 'Kein Konsens'} €",
+        f"- Analysten-Spanne: Niedrig {fund['target_low']} € | Hoch {fund['target_high']} €",
+        f"- Wall-Street Gesamturteil: {fund['recommendation']}",
+        f"- Vorwärts-KGV: {fund['forward_pe']} | PEG-Ratio: {fund['peg_ratio']}",
+        f"- Nächste Quartalszahlen: {fund['next_earnings']}",
+        "",
+        "[2. STATISTISCHE MONTE-CARLO-LEITPLANKEN (1.000 SIMULATIONEN)]",
+        f"- Statistischer Median in 30 Tagen: {stats['mc_median_30d']} €",
+        f"- Statistischer 95%-Worst-Case: {stats['mc_worst_30d']} €",
+        f"- Statistischer 95%-Best-Case: {stats['mc_best_30d']} €",
+        "",
+        "[3. 365-TAGE CHARTTECHNIK]",
+        f"- Aktueller Börsenkurs: {stats['current_price']} €",
+        f"- 365-Tage Wertentwicklung: {stats['return_365d_pct']} %",
+        f"- 52-Wochen Tief / Hoch: {stats['low_365d']} € / {stats['high_365d']} €",
+        f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} € | SMA50: {stats['sma50']} € | SMA200: {stats['sma200']} €",
+        f"- RSI (14 Tage): {stats['rsi_14']} (unter 30 = überverkauft, über 70 = überkauft)",
+        f"- Volatilität: {stats['volatility_pct']} % | Trend: {stats['trend_status']}",
+        f"- Letzte 5 Tage: {stats['last_5_days']}",
+        "",
+        "[4. WELTLAGE & UNTERNEHMENS-NEWS]",
+        macro_news,
         specific_news,
         "",
-        "[365-TAGE DATEN & KENNZAHLEN]",
-        f"- Aktueller Börsenkurs: {stats['current_price']} €",
-        f"- 365-Tage Performance: {stats['return_365d_pct']} %",
-        f"- 52-Wochen Bandbreite: Tief {stats['low_365d']} € bis Hoch {stats['high_365d']} €",
-        f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} € | SMA50: {stats['sma50']} € | SMA200: {stats['sma200']} €",
-        f"- RSI (14 Tage): {stats['rsi_14']}",
-        f"- Schwankungsbreite (Volatilität): {stats['volatility_pct']} %",
-        f"- Trendrichtung: {stats['trend_status']}",
-        f"- Kurse der letzten 5 Tage: {stats['last_5_days']}",
-        "",
-        "[LERNSTAND & FEHLERKORREKTUR]",
+        "[5. LERNGEDÄCHTNIS & DYNAMISCHE KALIBRIERUNG]",
         accuracy_eval,
+        bias_correction_instruction,
         "",
         "Gliedere deine Antwort zwingend in zwei Teile:",
         "",
@@ -147,41 +233,41 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "Gib zuerst exakt folgenden Block aus:",
         "PROGNOSE_WERTE_START",
         f"ziel_7d = {round(stats['current_price'] * 1.01, 2)}",
-        f"ziel_30d = {round(stats['current_price'] * 1.04, 2)}",
-        f"ziel_90d = {round(stats['current_price'] * 1.09, 2)}",
-        f"best_case_30d = {round(stats['current_price'] * 1.08, 2)}",
-        f"worst_case_30d = {round(stats['current_price'] * 0.94, 2)}",
-        "wahrscheinlichkeit = 75",
+        f"ziel_30d = {stats['mc_median_30d']}",
+        f"ziel_90d = {round(stats['mc_median_30d'] * 1.04, 2)}",
+        f"best_case_30d = {stats['mc_best_30d']}",
+        f"worst_case_30d = {stats['mc_worst_30d']}",
+        "wahrscheinlichkeit = 78",
         "PROGNOSE_WERTE_ENDE",
         "(Passe die Zahlenwerte hinter dem Gleichheitszeichen exakt an deine tatsächliche Berechnung an!)",
         "",
         "TEIL 2: AUSFÜHRLICHER DEUTSCHER ANALYSEBERICHT",
-        "### 1. Marktlage & Nachrichten-Synthese",
-        "(Analysiere auf Deutsch, wie Weltgeschehen, Zinsen und News die Aktie beeinflussen)",
+        "### 1. 🌐 Synthese: Weltwirtschaft & Wall-Street-Konsens",
+        "(Vergleiche das offizielle Analystenziel der Wall Street mit deiner Einschätzung und den Makrozinsen)",
         "",
-        "### 2. Erkenntnisse aus den 365-Tage-Mustern",
-        "(Welche Chartmuster und Unterstützungen hat die KI gelernt?)",
+        "### 2. 🧠 Erkenntnisse aus der 365-Tage-Historie & Monte-Carlo-Wahrscheinlichkeiten",
+        "(Erkläre das Zusammenspiel aus RSI, Gleitenden Durchschnitten und den berechneten 1.000 Zukunftspfaden)",
         "",
-        "### 3. Begründung der Kursprognose",
-        "(Begründung für 7, 30 und 90 Tage sowie Best-Case und Absicherungsmarke)",
+        "### 3. 🎯 Begründung der Kursprognose & Fehler-Korrektur",
+        "(Begründung für 7, 30 und 90 Tage sowie Erläuterung der Best-Case- und Absicherungsmarke)",
         "",
-        "### 4. Konkrete Handlungsanweisung",
-        "(Klare deutsche Anweisung: Kaufen, Halten, Zukauf-Limit setzen)"
+        "### 4. 🧭 Konkreter Handlungsplan",
+        "(Klare deutsche Anweisung für Anleger: Einstiegs-Limit, Stop-Loss setzen oder abwarten)"
     ]
     prompt = "\n".join(prompt_lines)
 
     res = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Schreibe unter keinen Umständen englische Denkprozesse oder Wörter in die Ausgabe."},
+            {"role": "system", "content": "Du bist ein führender deutscher quantitativer Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib unter keinen Umständen englische Denkprozesse (<think>) aus."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2,
-        max_tokens=1400
+        max_tokens=1500
     )
     full_output = res.choices[0].message.content
 
-    # 1. Entfernt interne <think>...</think> Abschnitte der KI
+    # Filtert unerwünschte englische Thinking-Tags rigoros heraus
     full_output = re.sub(r'<think>.*?</think>', '', full_output, flags=re.DOTALL).strip()
     full_output = re.sub(r'^.*?Here\'s a thinking process.*?\n\n', '', full_output, flags=re.DOTALL | re.IGNORECASE).strip()
 
@@ -189,14 +275,13 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     targets_dict = {
         "p_curr": p_curr,
         "t_7": round(p_curr * 1.01, 2),
-        "t_30": round(p_curr * 1.04, 2),
-        "t_90": round(p_curr * 1.08, 2),
-        "t_bull": round(p_curr * 1.07, 2),
-        "t_bear": round(p_curr * 0.95, 2),
-        "prob": "75 %"
+        "t_30": stats['mc_median_30d'],
+        "t_90": round(stats['mc_median_30d'] * 1.04, 2),
+        "t_bull": stats['mc_best_30d'],
+        "t_bear": stats['mc_worst_30d'],
+        "prob": "78 %"
     }
 
-    # 2. Zahlenblock parsen
     val_block = re.search(r'PROGNOSE_WERTE_START(.*?)PROGNOSE_WERTE_ENDE', full_output, re.DOTALL)
     if val_block:
         lines = val_block.group(1).split("\n")
@@ -214,7 +299,6 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
                     elif k == "worst_case_30d": targets_dict["t_bear"] = num_val
                     elif k == "wahrscheinlichkeit": targets_dict["prob"] = f"{int(num_val)} %"
 
-    # 3. Bereinigung für die saubere deutsche Anzeige
     clean_report = re.sub(r'PROGNOSE_WERTE_START.*?PROGNOSE_WERTE_ENDE', '', full_output, flags=re.DOTALL).strip()
     clean_report = re.sub(r'^TEIL\s*2:?[^\n]*\n', '', clean_report, flags=re.IGNORECASE).strip()
 
