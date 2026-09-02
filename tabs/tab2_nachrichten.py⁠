@@ -1,0 +1,10 @@
+import streamlit as st
+
+def render(last_analysis_time):
+    st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
+    market_text = st.session_state.get("ai_market", "")
+    if market_text and len(market_text.strip()) > 15:
+        st.caption(f"🕒 Stand (deutsche Zeit): **{last_analysis_time}**")
+        st.markdown(market_text)
+    else:
+        st.info("Klicke oben auf '🚀 Jetzt sofort manuell aktualisieren', um den Marktbericht zu laden.")
