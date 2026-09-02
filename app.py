@@ -238,7 +238,7 @@ with col_info:
     else:
         st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
-# 9 TABS (JETZT INKLUSIVE TAB 8: KI-LERNLABOR)
+# 9 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏦 TR-Konto",
     "💼 Stimmung & Empfehlungen",
@@ -458,9 +458,9 @@ with tab7:
     else:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
 
-# TAB 8: KI-LERNLABOR & 365-TAGE KURSPROGNOSE
+# TAB 8: KI-LERNLABOR & PROGNOSE (VERBINDUNG AUS CHART + NEWS)
 with tab8:
-    st.info("ℹ️ **Kurzinfo:** Die KI durchleuchtet die vergangenen 365 Tage der ausgewählten Aktie, lernt historische Muster und speichert Vorhersagen im Wissensgedächtnis ab.")
+    st.info("ℹ️ **Kurzinfo:** Das System verknüpft die 365-Tage-Historie mit aktuellen Welt- und Unternehmensnachrichten, lernt aus Fehlern im Gedächtnisspeicher und berechnet ein fundiertes Multi-Szenario-Kursziel.")
     if portfolio_list:
         selected_stock_name = st.selectbox(
             "Wähle eine Aktie aus deinem Depot zum Lernen & Prognostizieren:",
@@ -468,7 +468,6 @@ with tab8:
             key="learning_stock_picker"
         )
         
-        # Ticker auflösen
         chosen_ticker = "NVDA"
         for item in portfolio_list:
             if get_display_name(item.get("ticker", ""), item.get("name")) == selected_stock_name:
@@ -477,23 +476,26 @@ with tab8:
 
         col_learn1, col_learn2 = st.columns([2, 1])
         with col_learn1:
-            st.write(f"Aktie: **{selected_stock_name}** (`{chosen_ticker}`)")
+            st.write(f"Aktie im Fokus: **{selected_stock_name}** (`{chosen_ticker}`)")
         with col_learn2:
-            start_learn = st.button("🧠 365 Tage jetzt scannen & Prognose errechnen", type="primary", width="stretch")
+            start_learn = st.button("🧠 365 Tage + News analysieren", type="primary", width="stretch")
 
         memory = load_memory()
 
         if start_learn:
-            with st.spinner(f"Lade 365-Tage-Historie für {selected_stock_name} und trainiere Prognose-Modell..."):
+            with st.spinner(f"Verbinde 365-Tage-Historie mit aktuellen Weltnachrichten für {selected_stock_name}..."):
                 stats = fetch_365d_stats(chosen_ticker)
                 if stats:
                     client = Groq(api_key=GROQ_KEY)
+                    news_data = fetch_all_headlines()
+                    macro_news_str = "\n".join(news_data) if news_data else "Stabile Weltwirtschaftslage."
+                    
                     pred_res = run_ai_learning_prediction(
-                        client, selected_model, chosen_ticker, selected_stock_name, stats, memory
+                        client, selected_model, chosen_ticker, selected_stock_name, stats, memory, macro_news=macro_news_str
                     )
                     st.session_state[f"pred_{chosen_ticker}"] = pred_res
                     st.session_state[f"stats_{chosen_ticker}"] = stats
-                    st.success("✅ 365 Tage analysiert und Lernstand gespeichert!")
+                    st.success("✅ Analyse abgeschlossen, Muster gelernt & Prognose gesichert!")
                 else:
                     st.error("Konnte historische 365-Tage-Börsendaten nicht vollständig laden.")
 
@@ -507,13 +509,13 @@ with tab8:
             with m_col3:
                 st.metric("RSI (14D)", f"{s['rsi_14']}")
             with m_col4:
-                st.metric("Volatilität (1J)", f"{s['volatility_pct']} %")
+                st.metric("Volumen-Ratio", f"{s.get('volume_ratio', 1.0)}x")
 
         if f"pred_{chosen_ticker}" in st.session_state:
             st.divider()
             st.markdown(st.session_state[f"pred_{chosen_ticker}"])
 
-        # Gedächtnis-Historie der KI anzeigen
+        # Gedächtnis-Historie & Backtesting der KI
         if chosen_ticker in memory and "history" in memory[chosen_ticker]:
             with st.expander(f"📚 Gespeichertes Wissensgedächtnis für {selected_stock_name} ({len(memory[chosen_ticker]['history'])} Lernpunkte)"):
                 for entry in reversed(memory[chosen_ticker]["history"]):
