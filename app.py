@@ -22,6 +22,7 @@ try:
         get_display_name
     )
     from ai_service import get_account_models, run_analysis, run_duel_analysis
+    from learning_service import fetch_365d_stats, run_ai_learning_prediction, load_memory
 except Exception as e:
     st.error(f"Import-Fehler: {e}")
     st.stop()
@@ -237,8 +238,8 @@ with col_info:
     else:
         st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
-# 8 TABS
-tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+# 9 TABS (JETZT INKLUSIVE TAB 8: KI-LERNLABOR)
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏦 TR-Konto",
     "💼 Stimmung & Empfehlungen",
     "🌍 Nachrichten",
@@ -246,7 +247,8 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🎯 Top 5 Kaufempfehlungen",
     "📊 Charts",
     "🥧 Streuung",
-    "⚔️ Duell"
+    "⚔️ Duell",
+    "🧠 KI-Lernlabor & Prognose"
 ])
 
 # TAB 0: TR KONTO
@@ -455,3 +457,67 @@ with tab7:
                     st.markdown(res_duel)
     else:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
+
+# TAB 8: KI-LERNLABOR & 365-TAGE KURSPROGNOSE
+with tab8:
+    st.info("ℹ️ **Kurzinfo:** Die KI durchleuchtet die vergangenen 365 Tage der ausgewählten Aktie, lernt historische Muster und speichert Vorhersagen im Wissensgedächtnis ab.")
+    if portfolio_list:
+        selected_stock_name = st.selectbox(
+            "Wähle eine Aktie aus deinem Depot zum Lernen & Prognostizieren:",
+            [get_display_name(x.get("ticker", ""), x.get("name")) for x in portfolio_list],
+            key="learning_stock_picker"
+        )
+        
+        # Ticker auflösen
+        chosen_ticker = "NVDA"
+        for item in portfolio_list:
+            if get_display_name(item.get("ticker", ""), item.get("name")) == selected_stock_name:
+                chosen_ticker = clean_ticker(item.get("ticker", ""))
+                break
+
+        col_learn1, col_learn2 = st.columns([2, 1])
+        with col_learn1:
+            st.write(f"Aktie: **{selected_stock_name}** (`{chosen_ticker}`)")
+        with col_learn2:
+            start_learn = st.button("🧠 365 Tage jetzt scannen & Prognose errechnen", type="primary", width="stretch")
+
+        memory = load_memory()
+
+        if start_learn:
+            with st.spinner(f"Lade 365-Tage-Historie für {selected_stock_name} und trainiere Prognose-Modell..."):
+                stats = fetch_365d_stats(chosen_ticker)
+                if stats:
+                    client = Groq(api_key=GROQ_KEY)
+                    pred_res = run_ai_learning_prediction(
+                        client, selected_model, chosen_ticker, selected_stock_name, stats, memory
+                    )
+                    st.session_state[f"pred_{chosen_ticker}"] = pred_res
+                    st.session_state[f"stats_{chosen_ticker}"] = stats
+                    st.success("✅ 365 Tage analysiert und Lernstand gespeichert!")
+                else:
+                    st.error("Konnte historische 365-Tage-Börsendaten nicht vollständig laden.")
+
+        if f"stats_{chosen_ticker}" in st.session_state:
+            s = st.session_state[f"stats_{chosen_ticker}"]
+            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+            with m_col1:
+                st.metric("365-Tage Rendite", f"{s['return_365d_pct']:+.2f} %")
+            with m_col2:
+                st.metric("52-Wochen Hoch / Tief", f"{s['high_365d']} €", delta=f"Tief: {s['low_365d']} €")
+            with m_col3:
+                st.metric("RSI (14D)", f"{s['rsi_14']}")
+            with m_col4:
+                st.metric("Volatilität (1J)", f"{s['volatility_pct']} %")
+
+        if f"pred_{chosen_ticker}" in st.session_state:
+            st.divider()
+            st.markdown(st.session_state[f"pred_{chosen_ticker}"])
+
+        # Gedächtnis-Historie der KI anzeigen
+        if chosen_ticker in memory and "history" in memory[chosen_ticker]:
+            with st.expander(f"📚 Gespeichertes Wissensgedächtnis für {selected_stock_name} ({len(memory[chosen_ticker]['history'])} Lernpunkte)"):
+                for entry in reversed(memory[chosen_ticker]["history"]):
+                    st.write(f"• **{entry.get('date')}** | Basis-Kurs: `{entry.get('price')} €` | Erwartetes 30T-Ziel: `{entry.get('target_30d')} €`")
+                    st.caption(entry.get("analysis_summary", ""))
+    else:
+        st.info("Lade ein Depot hoch, um das Lernlabor für deine Aktien zu aktivieren.")
