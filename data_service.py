@@ -3,6 +3,8 @@ import os
 import re
 import io
 import math
+import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 import pandas as pd
 import pypdf
@@ -110,11 +112,30 @@ def parse_trade_republic_pdf(uploaded_file):
     return found_items, float(extracted_cash)
 
 def fetch_all_headlines():
+    """Holt echte Live-Börsennachrichten via RSS mit verlässlichem Fallback."""
+    live_headlines = []
+    try:
+        url = "https://news.google.com/rss/search?q=boerse+aktien+wirtschaft&hl=de&gl=DE&ceid=DE:de"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=4.0) as response:
+            xml_data = response.read()
+            root = ET.fromstring(xml_data)
+            for item in root.findall(".//item")[:6]:
+                title_elem = item.find("title")
+                if title_elem is not None and title_elem.text:
+                    clean_t = title_elem.text.split(" - ")[0].strip()
+                    live_headlines.append(f"- {clean_t}")
+    except Exception:
+        pass
+
+    if len(live_headlines) >= 3:
+        return live_headlines
+
     return [
         "- EZB und Fed signalisieren vorsichtigen Zinskurs bei anhaltendem Inflationsdruck",
         "- Robuste Quartalszahlen stützen Rüstungs- und Halbleiter-Titel an den Leitbörsen",
         "- Stark steigender Energiebedarf durch KI-Rechenzentren treibt Versorger und Nuklear-Werte",
-        "- Geopolitische Spannungen im Nahen Osten stützen Energietitel und defensive Werte",
+        "- Geopolitische Spannungen stützen Energietitel und defensive Werte",
         "- DAX und Weltindizes behaupten sich auf hohem Bewertungsniveau"
     ]
 
@@ -131,6 +152,28 @@ def assign_dynamic_role(ticker):
     else:
         return "🎯 Nischenwert / Sonstiges"
 
+@st.cache_data(ttl=900)
+def fetch_live_price_and_change(ticker_sym):
+    """Zieht echten Live-Kurs und Tagesveränderung für konsistente Daten in allen Tabs."""
+    try:
+        df = yf.download(ticker_sym, period="5d", interval="1d", progress=False, auto_adjust=True)
+        if df is not None and not df.empty:
+            if isinstance(df.columns, pd.MultiIndex):
+                close = df["Close"][ticker_sym] if ticker_sym in df["Close"] else df["Close"].iloc[:, 0]
+            else:
+                close = df["Close"]
+            close = close.dropna()
+            if len(close) >= 2:
+                curr_p = float(close.iloc[-1])
+                prev_p = float(close.iloc[-2])
+                chg_pct = ((curr_p - prev_p) / prev_p) * 100.0 if prev_p > 0 else 0.0
+                return round(curr_p, 2), round(chg_pct, 2)
+            elif len(close) == 1:
+                return round(float(close.iloc[-1]), 2), 0.0
+    except Exception:
+        pass
+    return None, None
+
 def get_stock_data(portfolio_list):
     if not portfolio_list:
         return pd.DataFrame(), [], []
@@ -143,12 +186,6 @@ def get_stock_data(portfolio_list):
         "NVO": 38.96, "EUNL.DE": 90.72, "PANW": 325.70, "TSM": 360.00,
         "AAPL": 225.00, "MSFT": 420.00
     }
-    
-    default_changes = {
-        "AVGO": 1.45, "RHM.DE": 2.10, "FORA.TO": -0.60, "NVDA": 2.80,
-        "NVO": 0.40, "EUNL.DE": 0.35, "PANW": 0.90, "TSM": 1.65,
-        "AAPL": 0.85, "MSFT": 1.10
-    }
     default_sectors = {
         "AVGO": "Halbleiter & KI", "RHM.DE": "Verteidigung & Rüstung", "FORA.TO": "Digitale Medien",
         "NVDA": "Halbleiter & KI", "NVO": "Pharma & Gesundheit", "EUNL.DE": "Weltweiter ETF",
@@ -160,7 +197,6 @@ def get_stock_data(portfolio_list):
         "AAPL": "USA", "MSFT": "USA"
     }
 
-    # 4 Datenpunkte pro Aktie: Aktuelle Empfehlung + Begründung vs. 3-Monats-Empfehlung + Begründung
     stock_analysis_map = {
         "NVDA": (
             "🟢 KAUFEN / AUFSTOCKEN",
@@ -232,19 +268,19 @@ def get_stock_data(portfolio_list):
             pos_val = 0.0
             
         company_name = get_display_name(t, item.get("name"))
-        price = float(default_prices.get(t, 50.0))
-        currency = "EUR" if t.endswith(".DE") else "USD"
+        currency = "€" if t.endswith(".DE") else "$"
         
-        day_change_pct = float(default_changes.get(t, round((idx * 0.45) - 0.2, 2)))
+        # Live-Kurs und Veränderung laden (Fallback auf Standardwerte)
+        live_p, live_chg = fetch_live_price_and_change(t)
+        price = live_p if live_p is not None else float(default_prices.get(t, 50.0))
+        day_change_pct = live_chg if live_chg is not None else round((idx * 0.45) - 0.2, 2)
         pnl_val = float(pos_val * (day_change_pct / 100.0))
 
         earnings_str = "Q3/Q4 2026"
         div_rhythm = "Keine Ausschüttung"
         if t in ["AVGO", "NVDA", "TSM", "AAPL", "MSFT"]:
-            earnings_str = "Q3/Q4 2026"
             div_rhythm = "Vierteljährlich"
         elif "RHM" in t or "NVO" in t:
-            earnings_str = "Q3 2026"
             div_rhythm = "Jährlich"
 
         pe_str = "38.2" if t == "NVDA" else ("31.4" if t == "PANW" else ("19.8" if "RHM" in t else "24.5"))
@@ -293,7 +329,8 @@ def get_stock_data(portfolio_list):
             "_raw_val": float(pos_val),
             "_raw_pnl": float(pnl_val),
             "_raw_cashflow": float(annual_cashflow),
-            "_raw_price": float(price)
+            "_raw_price": float(price),
+            "_currency": currency
         })
 
     return pd.DataFrame(data), [], clean_tickers
@@ -318,13 +355,7 @@ def get_individual_series_dict(portfolio_list, period="1M"):
     if not portfolio_list:
         return {}
 
-    yf_period_map = {
-        "1W": "5d",
-        "1M": "1mo",
-        "6M": "6mo",
-        "1J": "1y",
-        "Max": "5y"
-    }
+    yf_period_map = {"1W": "5d", "1M": "1mo", "6M": "6mo", "1J": "1y", "Max": "5y"}
     yf_period = yf_period_map.get(str(period).strip(), "1mo")
     series_dict = {}
 
