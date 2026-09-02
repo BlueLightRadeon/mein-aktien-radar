@@ -59,6 +59,8 @@ def parse_trade_republic_pdf(uploaded_file):
     extracted_cash = 0.0
     
     try:
+        if hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(0)
         pdf_bytes = uploaded_file.read() if hasattr(uploaded_file, "read") else uploaded_file
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         pages_text = [page.extract_text() or "" for page in reader.pages]
@@ -112,12 +114,11 @@ def parse_trade_republic_pdf(uploaded_file):
     return found_items, float(extracted_cash)
 
 def fetch_all_headlines():
-    """Holt echte Live-Börsennachrichten via RSS mit verlässlichem Fallback."""
     live_headlines = []
     try:
         url = "https://news.google.com/rss/search?q=boerse+aktien+wirtschaft&hl=de&gl=DE&ceid=DE:de"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=4.0) as response:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=3.5) as response:
             xml_data = response.read()
             root = ET.fromstring(xml_data)
             for item in root.findall(".//item")[:6]:
@@ -152,9 +153,8 @@ def assign_dynamic_role(ticker):
     else:
         return "🎯 Nischenwert / Sonstiges"
 
-@st.cache_data(ttl=900)
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_live_price_and_change(ticker_sym):
-    """Zieht echten Live-Kurs und Tagesveränderung für konsistente Daten in allen Tabs."""
     try:
         df = yf.download(ticker_sym, period="5d", interval="1d", progress=False, auto_adjust=True)
         if df is not None and not df.empty:
@@ -270,7 +270,6 @@ def get_stock_data(portfolio_list):
         company_name = get_display_name(t, item.get("name"))
         currency = "€" if t.endswith(".DE") else "$"
         
-        # Live-Kurs und Veränderung laden (Fallback auf Standardwerte)
         live_p, live_chg = fetch_live_price_and_change(t)
         price = live_p if live_p is not None else float(default_prices.get(t, 50.0))
         day_change_pct = live_chg if live_chg is not None else round((idx * 0.45) - 0.2, 2)
@@ -335,7 +334,7 @@ def get_stock_data(portfolio_list):
 
     return pd.DataFrame(data), [], clean_tickers
 
-@st.cache_data(ttl=900)
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_real_stock_history(ticker_sym, yf_period):
     try:
         data = yf.download(ticker_sym, period=yf_period, interval="1d", progress=False, auto_adjust=True)
