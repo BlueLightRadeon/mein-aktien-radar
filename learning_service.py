@@ -49,7 +49,6 @@ def fetch_365d_stats(ticker_sym):
         sma50 = float(close.tail(50).mean())
         sma200 = float(close.tail(200).mean()) if len(close) >= 200 else float(close.mean())
 
-        # 14-Tage RSI
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -66,7 +65,7 @@ def fetch_365d_stats(ticker_sym):
         vol_ratio = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
 
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
-        trend_status = "Starker Aufwärtstrend" if current_p > sma20 > sma50 else ("Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase"))
+        trend_status = "Starker Aufwaertstrend" if current_p > sma20 > sma50 else ("Aufwaertstrend" if current_p > sma50 else ("Abwaertstrend" if current_p < sma50 else "Seitwaertsphase"))
 
         stats_dict = {
             "current_price": round(current_p, 2),
@@ -96,7 +95,7 @@ def fetch_company_specific_news(ticker_sym):
             for item in news_items[:3]:
                 title = item.get("title", "")
                 if title:
-                    headlines.append(f"• {title}")
+                    headlines.append(f"- {title}")
         return "\n".join(headlines) if headlines else "Keine aktuellen Unternehmensmeldungen vorhanden."
     except Exception:
         return "Keine aktuellen Unternehmensmeldungen vorhanden."
@@ -106,7 +105,7 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     past_stock_memory = memory.get(t, {})
     past_predictions = past_stock_memory.get("history", [])
 
-    accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen für diesen Ticker gespeichert."
+    accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen fuer diesen Ticker gespeichert."
     if past_predictions:
         accuracy_eval = "HISTORISCHE ABWEICHUNGEN AUS DEINEM SPEICHER:\n"
         for entry in past_predictions[-3:]:
@@ -115,43 +114,116 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
             date_str = entry.get("date", "Unbekannt")
             if target > 0:
                 diff_pct = abs((stats["current_price"] - target) / target) * 100.0
-                accuracy_eval += f"- {date_str}: Kurs damals {prev_p:.2f} € -> Ziel war {target:.2f} €. Aktueller Realkurs: {stats['current_price']:.2f} € (Differenz: {diff_pct:.1f}%)\n"
+                accuracy_eval += f"- {date_str}: Kurs damals {prev_p:.2f} Euro -> Ziel war {target:.2f} Euro. Realkurs heute: {stats['current_price']:.2f} Euro (Differenz: {diff_pct:.1f}%)\n"
 
     specific_news = fetch_company_specific_news(ticker_sym)
 
-    prompt = f"""
-Antworte zu 100 % AUF DEUTSCH. Es ist streng verboten, englische Wörter oder englische Sätze zu verwenden.
+    # Sichere Prompt-Zusammensetzung ohne ungeschützte JSON-Klammern im F-String
+    prompt_lines = [
+        "Antworte zu 100 % AUF DEUTSCH. Es ist streng verboten, englische Woerter oder englische Saetze zu verwenden.",
+        "",
+        f"[UNTERNEHMEN: {company_name} ({t})]",
+        "[AKTUELLE WELTMARKTLAGE]",
+        macro_news,
+        "",
+        "[AKTUELLE MELDUNGEN ZU DIESER AKTIE]",
+        specific_news,
+        "",
+        "[365-TAGE DATEN & KENNZAHLEN]",
+        f"- Aktueller Boersenkurs: {stats['current_price']} Euro",
+        f"- 365-Tage Performance: {stats['return_365d_pct']} %",
+        f"- 52-Wochen Bandbreite: Tief {stats['low_365d']} Euro bis Hoch {stats['high_365d']} Euro",
+        f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} Euro | SMA50: {stats['sma50']} Euro | SMA200: {stats['sma200']} Euro",
+        f"- RSI (14 Tage): {stats['rsi_14']}",
+        f"- Schwankungsbreite (Volatilitaet): {stats['volatility_pct']} %",
+        f"- Trendrichtung: {stats['trend_status']}",
+        f"- Kurse der letzten 5 Tage: {stats['last_5_days']}",
+        "",
+        "[LERNSTAND & FEHLERKORREKTUR]",
+        accuracy_eval,
+        "",
+        "Gliedere deine Antwort zwingend in zwei Teile:",
+        "",
+        "TEIL 1: EXAKTE ZAHLEN",
+        "Gib zuerst exakt folgenden Block aus:",
+        "PROGNOSE_WERTE_START",
+        f"ziel_7d = {round(stats['current_price'] * 1.01, 2)}",
+        f"ziel_30d = {round(stats['current_price'] * 1.04, 2)}",
+        f"ziel_90d = {round(stats['current_price'] * 1.09, 2)}",
+        f"best_case_30d = {round(stats['current_price'] * 1.08, 2)}",
+        f"worst_case_30d = {round(stats['current_price'] * 0.94, 2)}",
+        "wahrscheinlichkeit = 75",
+        "PROGNOSE_WERTE_ENDE",
+        "(Passe die Zahlenwerte hinter dem Gleichheitszeichen exakt an deine tatsaechliche Berechnung an!)",
+        "",
+        "TEIL 2: AUSFUEHRLICHER DEUTSCHER ANALYSEBERICHT",
+        "### 1. Marktlage & Nachrichten-Synthese",
+        "(Analysiere auf Deutsch, wie Weltgeschehen, Zinsen und News die Aktie beeinflussen)",
+        "",
+        "### 2. Erkenntnisse aus den 365-Tage-Mustern",
+        "(Welche Chartmuster und Unterstuetzungen hat die KI gelernt?)",
+        "",
+        "### 3. Begruendung der Kursprognose",
+        "(Begruendung fuer 7, 30 und 90 Tage sowie Best-Case und Absicherungsmarke)",
+        "",
+        "### 4. Konkrete Handlungsanweisung",
+        "(Klare deutsche Anweisung: Kaufen, Halten, Zukauf-Limit setzen)"
+    ]
+    prompt = "\n".join(prompt_lines)
 
-[UNTERNEHMEN: {company_name} ({t})]
-[AKTUELLE WELTMARKTLAGE]
-{macro_news}
+    res = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": "Du bist ein fuehrender deutscher quantitativer Boersenanalyst. Deine gesamte Antwort muss zwingend und ausnahmslos in deutscher Sprache verfasst sein."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.2,
+        max_tokens=1400
+    )
+    full_output = res.choices[0].message.content
 
-[AKTUELLE MELDUNGEN ZU DIESER AKTIE]
-{specific_news}
+    p_curr = stats['current_price']
+    targets_dict = {
+        "p_curr": p_curr,
+        "t_7": round(p_curr * 1.01, 2),
+        "t_30": round(p_curr * 1.04, 2),
+        "t_90": round(p_curr * 1.08, 2),
+        "t_bull": round(p_curr * 1.07, 2),
+        "t_bear": round(p_curr * 0.95, 2),
+        "prob": "75 %"
+    }
 
-[365-TAGE DATEN & KENNZAHLEN]
-- Aktueller Börsenkurs: {stats['current_price']} €
-- 365-Tage Performance: {stats['return_365d_pct']} %
-- 52-Wochen Bandbreite: Tief {stats['low_365d']} € bis Hoch {stats['high_365d']} €
-- Gleitende Durchschnitte: SMA20: {stats['sma20']} € | SMA50: {stats['sma50']} € | SMA200: {stats['sma200']} €
-- RSI (14 Tage): {stats['rsi_14']}
-- Schwankungsbreite (Volatilität): {stats['volatility_pct']} %
-- Trendrichtung: {stats['trend_status']}
-- Kurse der letzten 5 Tage: {stats['last_5_days']}
+    # Zahlenblock parsen
+    val_block = re.search(r'PROGNOSE_WERTE_START(.*?)PROGNOSE_WERTE_ENDE', full_output, re.DOTALL)
+    if val_block:
+        lines = val_block.group(1).split("\n")
+        for line in lines:
+            if "=" in line:
+                key, val = line.split("=", 1)
+                k = key.strip()
+                v_num_match = re.search(r'([\d.,]+)', val.strip())
+                if v_num_match:
+                    num_val = float(v_num_match.group(1).replace(",", "."))
+                    if k == "ziel_7d": targets_dict["t_7"] = num_val
+                    elif k == "ziel_30d": targets_dict["t_30"] = num_val
+                    elif k == "ziel_90d": targets_dict["t_90"] = num_val
+                    elif k == "best_case_30d": targets_dict["t_bull"] = num_val
+                    elif k == "worst_case_30d": targets_dict["t_bear"] = num_val
+                    elif k == "wahrscheinlichkeit": targets_dict["prob"] = f"{int(num_val)} %"
 
-[LERNSTAND & FEHLERKORREKTUR]
-{accuracy_eval}
+    clean_report = re.sub(r'PROGNOSE_WERTE_START.*?PROGNOSE_WERTE_ENDE', '', full_output, flags=re.DOTALL).strip()
+    clean_report = re.sub(r'^TEIL\s*2:?[^\n]*\n', '', clean_report, flags=re.IGNORECASE).strip()
 
-Gliedere deine Antwort zwingend in zwei Teile:
+    if t not in memory:
+        memory[t] = {"name": company_name, "history": []}
 
-TEIL 1: EXAKTE ZAHLEN (im reinen JSON-Format)
-Gib zuerst den folgenden JSON-Block aus:
-```json
-{{
-  "ziel_7d": {round(stats['current_price'] * 1.01, 2)},
-  "ziel_30d": {round(stats['current_price'] * 1.04, 2)},
-  "ziel_90d": {round(stats['current_price'] * 1.09, 2)},
-  "best_case_30d": {round(stats['current_price'] * 1.08, 2)},
-  "worst_case_30d": {round(stats['current_price'] * 0.94, 2)},
-  "wahrscheinlichkeit": 75
-}}
+    memory[t]["history"].append({
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M Uhr"),
+        "price": stats['current_price'],
+        "target_30d": targets_dict["t_30"],
+        "rsi": stats['rsi_14'],
+        "analysis_summary": clean_report[:280] + "..."
+    })
+    save_memory(memory)
+
+    return clean_report, targets_dict
