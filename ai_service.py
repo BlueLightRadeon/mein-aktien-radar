@@ -1,6 +1,7 @@
 import streamlit as st
 from groq import Groq
 import re
+import time
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
@@ -60,8 +61,8 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
 - **Konkreter Absicherungs-Tipp**.
 """
 
-    duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
-    models_to_try = [duel_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
+    target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    models_to_try = [target_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
     seen = set()
     models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
@@ -69,29 +70,34 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
     last_err = None
 
     for m_id in models_to_try:
-        try:
-            res = client.chat.completions.create(
-                model=m_id,
-                messages=[
-                    {"role": "system", "content": "Du bist ein präziser deutscher Börsenanalyst. Verwende exakt die Überschriften '### 1. MARKTANALYSE', '### 2. DEPOT-BEWERTUNG', '### 3. TOP 5 KAUFEMPFEHLUNGEN' und '### 4. RISIKOSTREUUNG'."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=3500,
-                timeout=35.0
-            )
-            if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
-                full_text = res.choices[0].message.content
+        for attempt in range(2):
+            try:
+                res = client.chat.completions.create(
+                    model=m_id,
+                    messages=[
+                        {"role": "system", "content": "Du bist ein präziser deutscher Börsenanalyst. Verwende exakt die Überschriften '### 1. MARKTANALYSE', '### 2. DEPOT-BEWERTUNG', '### 3. TOP 5 KAUFEMPFEHLUNGEN' und '### 4. RISIKOSTREUUNG'."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.3,
+                    max_tokens=3500,
+                    timeout=35.0
+                )
+                if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
+                    full_text = res.choices[0].message.content
+                    break
+            except Exception as e:
+                last_err = e
+                if "rate_limit" in str(e).lower() and attempt == 0:
+                    time.sleep(2.0)
+                    continue
                 break
-        except Exception as e:
-            last_err = e
-            continue
+        if full_text:
+            break
 
     if not full_text:
         err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
         return err_msg, err_msg, err_msg, err_msg
 
-    # Sichere Zerlegung nach den 4 Hauptkapiteln
     m_match = re.search(r'###\s*1\.\s*MARKTANALYSE(.*?)(?=###\s*2\.\s*DEPOT-BEWERTUNG|$)', full_text, re.DOTALL | re.IGNORECASE)
     d_match = re.search(r'###\s*2\.\s*DEPOT-BEWERTUNG(.*?)(?=###\s*3\.\s*TOP\s*5\s*KAUFEMPFEHLUNGEN|$)', full_text, re.DOTALL | re.IGNORECASE)
     s_match = re.search(r'###\s*3\.\s*TOP\s*5\s*KAUFEMPFEHLUNGEN(.*?)(?=###\s*4\.\s*RISIKOSTREUUNG|$)', full_text, re.DOTALL | re.IGNORECASE)
