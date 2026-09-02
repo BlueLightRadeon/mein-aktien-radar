@@ -29,74 +29,33 @@ def get_account_models(api_key):
         return [DEFAULT_MODEL]
 
 def clean_ai_output(text):
+    """Entfernt Thinking-Tags restlos, damit niemals ein Komma dazwischen gerät."""
     if not text:
         return ""
     cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
-    cleaned = re.sub(r'^<think>.*?\n(?=(?:={2,}|#{1,4}))', '', cleaned, flags=re.DOTALL).strip()
-    cleaned = re.sub(r'^(?:Here\'s|Thinking Process).*?\n\n(?=(?:={2,}|#{1,4}|\b1\.))', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
+    cleaned = re.sub(r'^<think>.*?\n', '', cleaned, flags=re.DOTALL).strip()
+    cleaned = re.sub(r'^(?:Here\'s|Thinking Process).*?\n\n', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
     return cleaned
-
-def extract_4_sections(raw_text):
-    cleaned = clean_ai_output(raw_text)
-    if not cleaned:
-        return "", "", "", ""
-
-    patterns = [
-        ("market", re.compile(r'(?:={2,}\s*(?:ABSCHNITT\s*1|MARKTANALYSE)[^=]*={2,}|#{1,4}\s*1[\.\s\:\-]+MARKT[^\n]*|###\s*MARKTANALYSE|\b1\.\s*MARKTANALYSE\b)', re.IGNORECASE)),
-        ("depot", re.compile(r'(?:={2,}\s*(?:ABSCHNITT\s*2|DEPOT)[^=]*={2,}|#{1,4}\s*2[\.\s\:\-]+DEPOT[^\n]*|###\s*DEPOT-BEWERTUNG|\b2\.\s*DEPOT-BEWERTUNG\b)', re.IGNORECASE)),
-        ("signals", re.compile(r'(?:={2,}\s*(?:ABSCHNITT\s*3|KAUFEMPFEHLUNGEN)[^=]*={2,}|#{1,4}\s*3[\.\s\:\-]+(?:TOP|KAUF)[^\n]*|###\s*(?:TOP\s*5|KAUFEMPFEHLUNGEN)|\b3\.\s*TOP\s*5\b)', re.IGNORECASE)),
-        ("cluster", re.compile(r'(?:={2,}\s*(?:ABSCHNITT\s*4|RISIKO)[^=]*={2,}|#{1,4}\s*4[\.\s\:\-]+RISIKO[^\n]*|###\s*RISIKOSTREUUNG|\b4\.\s*RISIKOSTREUUNG\b)', re.IGNORECASE))
-    ]
-
-    matches = []
-    for key, pat in patterns:
-        m = pat.search(cleaned)
-        if m:
-            matches.append((m.start(), m.end(), key))
-
-    matches.sort(key=lambda x: x[0])
-
-    sections = {}
-    for i, (start_idx, end_idx, key) in enumerate(matches):
-        next_start = matches[i + 1][0] if i + 1 < len(matches) else len(cleaned)
-        content = cleaned[end_idx:next_start].strip()
-        content = re.sub(r'^[:\s\-=]+', '', content).strip()
-        sections[key] = content
-
-    out_market = sections.get("market", "")
-    out_depot = sections.get("depot", "")
-    out_signals = sections.get("signals", "")
-    out_cluster = sections.get("cluster", "")
-
-    if not out_market and not out_depot:
-        out_market = cleaned
-
-    return out_market, out_depot, out_signals, out_cluster
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     prompt = f"""
 Du bist ein führender quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
-WICHTIG: Antworte zu 100% auf DEUTSCH. Verwende niemals englische Denkprozesse (<think>).
+Schreibe alle Punkte direkt aus und nutze exakt die vier Überschriften:
 
-[AKTUELLE LEIT-NACHRICHTEN & WELTMÄRKTE]
-{news_text}
-
-[DEPOT-KENNZAHLEN & AKTIEN]
-{metrics_summary}
-
-Gliedere deine Antwort zwingend mit genau diesen 4 Abschnitts-Überschriften:
-
-===ABSCHNITT 1: MARKTANALYSE===
-- **TOP 10 Marktnachrichten**: Genau 10 konkrete, ausführliche Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
+### 1. MARKTANALYSE
+- **TOP 10 Marktnachrichten**: Schreibe genau 10 konkrete Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
 - **Gesamtstimmung der Börse**: 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit 3 Sätzen Begründung.
 
-===ABSCHNITT 2: DEPOT-BEWERTUNG===
+### 2. DEPOT-BEWERTUNG
 Analysiere alle im Depot gehaltenen Aktien einzeln mit aktuellem Status vs. 3-Monats-Rückblick:
+{metrics_summary}
+
+Für jedes Unternehmen:
 - **🟢/🟡/🔴 Aktuelle Empfehlung & Begründung**: (KGV, Fair Value, Auftragslage, Kurspotenzial).
 - **⏱️ Rückblick vor 3 Monaten**: Damalige Einstufung und damalige Ausgangslage.
 - **📈 Trend & Fazit**: Entwicklung in den letzten 3 Monaten und nächster Schritt.
 
-===ABSCHNITT 3: TOP 5 KAUFEMPFEHLUNGEN===
+### 3. TOP 5 KAUFEMPFEHLUNGEN
 Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot liegen) zur Portfolio-Erweiterung:
 1. Aktie 1 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
 2. Aktie 2 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
@@ -105,43 +64,58 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
 5. Aktie 5 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
 - **🔴 Aktuell meiden**: 3 Branchen mit erhöhtem Abwärtsrisiko.
 
-===ABSCHNITT 4: RISIKOSTREUUNG===
+### 4. RISIKOSTREUUNG
 - **Risiko-Score**: 1 (Sehr konservativ) bis 10 (Sehr spekulativ).
 - **Analyse der Branchen- & Länder-Gewichtung**: {cluster_context}
-- **Konkreter Absicherungs-Tipp**: Klare Handlungsanweisung zur Portfolio-Absicherung.
+- **Konkreter Absicherungs-Tipp**: Klare Handlungsanweisung zur Absicherung.
 """
 
     target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    full_text = ""
+    last_err = None
 
-    try:
-        res = client.chat.completions.create(
-            model=target_model,
-            messages=[
-                {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) aus."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=2800,
-            timeout=25.0
-        )
-        if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
-            return extract_4_sections(res.choices[0].message.content)
-    except Exception as e:
-        # Ein schneller Fallback auf das Standardmodell
+    for attempt in range(2):
         try:
-            res_fb = client.chat.completions.create(
-                model=DEFAULT_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=2500,
-                timeout=20.0
+            res = client.chat.completions.create(
+                model=target_model,
+                messages=[
+                    {"role": "system", "content": "Du bist ein präziser deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) aus. Verwende exakt die Überschriften '### 1. MARKTANALYSE', '### 2. DEPOT-BEWERTUNG', '### 3. TOP 5 KAUFEMPFEHLUNGEN' und '### 4. RISIKOSTREUUNG'."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+                max_tokens=3000,
+                timeout=45.0
             )
-            return extract_4_sections(res_fb.choices[0].message.content)
-        except Exception as e2:
-            err_msg = f"⚠️ Groq-Fehler: {str(e2)}"
-            return err_msg, err_msg, err_msg, err_msg
+            if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
+                full_text = res.choices[0].message.content
+                break
+        except Exception as e:
+            last_err = e
+            time.sleep(1.5)
 
-    return "Keine Daten erhalten.", "", "", ""
+    if not full_text:
+        err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
+        return err_msg, err_msg, err_msg, err_msg
+
+    # 1. Zuerst Denkblöcke entfernen (verhindert das Komma-Problem dauerhaft)
+    cleaned = clean_ai_output(full_text)
+
+    # 2. Robuste, fehlertolerante Abschnittserkennung
+    m_match = re.search(r'#{1,4}\s*(?:1[\.\s\:\-]+)?MARKT[^\n]*\n(.*?)(?=#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT|$)', cleaned, re.DOTALL | re.IGNORECASE)
+    d_match = re.search(r'#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT[^\n]*\n(.*?)(?=#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)|$)', cleaned, re.DOTALL | re.IGNORECASE)
+    s_match = re.search(r'#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)[^\n]*\n(.*?)(?=#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO|$)', cleaned, re.DOTALL | re.IGNORECASE)
+    c_match = re.search(r'#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO[^\n]*\n(.*?)$', cleaned, re.DOTALL | re.IGNORECASE)
+
+    out_market = m_match.group(1).strip() if m_match else ""
+    out_depot = d_match.group(1).strip() if d_match else ""
+    out_signals = s_match.group(1).strip() if s_match else ""
+    out_cluster = c_match.group(1).strip() if c_match else ""
+
+    # Falls Markdown-Header fehlten, den Text nicht verwerfen
+    if not out_market and not out_depot:
+        out_market = cleaned
+
+    return out_market, out_depot, out_signals, out_cluster
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
@@ -159,7 +133,7 @@ Aktie B: {stock_b_info}
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=800,
-            timeout=15.0
+            timeout=20.0
         )
         return clean_ai_output(res.choices[0].message.content)
     except Exception as e:
