@@ -25,7 +25,7 @@ try:
     from ai_service import get_account_models, run_analysis, run_duel_analysis
     from learning_service import (
         fetch_365d_stats, run_ai_learning_prediction, load_memory, 
-        save_memory, generate_realistic_forecast_path
+        save_memory, generate_realistic_30d_forecast_path
     )
 except Exception as e:
     st.error(f"Import-Fehler: {e}")
@@ -453,7 +453,7 @@ with tab7:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
 
 with tab8:
-    st.info("ℹ️ **Kurzinfo:** Verknüpft die 365-Tage-Historie mit aktuellen Nachrichten, führt dynamische Monte-Carlo-Simulationen durch und lernt aus früheren Prognose-Abweichungen.")
+    st.info("ℹ️ **Kurzinfo:** 30-Tage-Hochpräzisionsprognose: Kombiniert Bollinger-Bänder, MACD, ATR-Tagesschwankung und Unternehmensnews mit einer tagesgenauen Monte-Carlo-Simulation.")
     
     memory = load_memory()
 
@@ -498,10 +498,10 @@ with tab8:
         with col_learn1:
             st.write(f"Aktie im Fokus: **{selected_stock_name}** (`{chosen_ticker}`)")
         with col_learn2:
-            start_learn = st.button("🧠 365 Tage + News analysieren", type="primary", width="stretch")
+            start_learn = st.button("🧠 30-Tage Präzisionsanalyse starten", type="primary", width="stretch")
 
         if start_learn:
-            with st.spinner(f"Lade 365-Tage-Historie & berechne dynamische Simulation für {selected_stock_name}..."):
+            with st.spinner(f"Berechne Bollinger-Bänder, MACD und 30-Tage-Simulation für {selected_stock_name}..."):
                 stats, history_series = fetch_365d_stats(chosen_ticker)
                 if stats and history_series is not None:
                     client = Groq(api_key=GROQ_KEY)
@@ -515,9 +515,9 @@ with tab8:
                     st.session_state[f"stats_{chosen_ticker}"] = stats
                     st.session_state[f"targets_{chosen_ticker}"] = targets_dict
                     st.session_state[f"history_{chosen_ticker}"] = history_series
-                    st.success("✅ Individuelle Analyse abgeschlossen & Muster gesichert!")
+                    st.success("✅ 30-Tage-Präzisionsanalyse abgeschlossen & gesichert!")
                 else:
-                    st.error("Konnte historische 365-Tage-Börsendaten nicht vollständig laden.")
+                    st.error("Konnte historische Börsendaten nicht vollständig laden.")
 
         if f"stats_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
             s = st.session_state[f"stats_{chosen_ticker}"]
@@ -526,25 +526,25 @@ with tab8:
             
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:
-                st.metric("365-Tage Wertentwicklung", f"{s['return_365d_pct']:+.2f} %")
+                st.metric("365-Tage Rendite", f"{s['return_365d_pct']:+.2f} %")
             with m_col2:
-                st.metric("52-Wochen Tief / Hoch", f"{s['high_365d']} {curr_sym}", delta=f"Tief: {s['low_365d']} {curr_sym}")
+                st.metric("Bollinger-Spanne (20T)", f"{s.get('bb_upper', 0)} {curr_sym}", delta=f"Unten: {s.get('bb_lower', 0)} {curr_sym}")
             with m_col3:
-                st.metric("RSI (14 Tage)", f"{s['rsi_14']}")
+                st.metric("Tagesschwankung (ATR)", f"±{s.get('atr_14', 0)} {curr_sym}")
             with m_col4:
-                st.metric("Echter Trend-Status", f"{s.get('trend_status', 'Neutral')}")
+                st.metric("MACD / Trend", f"{s.get('trend_status', 'Neutral')[:18]}")
 
             p_col1, p_col2, p_col3, p_col4 = st.columns(4)
             diff_7 = ((tg['t_7'] - s['current_price']) / s['current_price']) * 100.0
+            diff_14 = ((tg['t_14'] - s['current_price']) / s['current_price']) * 100.0
             diff_30 = ((tg['t_30'] - s['current_price']) / s['current_price']) * 100.0
-            diff_90 = ((tg['t_90'] - s['current_price']) / s['current_price']) * 100.0
 
             with p_col1:
-                st.metric("Ziel 7 Tage", f"{tg['t_7']:.2f} {curr_sym}", delta=f"{diff_7:+.2f} %")
+                st.metric("Ziel in 7 Tagen", f"{tg['t_7']:.2f} {curr_sym}", delta=f"{diff_7:+.2f} %")
             with p_col2:
-                st.metric("Ziel 30 Tage (Hauptpfad)", f"{tg['t_30']:.2f} {curr_sym}", delta=f"{diff_30:+.2f} %")
+                st.metric("Ziel in 14 Tagen", f"{tg['t_14']:.2f} {curr_sym}", delta=f"{diff_14:+.2f} %")
             with p_col3:
-                st.metric("Ziel 90 Tage", f"{tg['t_90']:.2f} {curr_sym}", delta=f"{diff_90:+.2f} %")
+                st.metric("Ziel in 30 Tagen (Hauptpfad)", f"{tg['t_30']:.2f} {curr_sym}", delta=f"{diff_30:+.2f} %")
             with p_col4:
                 st.metric("Absicherung (Stop-Loss)", f"{tg['t_bear']:.2f} {curr_sym}")
 
@@ -555,21 +555,28 @@ with tab8:
             curr_sym = tg.get("currency_symbol", "€")
 
             zoom_choice = st.radio(
-                "Zeitbereich im Chart:", 
-                ["Letzte 90 Tage + Prognose (Detailansicht)", "Volle 365 Tage"], 
+                "Historischer Kontext im Chart:", 
+                ["Letzte 30 Tage + 30T Prognose (Fokus)", "Letzte 90 Tage + Prognose", "Volle 365 Tage"], 
                 horizontal=True, 
                 key=f"zoom_{chosen_ticker}"
             )
-            plot_history = h_series.tail(90) if "90 Tage" in zoom_choice else h_series
+            
+            if "30 Tage +" in zoom_choice:
+                plot_history = h_series.tail(30)
+            elif "90 Tage" in zoom_choice:
+                plot_history = h_series.tail(90)
+            else:
+                plot_history = h_series
+
             last_date = h_series.index[-1]
 
-            # Erzeuge realistische tägliche Schwankungen
-            future_dates, f_prices, bull_curve, bear_curve, milestones = generate_realistic_forecast_path(
+            # 30-Tage täglicher Brownian-Bridge-Pfad
+            future_dates, f_prices, bull_curve, bear_curve, milestones = generate_realistic_30d_forecast_path(
                 last_date=last_date,
                 p_curr=tg["p_curr"],
                 t_7=tg["t_7"],
+                t_14=tg["t_14"],
                 t_30=tg["t_30"],
-                t_90=tg["t_90"],
                 t_bull=tg["t_bull"],
                 t_bear=tg["t_bear"],
                 volatility_pct=s.get("volatility_pct", 35.0),
@@ -588,7 +595,7 @@ with tab8:
             # 2. Bullish Korridor
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bull_curve,
-                mode="lines", name="🟢 Best-Case Korridor",
+                mode="lines", name="🟢 Best-Case Korridor (30T)",
                 line=dict(color="rgba(0, 208, 132, 0.4)", width=1, dash="dot"),
                 hoverinfo="skip"
             ))
@@ -596,24 +603,24 @@ with tab8:
             # 3. Bearish Korridor (Gefüllter Trichter)
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bear_curve,
-                mode="lines", name="🔴 Absicherungs-Kanal",
+                mode="lines", name="🔴 Absicherungs-Kanal (30T)",
                 fill='tonexty', fillcolor='rgba(0, 208, 132, 0.10)',
                 line=dict(color="rgba(235, 20, 76, 0.4)", width=1, dash="dot"),
                 hoverinfo="skip"
             ))
 
-            # 4. Zackige, realistische tägliche KI-Prognosekurve
+            # 4. Zackige, realistische 30-Tage-Kurve
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=f_prices,
-                mode="lines", name="🎯 KI-Prognose (Täglicher Pfad)",
+                mode="lines", name="🎯 30-Tage KI-Prognose (Tagespfad)",
                 line=dict(color="#FCB900", width=2.5, dash="dash"),
                 hovertemplate="Prognose (%{x|%d. %b}): <b>%{y:.2f} " + curr_sym + "</b><extra></extra>"
             ))
 
-            # 5. Konkrete Zielmarken als Punkte hervorheben
+            # 5. Konkrete Zielmarken (Tag 7, 14, 30)
             fig_pred.add_trace(go.Scatter(
                 x=milestones["dates"], y=milestones["prices"],
-                mode="markers+text", name="📍 KI-Zielmarken",
+                mode="markers+text", name="📍 Meilensteine",
                 text=[f"{p:.1f}" for p in milestones["prices"]],
                 textposition="top center",
                 textfont=dict(color="#FCB900", size=10),
@@ -622,7 +629,7 @@ with tab8:
             ))
 
             fig_pred.update_layout(
-                title=f"90-Tage Kursprognose für {selected_stock_name} (inkl. täglichem Volatilitätsverlauf)",
+                title=f"30-Tage Hochpräzisions-Kursprognose für {selected_stock_name} (inkl. täglichem Volatilitätsverlauf)",
                 xaxis=dict(title="Datum", type="date"),
                 yaxis=dict(title=f"Kurs ({curr_sym})", ticksuffix=f" {curr_sym}"),
                 hovermode="x unified",
