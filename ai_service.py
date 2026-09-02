@@ -15,9 +15,10 @@ def get_account_models(api_key):
         valid_chat_models = []
         for m in models_data.data:
             m_id = str(m.id).lower()
-            if any(bad in m_id for bad in ["whisper", "tts", "orpheus", "arabic", "vision", "guard", "embed", "canopylabs"]):
+            # Filtert Audio-, Vision- und Denk/Reasoning-Modelle heraus, die englische Entwürfe ausgeben
+            if any(bad in m_id for bad in ["whisper", "tts", "orpheus", "arabic", "vision", "guard", "embed", "canopylabs", "deepseek", "r1"]):
                 continue
-            if any(allowed in m_id for allowed in ["llama-3.3", "gemma2", "qwen", "deepseek", "versatile"]):
+            if any(allowed in m_id for allowed in ["llama-3.3", "llama-3.1", "gemma2", "qwen", "versatile"]):
                 valid_chat_models.append(m.id)
                 
         if DEFAULT_MODEL in valid_chat_models:
@@ -29,43 +30,57 @@ def get_account_models(api_key):
         return [DEFAULT_MODEL]
 
 def clean_ai_output(text):
-    """Entfernt Thinking-Tags und englische Meta-Outlines vor dem Parsen."""
+    """Entfernt Thinking-Tags und schneidet jeglichen Text vor der ersten echten Überschrift ab."""
     if not text:
         return ""
+    # 1. Tags entfernen
     cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
     cleaned = re.sub(r'^<think>.*?\n', '', cleaned, flags=re.DOTALL).strip()
-    cleaned = re.sub(r'^(?:Here\'s|Thinking Process).*?\n\n', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
-    # Entfernt vorangestellte 'Content Requirements' Blöcke
-    cleaned = re.sub(r'^.*?Content Requirements:.*?\n(?=(?:<[A-Z_]+>|#{1,4}\s*1|\b1\.))', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
-    return cleaned
 
-def extract_section_by_tag(text, tag_name, fallback_regex):
-    """
-    Sucht zuerst nach eindeutigen XML-Tags (<TAG>...</TAG>).
-    Falls nicht vorhanden, greift der Fallback-RegEx auf die längste echte Textpassage zu.
-    """
-    # 1. Priorität: XML-Tags
-    tag_pattern = rf'<{tag_name}>(.*?)(?:</{tag_name}>|$)'
-    matches = re.findall(tag_pattern, text, re.DOTALL | re.IGNORECASE)
-    if matches:
-        best = max(matches, key=len).strip()
-        if len(best) > 40 and "Content Requirements:" not in best:
-            return best
+    # 2. RADIKALER FILTER: Schneidet ALLES ab, was vor '### 1. MARKTANALYSE' steht (Outlines, Drafts etc.)
+    start_match = re.search(r'#{1,4}\s*1[\.\s\:\-]+MARKT', cleaned, re.IGNORECASE)
+    if start_match:
+        cleaned = cleaned[start_match.start():]
 
-    # 2. Priorität: Fallback per Markdown-Überschrift (filtert Outlines aus)
-    fb_matches = re.findall(fallback_regex, text, re.DOTALL | re.IGNORECASE)
-    if fb_matches:
-        valid_matches = [m.strip() for m in fb_matches if "Content Requirements:" not in m and len(m.strip()) > 50]
-        if valid_matches:
-            return max(valid_matches, key=len)
+    return cleaned.strip()
 
-    return ""
+def extract_4_sections(text):
+    """Trennt die vier Abschnitte sauber und fehlerfrei voneinander."""
+    cleaned = clean_ai_output(text)
+    if not cleaned:
+        return "", "", "", ""
+
+    p_depot = re.search(r'#{1,4}\s*2[\.\s\:\-]+DEPOT[^\n]*', cleaned, re.IGNORECASE)
+    p_signals = re.search(r'#{1,4}\s*3[\.\s\:\-]+(?:TOP|KAUF)[^\n]*', cleaned, re.IGNORECASE)
+    p_cluster = re.search(r'#{1,4}\s*4[\.\s\:\-]+RISIKO[^\n]*', cleaned, re.IGNORECASE)
+
+    out_market = ""
+    out_depot = ""
+    out_signals = ""
+    out_cluster = ""
+
+    if p_depot:
+        out_market = cleaned[:p_depot.start()].strip()
+        out_market = re.sub(r'^#{1,4}\s*1[\.\s\:\-]+MARKT[^\n]*\n?', '', out_market, flags=re.IGNORECASE).strip()
+
+        if p_signals:
+            out_depot = cleaned[p_depot.end():p_signals.start()].strip()
+            if p_cluster:
+                out_signals = cleaned[p_signals.end():p_cluster.start()].strip()
+                out_cluster = cleaned[p_cluster.end():].strip()
+            else:
+                out_signals = cleaned[p_signals.end():].strip()
+        else:
+            out_depot = cleaned[p_depot.end():].strip()
+    else:
+        out_market = cleaned
+
+    return out_market, out_depot, out_signals, out_cluster
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     prompt = f"""
 Du bist ein quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
-WICHTIG: Antworte zu 100% auf DEUTSCH. Schreibe KEINE englischen Denkprozesse (<think>), KEINE Einleitung und KEINE "Content Requirements" oder Gliederung vorab!
-Beginne deine Ausgabe SOFORT mit dem Tag <MARKTANALYSE>.
+Beginne sofort mit der Überschrift '### 1. MARKTANALYSE'. Schreibe keine Einleitung und keine Vorbemerkungen.
 
 [AKTUELLE LEIT-NACHRICHTEN & WELTMÄRKTE]
 {news_text}
@@ -73,24 +88,19 @@ Beginne deine Ausgabe SOFORT mit dem Tag <MARKTANALYSE>.
 [DEPOT-KENNZAHLEN & AKTIEN]
 {metrics_summary}
 
-Gliedere deine Antwort zwingend in genau diese vier Tags:
+Gliedere deine Antwort zwingend in exakt diese vier Abschnitte:
 
-<MARKTANALYSE>
 ### 1. MARKTANALYSE
-- **TOP 10 Marktnachrichten**: Genau 10 konkrete, ausführliche Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
+- **TOP 10 Marktnachrichten**: Genau 10 konkrete, nummerierte Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
 - **Gesamtstimmung der Börse**: 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit 3 Sätzen Begründung.
-</MARKTANALYSE>
 
-<DEPOTBEWERTUNG>
 ### 2. DEPOT-BEWERTUNG
 Analysiere alle im Depot gehaltenen Aktien einzeln mit aktuellem Status vs. 3-Monats-Rückblick:
 Für jedes Unternehmen:
 - **🟢/🟡/🔴 Aktuelle Empfehlung & Begründung**: (KGV, Fair Value, Auftragslage, Kurspotenzial).
 - **⏱️ Rückblick vor 3 Monaten**: Damalige Einstufung und damalige Ausgangslage.
 - **📈 Trend & Fazit**: Entwicklung in den letzten 3 Monaten und nächster Schritt.
-</DEPOTBEWERTUNG>
 
-<KAUFEMPFEHLUNGEN>
 ### 3. TOP 5 KAUFEMPFEHLUNGEN
 Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot liegen) zur Portfolio-Erweiterung:
 1. Aktie 1 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
@@ -99,17 +109,16 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
 4. Aktie 4 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
 5. Aktie 5 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
 - **🔴 Aktuell meiden**: 3 Branchen mit erhöhtem Abwärtsrisiko.
-</KAUFEMPFEHLUNGEN>
 
-<RISIKOSTREUUNG>
 ### 4. RISIKOSTREUUNG
 - **Risiko-Score**: 1 (Sehr konservativ) bis 10 (Sehr spekulativ).
 - **Analyse der Branchen- & Länder-Gewichtung**: {cluster_context}
 - **Konkreter Absicherungs-Tipp**: Klare Handlungsanweisung zur Portfolio-Absicherung.
-</RISIKOSTREUUNG>
 """
 
-    target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    # Stellt sicher, dass niemals ein Reasoning-Modell genutzt wird
+    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
+
     full_text = ""
     last_err = None
 
@@ -118,11 +127,11 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
             res = client.chat.completions.create(
                 model=target_model,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) oder Vorbemerkungen aus. Verwende die Tags <MARKTANALYSE>, <DEPOTBEWERTUNG>, <KAUFEMPFEHLUNGEN> und <RISIKOSTREUUNG>."},
+                    {"role": "system", "content": "Du bist ein quantitativer deutscher Börsenanalyst. Antworte zu 100% auf Deutsch. Beginne direkt mit '### 1. MARKTANALYSE'. Gib niemals Denkprozesse, Entwürfe oder englischen Text aus."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                max_tokens=3200,
+                temperature=0.2,
+                max_tokens=3000,
                 timeout=35.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
@@ -136,23 +145,7 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
         err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
         return err_msg, err_msg, err_msg, err_msg
 
-    cleaned = clean_ai_output(full_text)
-
-    # 4 Abschnitte zielgenau extrahieren
-    fb_m = r'#{1,4}\s*(?:1[\.\s\:\-]+)?MARKT[^\n]*\n(.*?)(?=#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT|$)'
-    fb_d = r'#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT[^\n]*\n(.*?)(?=#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)|$)'
-    fb_s = r'#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)[^\n]*\n(.*?)(?=#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO|$)'
-    fb_c = r'#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO[^\n]*\n(.*?)$'
-
-    out_market = extract_section_by_tag(cleaned, "MARKTANALYSE", fb_m)
-    out_depot = extract_section_by_tag(cleaned, "DEPOTBEWERTUNG", fb_d)
-    out_signals = extract_section_by_tag(cleaned, "KAUFEMPFEHLUNGEN", fb_s)
-    out_cluster = extract_section_by_tag(cleaned, "RISIKOSTREUUNG", fb_c)
-
-    if not out_market and not out_depot:
-        out_market = cleaned
-
-    return out_market, out_depot, out_signals, out_cluster
+    return extract_4_sections(full_text)
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
@@ -163,7 +156,7 @@ Aktie B: {stock_b_info}
 1. Fundamentaler Kennzahlenvergleich (KGV, Dividende, Fair Value, Burggraben)
 2. Klares Fazit: Welche Aktie ist aktuell der bessere Kauf und warum?
 """
-    duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
+    duel_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
     try:
         res = client.chat.completions.create(
             model=duel_model,
