@@ -97,22 +97,22 @@ def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status,
         factor = 1.04 if "Aufwärtstrend" in trend_status else 0.96
         return round(current_price * 0.90, 2), round(current_price * factor, 2), round(current_price * 1.12, 2)
 
-def generate_realistic_forecast_path(last_date, p_curr, t_7, t_30, t_90, t_bull, t_bear, volatility_pct, ticker_seed=""):
-    """Erzeugt einen authentischen, täglichen Börsenverlauf (Brownian Bridge) hin zu den KI-Kurszielen."""
-    end_date = last_date + timedelta(days=92)
+def generate_realistic_30d_forecast_path(last_date, p_curr, t_7, t_14, t_30, t_bull, t_bear, volatility_pct, ticker_seed=""):
+    """Erzeugt einen tagesgenauen Börsenverlauf über exakt 30 Tage mit realistischer Mikro-Volatilität."""
+    end_date = last_date + timedelta(days=31)
     future_dates = pd.bdate_range(start=last_date, end=end_date)
-    if len(future_dates) < 20:
-        future_dates = pd.date_range(start=last_date, periods=65, freq="B")
+    if len(future_dates) < 15:
+        future_dates = pd.date_range(start=last_date, periods=22, freq="B")
         
     n_days = len(future_dates)
     idx_7 = min(5, n_days - 3)
-    idx_30 = min(21, n_days - 2)
-    idx_90 = n_days - 1
+    idx_14 = min(10, n_days - 2)
+    idx_30 = n_days - 1
 
     seed_val = int(abs(hash(str(ticker_seed) + str(last_date))) % (2**31 - 1))
     rng = np.random.default_rng(seed_val)
 
-    daily_vol = max(0.007, min(0.032, (volatility_pct / 100.0) / np.sqrt(252))) * 0.75
+    daily_vol = max(0.006, min(0.028, (volatility_pct / 100.0) / np.sqrt(252))) * 0.70
 
     def brownian_bridge(start_v, end_v, steps):
         if steps <= 1:
@@ -125,21 +125,21 @@ def generate_realistic_forecast_path(last_date, p_curr, t_7, t_30, t_90, t_bull,
         return np.insert(path, 0, start_v)
 
     seg1 = brownian_bridge(p_curr, t_7, idx_7)
-    seg2 = brownian_bridge(t_7, t_30, idx_30 - idx_7)[1:]
-    seg3 = brownian_bridge(t_30, t_90, idx_90 - idx_30)[1:]
+    seg2 = brownian_bridge(t_7, t_14, idx_14 - idx_7)[1:]
+    seg3 = brownian_bridge(t_14, t_30, idx_30 - idx_14)[1:]
     forecast_prices = np.concatenate([seg1, seg2, seg3])
 
     t_steps = np.arange(n_days)
-    time_factor_30 = np.sqrt(t_steps / max(idx_30, 1))
+    time_factor = np.sqrt(t_steps / max(idx_30, 1))
 
     bull_spread = max(0.0, t_bull - p_curr)
     bear_spread = max(0.0, p_curr - t_bear)
 
-    bull_envelope = p_curr + bull_spread * time_factor_30
-    bear_envelope = p_curr - bear_spread * time_factor_30
+    bull_envelope = p_curr + bull_spread * time_factor
+    bear_envelope = p_curr - bear_spread * time_factor
 
-    noise_bull = rng.normal(0, daily_vol * 0.2, size=n_days).cumsum()
-    noise_bear = rng.normal(0, daily_vol * 0.2, size=n_days).cumsum()
+    noise_bull = rng.normal(0, daily_vol * 0.15, size=n_days).cumsum()
+    noise_bear = rng.normal(0, daily_vol * 0.15, size=n_days).cumsum()
     
     bull_curve = bull_envelope + p_curr * (noise_bull - (t_steps / n_days) * noise_bull[-1])
     bear_curve = bear_envelope - p_curr * (noise_bear - (t_steps / n_days) * noise_bear[-1])
@@ -147,13 +147,13 @@ def generate_realistic_forecast_path(last_date, p_curr, t_7, t_30, t_90, t_bull,
     bull_curve[0] = p_curr
     bear_curve[0] = p_curr
 
-    bull_curve = np.maximum(bull_curve, forecast_prices * 1.003)
-    bear_curve = np.minimum(bear_curve, forecast_prices * 0.997)
+    bull_curve = np.maximum(bull_curve, forecast_prices * 1.002)
+    bear_curve = np.minimum(bear_curve, forecast_prices * 0.998)
 
     milestones = {
-        "dates": [future_dates[0], future_dates[idx_7], future_dates[idx_30], future_dates[idx_90]],
-        "prices": [p_curr, forecast_prices[idx_7], forecast_prices[idx_30], forecast_prices[idx_90]],
-        "labels": ["Aktuell", "Ziel 7T", "Ziel 30T", "Ziel 90T"]
+        "dates": [future_dates[0], future_dates[idx_7], future_dates[idx_14], future_dates[idx_30]],
+        "prices": [p_curr, forecast_prices[idx_7], forecast_prices[idx_14], forecast_prices[idx_30]],
+        "labels": ["Heute", "Ziel 7T", "Ziel 14T", "Ziel 30T"]
     }
 
     return future_dates, forecast_prices, bull_curve, bear_curve, milestones
@@ -204,8 +204,12 @@ def fetch_365d_stats(ticker_sym):
         
         if isinstance(data.columns, pd.MultiIndex):
             close = data["Close"][ticker_sym] if ticker_sym in data["Close"] else data["Close"].iloc[:, 0]
+            high = data["High"][ticker_sym] if ticker_sym in data["High"] else data["High"].iloc[:, 0]
+            low = data["Low"][ticker_sym] if ticker_sym in data["Low"] else data["Low"].iloc[:, 0]
         else:
             close = data["Close"]
+            high = data["High"]
+            low = data["Low"]
             
         close = close.dropna()
         if len(close) < 30:
@@ -219,12 +223,41 @@ def fetch_365d_stats(ticker_sym):
         sma50 = float(close.tail(50).mean())
         sma200 = float(close.tail(200).mean()) if len(close) >= 200 else float(close.mean())
 
+        # RSI (14 Tage)
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss.replace(0, np.nan)
         rsi_series = 100 - (100 / (1 + rs))
         current_rsi = float(rsi_series.dropna().iloc[-1]) if not rsi_series.dropna().empty else 50.0
+
+        # Bollinger-Bänder (20 Tage, 2 Sigma)
+        rolling_std_20 = float(close.tail(20).std())
+        bb_upper = round(sma20 + (2.0 * rolling_std_20), 2)
+        bb_lower = round(sma20 - (2.0 * rolling_std_20), 2)
+
+        # MACD (12, 26, 9)
+        ema12 = close.ewm(span=12, adjust=False).mean()
+        ema26 = close.ewm(span=26, adjust=False).mean()
+        macd_line = ema12 - ema26
+        signal_line = macd_line.ewm(span=9, adjust=False).mean()
+        macd_val = round(float(macd_line.iloc[-1]), 2)
+        signal_val = round(float(signal_line.iloc[-1]), 2)
+        macd_status = "Bullisch (MACD über Signallinie)" if macd_val > signal_val else "Bärisch (MACD unter Signallinie)"
+
+        # ATR (Average True Range - 14 Tage)
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs()
+        ], axis=1).max(axis=1)
+        atr_14 = round(float(tr.tail(14).mean()), 2)
+
+        # Unterstützungs- & Widerstandsniveaus der letzten 90 Tage
+        recent_90 = close.tail(90)
+        resistance_level = round(float(recent_90.max()), 2)
+        support_level = round(float(recent_90.min()), 2)
 
         high_365 = float(close.max())
         low_365 = float(close.min())
@@ -241,7 +274,7 @@ def fetch_365d_stats(ticker_sym):
         else:
             trend_status = "Seitwärtsphase / Konsolidierung"
 
-        mc_worst, mc_median, mc_best = run_monte_carlo(current_p, volatility, ret_365d, trend_status)
+        mc_worst, mc_median, mc_best = run_monte_carlo(current_p, volatility, ret_365d, trend_status, days=30)
         currency_sym = "€" if ticker_sym.endswith(".DE") else "$"
 
         stats_dict = {
@@ -252,6 +285,12 @@ def fetch_365d_stats(ticker_sym):
             "sma50": round(sma50, 2),
             "sma200": round(sma200, 2),
             "rsi_14": round(current_rsi, 1),
+            "bb_upper": bb_upper,
+            "bb_lower": bb_lower,
+            "macd_status": macd_status,
+            "atr_14": atr_14,
+            "resistance_level": resistance_level,
+            "support_level": support_level,
             "high_365d": round(high_365, 2),
             "low_365d": round(low_365, 2),
             "volatility_pct": round(volatility, 2),
@@ -315,27 +354,31 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "Du bist ein quantitativer Chef-Anlagestratege. Antworte zu 100 % AUF DEUTSCH.",
         "WICHTIG: Gib NIEMALS englische Denkprozesse (<think>) oder englische Wörter aus.",
         "",
-        f"[UNTERNEHMEN: {company_name} ({t})]",
+        f"[UNTERNEHMEN: {company_name} ({t}) - FOKUS: DIE NÄCHSTEN 30 TAGE]",
         f"WÄHRUNG: {curr_sym}",
         "",
-        "[1. TECHNISCHE INDIKATOREN & ECHTER TREND]",
+        "[1. ERWEITERTE QUANTITATIVE KENNZAHLEN (30-TAGE-HORIZONT)]",
         f"- Aktueller Börsenkurs: {stats['current_price']} {curr_sym}",
         f"- Bisherige 365-Tage Wertentwicklung: {stats['return_365d_pct']} %",
-        f"- Aktueller Trend-Status: {stats['trend_status']}",
+        f"- Aktueller Trend: {stats['trend_status']}",
         f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} | SMA50: {stats['sma50']} | SMA200: {stats['sma200']}",
-        f"- RSI (14 Tage): {stats['rsi_14']}",
-        f"- Volatilität: {stats['volatility_pct']} %",
-        f"- Letzte 5 Tage: {stats['last_5_days']}",
+        f"- RSI (14 Tage): {stats['rsi_14']} (unter 30 = überverkauft, über 70 = überkauft)",
+        f"- Bollinger-Bänder (20 Tage): Unteres Band {stats['bb_lower']} {curr_sym} | Oberes Band {stats['bb_upper']} {curr_sym}",
+        f"- MACD-Signal: {stats['macd_status']}",
+        f"- Reale Tagesschwankung (ATR 14T): ±{stats['atr_14']} {curr_sym} pro Handelstag",
+        f"- Wichtigste Chartmarken (90T): Unterstützung bei {stats['support_level']} {curr_sym} | Widerstand bei {stats['resistance_level']} {curr_sym}",
+        f"- Volatilität: {stats['volatility_pct']} % | Letzte 5 Tage: {stats['last_5_days']}",
         "",
-        "[2. STATISTISCHE MONTE-CARLO-REFERENZ (1.000 Pfade)]",
+        "[2. STATISTISCHE MONTE-CARLO-SIMULATION (1.000 Pfade über 30 Tage)]",
         f"- Statistischer Median in 30 Tagen: {stats['mc_median_30d']} {curr_sym}",
         f"- Statistischer 95%-Worst-Case: {stats['mc_worst_30d']} {curr_sym}",
         f"- Statistischer 95%-Best-Case: {stats['mc_best_30d']} {curr_sym}",
         "",
-        "[3. WALL-STREET-KONSENS]",
+        "[3. WALL-STREET-KONSENS & GEWINNTERMINE]",
         f"- Offizielles Analystenziel: {fund['target_mean'] if fund['target_mean'] else 'Kein Konsens'} {curr_sym}",
-        f"- Spanne: {fund['target_low']} bis {fund['target_high']} {curr_sym}",
+        f"- Analysten-Spanne: Tief {fund['target_low']} bis Hoch {fund['target_high']} {curr_sym}",
         f"- Einstufung: {fund['recommendation']}",
+        f"- Nächste Quartalszahlen: {fund['next_earnings']}",
         "",
         "[4. NACHRICHTENLAGE]",
         macro_news,
@@ -344,37 +387,37 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "[5. LERNGEDÄCHTNIS]",
         accuracy_eval,
         "",
-        "STRIKTE ANWEISUNG FÜR DIE PROGNOSE:",
-        "Berechne UNABHÄNGIGE, REALISTISCHE Zahlen, die EXAKT zu den Indikatoren DIESER EINEN AKTIE passen!",
-        "- Wenn die Aktie in einem Abwärtstrend ist, MÜSSEN die Kursziele sinken oder vorsichtig sein.",
-        "- Wenn die Aktie in einem starken Aufwärtstrend ist, MÜSSEN die Kursziele steigen.",
-        "- Verwende NIEMALS starre Standardprozente (+1%, +4%, etc.) für verschiedene Aktien!",
+        "STRIKTE ANWEISUNG FÜR DIE 30-TAGE-PROGNOSE:",
+        "Berechne EXAKTE, UNABHÄNGIGE Zahlen für die nächsten 30 Tage auf Basis von MACD, Bollinger-Bändern und Trendrichtung!",
+        "- Liegt die Aktie am unteren Bollinger-Band mit überverkauftem RSI? -> Erholung einpreisen.",
+        "- Ist die Aktie in einem klaren Abwärtstrend unter SMA50? -> Konservative bzw. fallende Kursziele setzen.",
+        "- Beachte die tägliche Schwankungsbreite (ATR), damit die Ziele in 7, 14 und 30 Tagen mathematisch plausibel bleiben.",
         "",
         "Gliedere deine Antwort zwingend in zwei Teile:",
         "",
         "TEIL 1: EXAKTE ZAHLEN",
         "Gib zuerst exakt folgenden Block mit deinen berechneten Werten aus:",
         "PROGNOSE_WERTE_START",
-        "ziel_7d = [Zahl für 7 Tage]",
-        "ziel_30d = [Zahl für 30 Tage]",
-        "ziel_90d = [Zahl für 90 Tage]",
-        "best_case_30d = [Optimistischer Zielwert 30T]",
-        "worst_case_30d = [Stop-Loss / Absicherungswert 30T]",
-        "wahrscheinlichkeit = [Zahl zwischen 50 und 92]",
+        "ziel_7d = [Kursziel in 7 Tagen]",
+        "ziel_14d = [Kursziel in 14 Tagen]",
+        "ziel_30d = [Hauptziel in 30 Tagen]",
+        "best_case_30d = [Maximales Best-Case-Ziel in 30 Tagen]",
+        "worst_case_30d = [Absicherungsmarke / Stop-Loss für 30 Tage]",
+        "wahrscheinlichkeit = [Zahl zwischen 60 und 94]",
         "PROGNOSE_WERTE_ENDE",
         "",
         "TEIL 2: AUSFÜHRLICHER DEUTSCHER ANALYSEBERICHT",
-        "### 1. 🌐 Synthese: Weltwirtschaft & Wall-Street-Konsens",
-        "(Vergleiche das offizielle Analystenziel der Wall Street mit deiner Einschätzung)",
+        "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street",
+        "(Bewerte den Einfluss des Makroumfelds und eventueller Quartalszahlen auf die kommenden 30 Tage)",
         "",
-        "### 2. 🧠 Erkenntnisse aus 365-Tage-Historie & Trend-Dynamik",
-        "(Erkläre das Zusammenspiel aus RSI, Gleitenden Durchschnitten und dem tatsächlichen Trend)",
+        "### 2. 🧠 Technische Tiefenanalyse: Bollinger, MACD & ATR",
+        "(Erkläre die Signale aus Bollinger-Bändern, MACD und der durchschnittlichen Tagesschwankung)",
         "",
-        "### 3. 🎯 Begründung der Kursprognose",
-        "(Konkrete Begründung deiner berechneten Ziele für 7, 30 und 90 Tage)",
+        "### 3. 🎯 Begründung der 30-Tage-Kursprognose",
+        "(Konkrete Begründung der Meilensteine bei Tag 7, Tag 14 und Tag 30 sowie Stop-Loss)",
         "",
-        "### 4. 🧭 Konkreter Handlungsplan",
-        "(Klare Handlungsanweisung: Einstiegs-Limit, Absichern mit Stop-Loss oder Abwarten)"
+        "### 4. 🧭 Konkreter 30-Tage-Handelsplan",
+        "(Praxisnahe Handlungsanweisung: Limit-Kauf, Trailing Stop-Loss oder Halten)"
     ]
     prompt = "\n".join(prompt_lines)
 
@@ -384,7 +427,7 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
             res = client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals englische Denkprozesse (<think>) aus."},
+                    {"role": "system", "content": "Du bist ein führender deutscher quantitativer Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals englische Denkprozesse (<think>) aus."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.25,
@@ -402,20 +445,21 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     full_output = re.sub(r'^.*?Here\'s a thinking process.*?\n\n', '', full_output, flags=re.DOTALL | re.IGNORECASE).strip()
 
     p_curr = stats['current_price']
-    fallback_trend_factor = 1.03 if "Aufwärtstrend" in stats['trend_status'] else (0.97 if "Abwärtstrend" in stats['trend_status'] else 1.0)
-    fb_7 = round(p_curr * (1.0 + (fallback_trend_factor - 1.0) * 0.3), 2)
-    fb_30 = round(p_curr * fallback_trend_factor, 2)
-    fb_90 = round(p_curr * (1.0 + (fallback_trend_factor - 1.0) * 2.0), 2)
+    
+    fallback_factor = 1.03 if "Aufwärtstrend" in stats['trend_status'] else (0.97 if "Abwärtstrend" in stats['trend_status'] else 1.0)
+    fb_7 = round(p_curr * (1.0 + (fallback_factor - 1.0) * 0.35), 2)
+    fb_14 = round(p_curr * (1.0 + (fallback_factor - 1.0) * 0.65), 2)
+    fb_30 = round(p_curr * fallback_factor, 2)
 
     targets_dict = {
         "p_curr": p_curr,
         "currency_symbol": curr_sym,
         "t_7": parse_num_tolerant("ziel_7d", full_output, fb_7),
+        "t_14": parse_num_tolerant("ziel_14d", full_output, fb_14),
         "t_30": parse_num_tolerant("ziel_30d", full_output, fb_30),
-        "t_90": parse_num_tolerant("ziel_90d", full_output, fb_90),
         "t_bull": parse_num_tolerant("best_case_30d", full_output, stats['mc_best_30d']),
         "t_bear": parse_num_tolerant("worst_case_30d", full_output, stats['mc_worst_30d']),
-        "prob": f"{int(parse_num_tolerant('wahrscheinlichkeit', full_output, 76))} %"
+        "prob": f"{int(parse_num_tolerant('wahrscheinlichkeit', full_output, 80))} %"
     }
 
     clean_report = re.sub(r'PROGNOSE_WERTE_START.*?PROGNOSE_WERTE_ENDE', '', full_output, flags=re.DOTALL).strip()
@@ -428,8 +472,8 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "date": datetime.now().strftime("%d.%m.%Y %H:%M Uhr"),
         "price": stats['current_price'],
         "currency": curr_sym,
+        "target_14d": targets_dict["t_14"],
         "target_30d": targets_dict["t_30"],
-        "target_90d": targets_dict["t_90"],
         "rsi": stats['rsi_14'],
         "trend": stats['trend_status'],
         "analysis_summary": clean_report[:280] + "..."
