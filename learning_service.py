@@ -36,7 +36,7 @@ def sync_to_github(memory_data):
         content_str = json.dumps(memory_data, indent=2, ensure_ascii=False)
         content_b64 = base64.b64encode(content_str.encode()).decode()
         payload = {
-            "message": "Update KI-Wissensspeicher [Deterministisch]",
+            "message": "Update KI-Wissensspeicher",
             "content": content_b64
         }
         if sha:
@@ -48,7 +48,7 @@ def sync_to_github(memory_data):
             headers=headers, 
             method="PUT"
         )
-        with urllib.request.urlopen(req_put, timeout=5.0) as resp:
+        with urllib.request.urlopen(req_put, timeout=4.0) as resp:
             pass
     except Exception:
         pass
@@ -96,7 +96,6 @@ def audit_and_update_learning(ticker_sym, current_price, history_series, memory)
 
         days_passed = (time.time() - entry_ts) / 86400.0
 
-        # Prüfung nach mind. 3 Tagen
         if days_passed >= 3.0:
             entry_date = datetime.fromtimestamp(entry_ts).date()
             sub_series = history_series[history_series.index.date >= entry_date]
@@ -158,24 +157,8 @@ def audit_and_update_learning(ticker_sym, current_price, history_series, memory)
     save_memory(memory)
     return profile
 
-def run_full_portfolio_auto_learning(portfolio_list):
-    if not portfolio_list:
-        return
-    memory = load_memory()
-    for item in portfolio_list:
-        sym = item.get("ticker", "").split(" ")[0].upper()
-        if sym in memory:
-            stats, series = fetch_365d_stats(sym)
-            if stats and series is not None:
-                audit_and_update_learning(sym, stats["current_price"], series, memory)
-
 def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status, days=30, simulations=1000, bias_factor=1.0, ticker_sym=""):
-    """
-    100% deterministische Monte-Carlo-Simulation:
-    Erzeugt bei identischem Kurs, Tag und Ticker stets exakt dieselben Werte auf den Cent.
-    """
     try:
-        # Fester Tages-Seed basierend auf Ticker, aktuellem Kurs und heutigem Datum
         today_str = datetime.now().strftime("%Y-%m-%d")
         seed_val = int(abs(hash(f"{ticker_sym}_{today_str}_{round(current_price, 2)}")) % (2**31 - 1))
         rng = np.random.default_rng(seed_val)
@@ -208,7 +191,6 @@ def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status,
         return round(current_price * 0.90, 2), round(current_price * factor, 2), round(current_price * 1.12, 2)
 
 def generate_realistic_30d_forecast_path(last_date, p_curr, t_7, t_14, t_30, t_bull, t_bear, volatility_pct, ticker_seed=""):
-    """Deterministische Brownian Bridge für den zackigen Tagesverlauf."""
     end_date = last_date + timedelta(days=31)
     future_dates = pd.bdate_range(start=last_date, end=end_date)
     if len(future_dates) < 15:
@@ -219,7 +201,6 @@ def generate_realistic_30d_forecast_path(last_date, p_curr, t_7, t_14, t_30, t_b
     idx_14 = min(10, n_days - 2)
     idx_30 = n_days - 1
 
-    # Fester Seed aus Ticker und letztem Datum
     seed_val = int(abs(hash(str(ticker_seed) + str(last_date) + str(round(p_curr, 1)))) % (2**31 - 1))
     rng = np.random.default_rng(seed_val)
 
@@ -294,20 +275,13 @@ def fetch_fundamental_and_wallstreet(ticker_sym):
                 fund["currency_symbol"] = "$"
             elif cur in ["EUR", "€"]:
                 fund["currency_symbol"] = "€"
-
-        cal = getattr(t, "calendar", None)
-        if cal is not None and not (isinstance(cal, pd.DataFrame) and cal.empty):
-            if isinstance(cal, dict) and "Earnings Date" in cal:
-                dates = cal["Earnings Date"]
-                if dates:
-                    fund["next_earnings"] = str(dates[0])
-            elif isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
-                fund["next_earnings"] = str(cal.loc["Earnings Date"].iloc[0])
     except Exception:
         pass
     return fund
 
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_365d_stats(ticker_sym, bias_factor=1.0):
+    """Gecacht für 15 Minuten: Verhindert IP-Drosselungen und lange Wartezeiten."""
     try:
         data = yf.download(ticker_sym, period="1y", interval="1d", progress=False, auto_adjust=True)
         if data is None or data.empty:
@@ -323,7 +297,7 @@ def fetch_365d_stats(ticker_sym, bias_factor=1.0):
             low = data["Low"]
             
         close = close.dropna()
-        if len(close) < 30:
+        if len(close) < 20:
             return None, None
 
         current_p = float(close.iloc[-1])
@@ -457,7 +431,6 @@ AUTONOMES SELBSTLERN-FEEDBACK (Reale Soll-Ist-Auswertung):
 
     if past_predictions:
         accuracy_eval += "\nLETZTE PROGNOSEN & REALE ABWEICHUNGEN:\n"
-        # Nur eindeutige frühere Daten einbinden (keine Mehrfachklicks desselben Tages)
         seen_dates = set()
         for entry in reversed(past_predictions):
             p_date = entry.get("date", "Unbekannt").split(" ")[0]
@@ -500,9 +473,8 @@ AUTONOMES SELBSTLERN-FEEDBACK (Reale Soll-Ist-Auswertung):
         "",
         "[3. WALL-STREET-KONSENS & GEWINNTERMINE]",
         f"- Offizielles Analystenziel: {fund['target_mean'] if fund['target_mean'] else 'Kein Konsens'} {curr_sym}",
-        f"- Analysten-Spanne: Tief {fund['target_low']} bis Hoch {fund['target_high']} {curr_sym}",
+        f"- Spanne: Tief {fund['target_low']} bis Hoch {fund['target_high']} {curr_sym}",
         f"- Einstufung: {fund['recommendation']}",
-        f"- Nächste Quartalszahlen: {fund['next_earnings']}",
         "",
         "[4. NACHRICHTENLAGE]",
         macro_news,
@@ -513,7 +485,6 @@ AUTONOMES SELBSTLERN-FEEDBACK (Reale Soll-Ist-Auswertung):
         "",
         "STRIKTE ANWEISUNG FÜR DIE 30-TAGE-PROGNOSE:",
         "Berechne EXAKTE, MATHEMATISCH FUNDIERTE Zahlen auf Basis von MACD, Bollinger-Bändern und Trendrichtung!",
-        "- Beachte die tägliche Schwankungsbreite (ATR), damit die Ziele in 7, 14 und 30 Tagen realistisch erreichbar sind.",
         "",
         "Gliedere deine Antwort zwingend in zwei Teile:",
         "",
@@ -530,7 +501,7 @@ AUTONOMES SELBSTLERN-FEEDBACK (Reale Soll-Ist-Auswertung):
         "",
         "TEIL 2: AUSFÜHRLICHER DEUTSCHER ANALYSEBERICHT",
         "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street",
-        "(Bewerte den Einfluss des Makroumfelds und eventueller Quartalszahlen auf die kommenden 30 Tage)",
+        "(Bewerte den Einfluss des Makroumfelds auf die kommenden 30 Tage)",
         "",
         "### 2. 🧠 Erkenntnisse aus bisherigen Fehlern & Indikatoren",
         "(Erkläre die Signale aus Bollinger-Bändern, MACD und ATR für die nächsten 30 Tage)",
@@ -544,26 +515,21 @@ AUTONOMES SELBSTLERN-FEEDBACK (Reale Soll-Ist-Auswertung):
     prompt = "\n".join(prompt_lines)
 
     full_output = ""
-    for attempt in range(2):
-        try:
-            # 100% Deterministisch: temperature=0.0 und fixer Seed
-            res = client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": "Du bist ein quantitativer deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) aus."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.0,
-                seed=42,
-                max_tokens=1500
-            )
-            full_output = res.choices[0].message.content
-            break
-        except Exception as e:
-            if "rate_limit" in str(e).lower() and attempt == 0:
-                time.sleep(2.0)
-                continue
-            full_output = f"⚠️ Fehler bei der Analyse: {e}"
+    try:
+        res = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "Du bist ein quantitativer deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) aus."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0,
+            seed=42,
+            max_tokens=1500,
+            timeout=25.0
+        )
+        full_output = res.choices[0].message.content
+    except Exception as e:
+        full_output = f"⚠️ Fehler bei der Analyse: {e}"
 
     full_output = re.sub(r'<think>.*?</think>', '', full_output, flags=re.DOTALL).strip()
     full_output = re.sub(r'^.*?Here\'s a thinking process.*?\n\n', '', full_output, flags=re.DOTALL | re.IGNORECASE).strip()
@@ -593,9 +559,6 @@ AUTONOMES SELBSTLERN-FEEDBACK (Reale Soll-Ist-Auswertung):
     if t not in memory:
         memory[t] = {"name": company_name, "history": [], "learning_profile": {}}
 
-    # TAGES-ENTPRELLUNG:
-    # Falls heute schon ein Eintrag für diese Aktie angelegt wurde, überschreiben wir ihn
-    # statt 5 Duplikate bei 5 Klicks anzulegen.
     today_prefix = datetime.now().strftime("%d.%m.%Y")
     existing_idx = None
     for idx, entry in enumerate(memory[t]["history"]):
