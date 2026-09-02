@@ -13,7 +13,7 @@ import streamlit as st
 PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_portfolio.json")
 
 def sync_portfolio_to_github(items, cash):
-    """Sichert das Depot direkt im GitHub-Repo, damit es Server-Reboots überlebt."""
+    """Sichert das Depot NUR bei Upload/Änderung auf GitHub, niemals auf Autopilot."""
     token = st.secrets.get("GITHUB_TOKEN", "")
     repo = st.secrets.get("GITHUB_REPO", "")
     if not token or not repo:
@@ -28,7 +28,7 @@ def sync_portfolio_to_github(items, cash):
         sha = None
         req = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
                 data = json.loads(resp.read().decode())
                 sha = data.get("sha")
         except Exception:
@@ -38,7 +38,7 @@ def sync_portfolio_to_github(items, cash):
         content_b64 = base64.b64encode(content_str.encode()).decode()
 
         payload = {
-            "message": "Update saved_portfolio.json [Dauerhafte Sicherung]",
+            "message": "Update saved_portfolio.json",
             "content": content_b64
         }
         if sha:
@@ -50,7 +50,7 @@ def sync_portfolio_to_github(items, cash):
             headers=headers, 
             method="PUT"
         )
-        with urllib.request.urlopen(req_put, timeout=5.0) as resp:
+        with urllib.request.urlopen(req_put, timeout=4.0) as resp:
             pass
     except Exception:
         pass
@@ -68,7 +68,7 @@ def delete_portfolio_from_github():
             "User-Agent": "Streamlit-Stock-Radar"
         }
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
             data = json.loads(resp.read().decode())
             sha = data.get("sha")
         if sha:
@@ -82,13 +82,13 @@ def delete_portfolio_from_github():
                 headers=headers, 
                 method="DELETE"
             )
-            with urllib.request.urlopen(req_del, timeout=5.0) as resp:
+            with urllib.request.urlopen(req_del, timeout=4.0) as resp:
                 pass
     except Exception:
         pass
 
 def load_saved_portfolio():
-    # 1. Versuch: Aus lokalem Speicher lesen
+    """Liest nur passiv aus der Datei oder GitHub. Committet NIEMALS selbstständig."""
     if os.path.exists(PORTFOLIO_FILE):
         try:
             with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
@@ -97,7 +97,6 @@ def load_saved_portfolio():
         except Exception:
             pass
 
-    # 2. Versuch (nach Server-Reboot): Aus GitHub Repository nachladen
     token = st.secrets.get("GITHUB_TOKEN", "")
     repo = st.secrets.get("GITHUB_REPO", "")
     if token and repo:
@@ -109,7 +108,7 @@ def load_saved_portfolio():
                 "User-Agent": "Streamlit-Stock-Radar"
             }
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
                 res_data = json.loads(resp.read().decode())
                 content_b64 = res_data.get("content", "")
                 if content_b64:
@@ -117,8 +116,11 @@ def load_saved_portfolio():
                     parsed = json.loads(content_str)
                     items = parsed.get("items", [])
                     cash = float(parsed.get("cash", 0.0))
-                    # Lokal für den schnellen Zugriff wieder anlegen
-                    save_saved_portfolio(items, cash, sync_github=False)
+                    try:
+                        with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+                            json.dump({"items": items, "cash": cash}, f, indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
                     return items, cash
         except Exception:
             pass
@@ -262,8 +264,6 @@ def render_live_timer_panel(ten_mins, auto_refresh_active, has_portfolio):
             elapsed = now_ts - last_ts
             remaining = max(0, int(ten_mins - elapsed))
             st.caption(f"⏳ Nächstes Auto-Update in ca. **{remaining // 60}m {remaining % 60:02d}s**")
-            if remaining <= 0 and has_portfolio:
-                st.rerun()
         else:
             st.caption("⏸️ Auto-Update pausiert")
     else:
@@ -282,7 +282,7 @@ with st.sidebar:
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
                 st.session_state["v_portfolio"] = imported_items
                 st.session_state["v_cash"] = float(imported_cash)
-                save_saved_portfolio(imported_items, float(imported_cash))
+                save_saved_portfolio(imported_items, float(imported_cash), sync_github=True)
                 st.session_state["last_auto_run_ts"] = 0.0
                 st.success(f"✅ {len(imported_items)} Positionen dauerhaft gesichert!")
                 st.rerun()
@@ -303,12 +303,11 @@ with st.sidebar:
     display_cash = float(st.session_state.get("v_cash", 0.0))
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
 
-    # Status-Anzeige der dauerhaften Sicherung
     if len(st.session_state.get("v_portfolio", [])) > 0:
         if st.secrets.get("GITHUB_TOKEN", "") and st.secrets.get("GITHUB_REPO", ""):
-            st.caption("☁️ **Status:** Depot dauerhaft mit GitHub synchronisiert (übersteht jeden Reboot).")
+            st.caption("☁️ **Status:** Depot mit GitHub synchronisiert.")
         else:
-            st.caption("💾 **Status:** Depot lokal gespeichert. (Hinterlege `GITHUB_TOKEN` & `GITHUB_REPO` in Secrets für 100% Reboot-Schutz).")
+            st.caption("💾 **Status:** Depot lokal gesichert.")
 
     st.divider()
     st.subheader("🔍 Aktie manuell hinzufügen:")
@@ -328,7 +327,7 @@ with st.sidebar:
                     "shares": 1.0,
                     "buy_price": float(in_money)
                 })
-                save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"])
+                save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"], sync_github=True)
                 st.session_state["last_auto_run_ts"] = 0.0
                 st.success(f"✅ {disp_name} hinzugefügt!")
                 st.rerun()
@@ -353,12 +352,12 @@ with st.sidebar:
                 )
                 if new_val != current_val:
                     st.session_state["v_portfolio"][idx]["buy_price"] = float(new_val)
-                    save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"])
+                    save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"], sync_github=True)
                     st.rerun()
             with col_pos_b:
                 if st.button("❌", key=f"del_item_{idx}_{item.get('ticker','')}"):
                     st.session_state["v_portfolio"].pop(idx)
-                    save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"])
+                    save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"], sync_github=True)
                     st.rerun()
     else:
         st.info("Noch kein Auszug geladen (0 Positionen).")
@@ -630,11 +629,11 @@ with tab7:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
 
 with tab8:
-    st.info("ℹ️ **Kurzinfo:** 30-Tage-Hochpräzisionsprognose: Die KI vergleicht ihre Prognosen autonom im Hintergrund mit den echten Börsenkursen und kalibriert ihre Treffsicherheit selbstständig.")
+    st.info("ℹ️ **Kurzinfo:** 30-Tage-Hochpräzisionsprognose: Die KI vergleicht ihre Prognosen im Hintergrund mit den echten Börsenkursen und kalibriert ihre Treffsicherheit selbstständig.")
     
     memory = load_memory()
 
-    with st.expander("💾 Wissensspeicher dauerhaft sichern & wiederherstellen (Server-Schutz)"):
+    with st.expander("💾 Wissensspeicher dauerhaft sichern & wiederherstellen"):
         col_bk1, col_bk2 = st.columns(2)
         with col_bk1:
             mem_json_str = json.dumps(memory, indent=2, ensure_ascii=False)
@@ -671,12 +670,8 @@ with tab8:
                 chosen_ticker = clean_ticker(item.get("ticker", ""))
                 break
 
-        stats_preview, history_preview = fetch_365d_stats(chosen_ticker)
-        current_profile = {}
-        if stats_preview and history_preview is not None:
-            current_profile = audit_and_update_learning(
-                chosen_ticker, stats_preview["current_price"], history_preview, memory
-            )
+        # Schnelles passives Lesen des Profils ohne Blocking-API-Aufrufe beim Rendern
+        current_profile = memory.get(chosen_ticker, {}).get("learning_profile", {})
 
         with st.container(border=True):
             st.markdown(f"#### 🧠 Autonomes Lern-Dashboard: **{selected_stock_name}**")
@@ -699,9 +694,12 @@ with tab8:
 
         if start_learn:
             with st.spinner(f"Führe Soll-Ist-Abgleich durch & berechne neue 30-Tage-Prognose für {selected_stock_name}..."):
-                bias_factor = current_profile.get("bias_factor", 1.0)
-                stats, history_series = fetch_365d_stats(chosen_ticker, bias_factor=bias_factor)
+                stats, history_series = fetch_365d_stats(chosen_ticker)
                 if stats and history_series is not None:
+                    # Soll-Ist-Abgleich nur bei echtem Analyse-Start durchführen
+                    current_profile = audit_and_update_learning(chosen_ticker, stats["current_price"], history_series, memory)
+                    bias_factor = current_profile.get("bias_factor", 1.0)
+                    
                     client = Groq(api_key=GROQ_KEY)
                     news_data = fetch_all_headlines()
                     macro_news_str = "\n".join(news_data) if news_data else "Stabile Weltwirtschaftslage."
