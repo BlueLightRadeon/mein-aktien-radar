@@ -2,12 +2,61 @@ import os
 import json
 import re
 import time
+import base64
+import urllib.request
 import numpy as np
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
+import streamlit as st
 
-MEMORY_FILE = "stock_memory.json"
+# Absoluter Pfad im App-Verzeichnis
+MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stock_memory.json")
+
+def sync_to_github(memory_data):
+    """Sichert die JSON-Datei automatisch im GitHub-Repo, falls Token vorhanden."""
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo = st.secrets.get("GITHUB_REPO", "")  # Format: "benutzername/repo-name"
+    if not token or not repo:
+        return
+    try:
+        url = f"https://api.github.com/repos/{repo}/contents/stock_memory.json"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Streamlit-Stock-Radar"
+        }
+        
+        # SHA des bestehenden Files abrufen
+        sha = None
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode())
+                sha = data.get("sha")
+        except Exception:
+            pass
+
+        content_str = json.dumps(memory_data, indent=2, ensure_ascii=False)
+        content_b64 = base64.b64encode(content_str.encode()).decode()
+
+        payload = {
+            "message": "Update KI-Wissensspeicher [Automatischer Sync]",
+            "content": content_b64
+        }
+        if sha:
+            payload["sha"] = sha
+
+        req_put = urllib.request.Request(
+            url, 
+            data=json.dumps(payload).encode(), 
+            headers=headers, 
+            method="PUT"
+        )
+        with urllib.request.urlopen(req_put, timeout=5.0) as resp:
+            pass
+    except Exception:
+        pass
 
 def load_memory():
     if os.path.exists(MEMORY_FILE):
@@ -22,15 +71,26 @@ def save_memory(memory_data):
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, indent=2, ensure_ascii=False)
+        sync_to_github(memory_data)
     except Exception:
         pass
 
-def run_monte_carlo(current_price, volatility_annual, days=30, simulations=1000):
-    """Berechnet 1.000 Monte-Carlo-Zukunftspfade auf Basis statistischer Drift & Volatilität."""
+def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status, days=30, simulations=1000):
+    """Berechnet aktienspezifische Monte-Carlo-Pfade basierend auf echtem Trend & Volatilität."""
     try:
         dt = 1.0 / 252.0
-        sigma = max(volatility_annual / 100.0, 0.10)
-        mu = 0.05
+        sigma = max(volatility_annual / 100.0, 0.12)
+        
+        # Trend-abhängiger dynamischer Drift statt statischem Festwert
+        if "Starker Aufwärtstrend" in trend_status:
+            mu = min(0.35, max(0.08, (return_365d / 100.0) * 0.35))
+        elif "Aufwärtstrend" in trend_status:
+            mu = 0.06
+        elif "Abwärtstrend" in trend_status:
+            mu = max(-0.35, min(-0.08, (return_365d / 100.0) * 0.35))
+        else:
+            mu = 0.01
+
         drift = (mu - 0.5 * sigma**2) * dt
         diffusion = sigma * np.sqrt(dt) * np.random.normal(size=(days, simulations))
         daily_multipliers = np.exp(drift + diffusion)
@@ -42,10 +102,10 @@ def run_monte_carlo(current_price, volatility_annual, days=30, simulations=1000)
         p95 = float(np.percentile(final_prices, 95))
         return round(p5, 2), round(p50, 2), round(p95, 2)
     except Exception:
-        return round(current_price * 0.93, 2), round(current_price * 1.03, 2), round(current_price * 1.10, 2)
+        factor = 1.04 if "Aufwärtstrend" in trend_status else 0.96
+        return round(current_price * 0.90, 2), round(current_price * factor, 2), round(current_price * 1.12, 2)
 
 def fetch_fundamental_and_wallstreet(ticker_sym):
-    """Zieht offizielle Wall-Street-Kursziele und Quartalstermine ab."""
     fund = {
         "target_mean": None,
         "target_high": None,
@@ -91,10 +151,8 @@ def fetch_365d_stats(ticker_sym):
         
         if isinstance(data.columns, pd.MultiIndex):
             close = data["Close"][ticker_sym] if ticker_sym in data["Close"] else data["Close"].iloc[:, 0]
-            volume = data["Volume"][ticker_sym] if ticker_sym in data["Volume"] else data["Volume"].iloc[:, 0]
         else:
             close = data["Close"]
-            volume = data["Volume"]
             
         close = close.dropna()
         if len(close) < 30:
@@ -120,9 +178,17 @@ def fetch_365d_stats(ticker_sym):
         volatility = float(close.pct_change().std() * np.sqrt(252) * 100.0)
 
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
-        trend_status = "Starker Aufwärtstrend" if current_p > sma20 > sma50 else ("Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase"))
+        
+        if current_p > sma20 > sma50:
+            trend_status = "Starker Aufwärtstrend"
+        elif current_p > sma50:
+            trend_status = "Moderater Aufwärtstrend"
+        elif current_p < sma50 and current_p < sma200:
+            trend_status = "Klarer Abwärtstrend"
+        else:
+            trend_status = "Seitwärtsphase / Konsolidierung"
 
-        mc_worst, mc_median, mc_best = run_monte_carlo(current_p, volatility, days=30, simulations=1000)
+        mc_worst, mc_median, mc_best = run_monte_carlo(current_p, volatility, ret_365d, trend_status)
         currency_sym = "€" if ticker_sym.endswith(".DE") else "$"
 
         stats_dict = {
@@ -162,7 +228,6 @@ def fetch_company_specific_news(ticker_sym):
         return "Keine aktuellen Unternehmensmeldungen vorhanden."
 
 def parse_num_tolerant(key_name, text, fallback):
-    """Findet Zahlen robust, egal ob '=' oder ':' genutzt wurde und ob Komma oder Punkt vorliegt."""
     pattern = rf'{key_name}\s*[:=]\s*([0-9.,]+)'
     m = re.search(pattern, text, re.IGNORECASE)
     if m:
@@ -180,55 +245,44 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     fund = fetch_fundamental_and_wallstreet(ticker_sym)
     curr_sym = fund.get("currency_symbol", stats.get("currency_symbol", "€"))
 
-    # Lernstand zusammenfassen (maximal die letzten 4 Punkte für den Prompt)
     accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen für diesen Ticker gespeichert."
-    bias_instruction = ""
     if past_predictions:
         accuracy_eval = "HISTORISCHE ABWEICHUNGEN AUS DEINEM SPEICHER:\n"
-        errors = []
         for entry in past_predictions[-4:]:
             prev_p = entry.get("price", 0.0)
             target = entry.get("target_30d", prev_p)
             date_str = entry.get("date", "Unbekannt")
             if target > 0:
                 diff_pct = ((target - stats["current_price"]) / stats["current_price"]) * 100.0
-                errors.append(diff_pct)
                 accuracy_eval += f"- {date_str}: Prognose 30T war {target:.2f} {curr_sym} -> Kurs heute: {stats['current_price']:.2f} {curr_sym} (Abweichung: {diff_pct:+.1f}%)\n"
-        
-        if errors:
-            avg_bias = sum(errors) / len(errors)
-            if abs(avg_bias) > 2.0:
-                bias_instruction = f"WICHTIGE KALIBRIERUNG: Bisherige Durchschnittsabweichung: {avg_bias:+.1f}%. Kalibriere deine neuen Prognosen entsprechend!"
 
     specific_news = fetch_company_specific_news(ticker_sym)
 
     prompt_lines = [
-        "Du bist ein führender quantitativer Chef-Anlagestratege. Antworte zu 100 % AUF DEUTSCH.",
-        "Gib unter keinen Umständen englische Denkprozesse (<think>) oder englische Wörter aus.",
+        "Du bist ein quantitativer Chef-Anlagestratege. Antworte zu 100 % AUF DEUTSCH.",
+        "WICHTIG: Gib NIEMALS englische Denkprozesse (<think>) oder englische Wörter aus.",
         "",
         f"[UNTERNEHMEN: {company_name} ({t})]",
-        f"WÄHRUNG DIESER AKTIE: {curr_sym}",
+        f"WÄHRUNG: {curr_sym}",
         "",
-        "[1. WALL-STREET-KONSENS & KENNZAHLEN]",
-        f"- Offizielles Analysten-Konsenskursziel: {fund['target_mean'] if fund['target_mean'] else 'Kein Konsens'} {curr_sym}",
-        f"- Analysten-Spanne: Tief {fund['target_low']} {curr_sym} bis Hoch {fund['target_high']} {curr_sym}",
-        f"- Wall-Street Gesamturteil: {fund['recommendation']}",
-        f"- Vorwärts-KGV: {fund['forward_pe']}",
-        f"- Nächste Quartalszahlen: {fund['next_earnings']}",
+        "[1. TECHNISCHE INDIKATOREN & ECHTER TREND]",
+        f"- Aktueller Börsenkurs: {stats['current_price']} {curr_sym}",
+        f"- Bisherige 365-Tage Wertentwicklung: {stats['return_365d_pct']} %",
+        f"- Aktueller Trend-Status: {stats['trend_status']}",
+        f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} | SMA50: {stats['sma50']} | SMA200: {stats['sma200']}",
+        f"- RSI (14 Tage): {stats['rsi_14']}",
+        f"- Volatilität: {stats['volatility_pct']} %",
+        f"- Letzte 5 Tage: {stats['last_5_days']}",
         "",
-        "[2. MONTE-CARLO-LEITPLANKEN (1.000 SIMULATIONEN)]",
+        "[2. STATISTISCHE MONTE-CARLO-REFERENZ (1.000 Pfade)]",
         f"- Statistischer Median in 30 Tagen: {stats['mc_median_30d']} {curr_sym}",
         f"- Statistischer 95%-Worst-Case: {stats['mc_worst_30d']} {curr_sym}",
         f"- Statistischer 95%-Best-Case: {stats['mc_best_30d']} {curr_sym}",
         "",
-        "[3. 365-TAGE CHARTTECHNIK]",
-        f"- Aktueller Börsenkurs: {stats['current_price']} {curr_sym}",
-        f"- 365-Tage Rendite: {stats['return_365d_pct']} %",
-        f"- 52-Wochen Spanne: Tief {stats['low_365d']} {curr_sym} bis Hoch {stats['high_365d']} {curr_sym}",
-        f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} | SMA50: {stats['sma50']} | SMA200: {stats['sma200']}",
-        f"- RSI (14 Tage): {stats['rsi_14']}",
-        f"- Volatilität: {stats['volatility_pct']} % | Trend: {stats['trend_status']}",
-        f"- Letzte 5 Tage: {stats['last_5_days']}",
+        "[3. WALL-STREET-KONSENS]",
+        f"- Offizielles Analystenziel: {fund['target_mean'] if fund['target_mean'] else 'Kein Konsens'} {curr_sym}",
+        f"- Spanne: {fund['target_low']} bis {fund['target_high']} {curr_sym}",
+        f"- Einstufung: {fund['recommendation']}",
         "",
         "[4. NACHRICHTENLAGE]",
         macro_news,
@@ -236,33 +290,38 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "",
         "[5. LERNGEDÄCHTNIS]",
         accuracy_eval,
-        bias_instruction,
+        "",
+        "STRIKTE ANWEISUNG FÜR DIE PROGNOSE:",
+        "Berechne UNABHÄNGIGE, REALISTISCHE Zahlen, die EXAKT zu den Indikatoren DIESER EINEN AKTIE passen!",
+        "- Wenn die Aktie in einem Abwärtstrend ist, MÜSSEN die Kursziele sinken oder vorsichtig sein.",
+        "- Wenn die Aktie in einem starken Aufwärtstrend ist, MÜSSEN die Kursziele steigen.",
+        "- Verwende NIEMALS starre Standardprozente (+1%, +4%, etc.) für verschiedene Aktien!",
         "",
         "Gliedere deine Antwort zwingend in zwei Teile:",
         "",
         "TEIL 1: EXAKTE ZAHLEN",
-        "Gib zuerst exakt folgenden Block aus:",
+        "Gib zuerst exakt folgenden Block mit deinen berechneten Werten aus:",
         "PROGNOSE_WERTE_START",
-        f"ziel_7d = {round(stats['current_price'] * 1.01, 2)}",
-        f"ziel_30d = {stats['mc_median_30d']}",
-        f"ziel_90d = {round(stats['mc_median_30d'] * 1.04, 2)}",
-        f"best_case_30d = {stats['mc_best_30d']}",
-        f"worst_case_30d = {stats['mc_worst_30d']}",
-        "wahrscheinlichkeit = 78",
+        "ziel_7d = [Zahl für 7 Tage]",
+        "ziel_30d = [Zahl für 30 Tage]",
+        "ziel_90d = [Zahl für 90 Tage]",
+        "best_case_30d = [Optimistischer Zielwert 30T]",
+        "worst_case_30d = [Stop-Loss / Absicherungswert 30T]",
+        "wahrscheinlichkeit = [Zahl zwischen 50 und 92]",
         "PROGNOSE_WERTE_ENDE",
         "",
         "TEIL 2: AUSFÜHRLICHER DEUTSCHER ANALYSEBERICHT",
         "### 1. 🌐 Synthese: Weltwirtschaft & Wall-Street-Konsens",
         "(Vergleiche das offizielle Analystenziel der Wall Street mit deiner Einschätzung)",
         "",
-        "### 2. 🧠 Erkenntnisse aus 365-Tage-Historie & Monte-Carlo-Simulation",
-        "(Erkläre das Zusammenspiel aus RSI, Gleitenden Durchschnitten und den 1.000 Pfaden)",
+        "### 2. 🧠 Erkenntnisse aus 365-Tage-Historie & Trend-Dynamik",
+        "(Erkläre das Zusammenspiel aus RSI, Gleitenden Durchschnitten und dem tatsächlichen Trend)",
         "",
-        "### 3. 🎯 Begründung der Kursprognose & Fehler-Korrektur",
-        "(Begründung für 7, 30 und 90 Tage sowie Best-Case und Absicherung)",
+        "### 3. 🎯 Begründung der Kursprognose",
+        "(Konkrete Begründung deiner berechneten Ziele für 7, 30 und 90 Tage)",
         "",
         "### 4. 🧭 Konkreter Handlungsplan",
-        "(Klare deutsche Handlungsanweisung: Einstiegs-Limit, Absichern oder Abwarten)"
+        "(Klare Handlungsanweisung: Einstiegs-Limit, Absichern mit Stop-Loss oder Abwarten)"
     ]
     prompt = "\n".join(prompt_lines)
 
@@ -272,10 +331,10 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
             res = client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib unter keinen Umständen englische Denkprozesse (<think>) aus."},
+                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals englische Denkprozesse (<think>) aus."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.2,
+                temperature=0.25,
                 max_tokens=1500
             )
             full_output = res.choices[0].message.content
@@ -290,15 +349,22 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     full_output = re.sub(r'^.*?Here\'s a thinking process.*?\n\n', '', full_output, flags=re.DOTALL | re.IGNORECASE).strip()
 
     p_curr = stats['current_price']
+    
+    # Trend-basierte Fallbacks, falls Regex fehlschlägt
+    fallback_trend_factor = 1.03 if "Aufwärtstrend" in stats['trend_status'] else (0.97 if "Abwärtstrend" in stats['trend_status'] else 1.0)
+    fb_7 = round(p_curr * (1.0 + (fallback_trend_factor - 1.0) * 0.3), 2)
+    fb_30 = round(p_curr * fallback_trend_factor, 2)
+    fb_90 = round(p_curr * (1.0 + (fallback_trend_factor - 1.0) * 2.0), 2)
+
     targets_dict = {
         "p_curr": p_curr,
         "currency_symbol": curr_sym,
-        "t_7": parse_num_tolerant("ziel_7d", full_output, round(p_curr * 1.01, 2)),
-        "t_30": parse_num_tolerant("ziel_30d", full_output, stats['mc_median_30d']),
-        "t_90": parse_num_tolerant("ziel_90d", full_output, round(stats['mc_median_30d'] * 1.04, 2)),
+        "t_7": parse_num_tolerant("ziel_7d", full_output, fb_7),
+        "t_30": parse_num_tolerant("ziel_30d", full_output, fb_30),
+        "t_90": parse_num_tolerant("ziel_90d", full_output, fb_90),
         "t_bull": parse_num_tolerant("best_case_30d", full_output, stats['mc_best_30d']),
         "t_bear": parse_num_tolerant("worst_case_30d", full_output, stats['mc_worst_30d']),
-        "prob": f"{int(parse_num_tolerant('wahrscheinlichkeit', full_output, 78))} %"
+        "prob": f"{int(parse_num_tolerant('wahrscheinlichkeit', full_output, 76))} %"
     }
 
     clean_report = re.sub(r'PROGNOSE_WERTE_START.*?PROGNOSE_WERTE_ENDE', '', full_output, flags=re.DOTALL).strip()
@@ -312,11 +378,12 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "price": stats['current_price'],
         "currency": curr_sym,
         "target_30d": targets_dict["t_30"],
+        "target_90d": targets_dict["t_90"],
         "rsi": stats['rsi_14'],
+        "trend": stats['trend_status'],
         "analysis_summary": clean_report[:280] + "..."
     })
     
-    # Historie auf maximal 15 Einträge begrenzen (verhindert Datei-Aufblähung)
     if len(memory[t]["history"]) > 15:
         memory[t]["history"] = memory[t]["history"][-15:]
         
