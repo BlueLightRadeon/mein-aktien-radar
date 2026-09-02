@@ -2,8 +2,6 @@ import os
 import json
 import re
 import time
-import base64
-import urllib.request
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -11,47 +9,6 @@ from datetime import datetime, timedelta
 import streamlit as st
 
 MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stock_memory.json")
-
-def sync_to_github(memory_data):
-    token = st.secrets.get("GITHUB_TOKEN", "")
-    repo = st.secrets.get("GITHUB_REPO", "")
-    if not token or not repo:
-        return
-    try:
-        url = f"https://api.github.com/repos/{repo}/contents/stock_memory.json"
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Streamlit-Stock-Radar"
-        }
-        sha = None
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            with urllib.request.urlopen(req) as resp:
-                data = json.loads(resp.read().decode())
-                sha = data.get("sha")
-        except Exception:
-            pass
-
-        content_str = json.dumps(memory_data, indent=2, ensure_ascii=False)
-        content_b64 = base64.b64encode(content_str.encode()).decode()
-        payload = {
-            "message": "Update KI-Wissensspeicher",
-            "content": content_b64
-        }
-        if sha:
-            payload["sha"] = sha
-
-        req_put = urllib.request.Request(
-            url, 
-            data=json.dumps(payload).encode(), 
-            headers=headers, 
-            method="PUT"
-        )
-        with urllib.request.urlopen(req_put, timeout=4.0) as resp:
-            pass
-    except Exception:
-        pass
 
 def load_memory():
     if os.path.exists(MEMORY_FILE):
@@ -63,10 +20,10 @@ def load_memory():
     return {}
 
 def save_memory(memory_data):
+    """Speichert den Wissensstand lokal ab, ohne GitHub-Reboot-Schleifen auszulösen."""
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, indent=2, ensure_ascii=False)
-        sync_to_github(memory_data)
     except Exception:
         pass
 
@@ -281,7 +238,6 @@ def fetch_fundamental_and_wallstreet(ticker_sym):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_365d_stats(ticker_sym, bias_factor=1.0):
-    """Gecacht für 15 Minuten: Verhindert IP-Drosselungen und lange Wartezeiten."""
     try:
         data = yf.download(ticker_sym, period="1y", interval="1d", progress=False, auto_adjust=True)
         if data is None or data.empty:
