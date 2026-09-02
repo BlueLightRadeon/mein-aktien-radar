@@ -1,0 +1,53 @@
+{
+  "items": [
+    {
+      "ticker": "AVGO",
+      "name": "Broadcom",
+      "shares": 1.0,
+      "buy_price": 75.18
+    },
+    {
+      "ticker": "RHM.DE",
+      "name": "Rheinmetall",
+      "shares": 1.0,
+      "buy_price": 23.0
+    },
+    {
+      "ticker": "FORA.TO",
+      "name": "VerticalScope",
+      "shares": 1.0,
+      "buy_price": 48.9
+    },
+    {
+      "ticker": "NVDA",
+      "name": "NVIDIA",
+      "shares": 1.0,
+      "buy_price": 49.43
+    },
+    {
+      "ticker": "NVO",
+      "name": "Novo Nordisk",
+      "shares": 1.0,
+      "buy_price": 38.96
+    },
+    {
+      "ticker": "EUNL.DE",
+      "name": "iShares Core MSCI World ETF",
+      "shares": 1.0,
+      "buy_price": 54.01
+    },
+    {
+      "ticker": "PANW",
+      "name": "Palo Alto Networks",
+      "shares": 1.0,
+      "buy_price": 75.15
+    },
+    {
+      "ticker": "TSM",
+      "name": "TSMC",
+      "shares": 1.0,
+      "buy_price": 48.77
+    }
+  ],
+  "cash": 51.57
+}
