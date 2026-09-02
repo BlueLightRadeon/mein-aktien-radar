@@ -23,7 +23,10 @@ try:
         get_display_name
     )
     from ai_service import get_account_models, run_analysis, run_duel_analysis
-    from learning_service import fetch_365d_stats, run_ai_learning_prediction, load_memory, save_memory
+    from learning_service import (
+        fetch_365d_stats, run_ai_learning_prediction, load_memory, 
+        save_memory, generate_realistic_forecast_path
+    )
 except Exception as e:
     st.error(f"Import-Fehler: {e}")
     st.stop()
@@ -454,7 +457,6 @@ with tab8:
     
     memory = load_memory()
 
-    # Dauerhafter Backup & Restore Bereich
     with st.expander("💾 Wissensspeicher dauerhaft sichern & wiederherstellen (Server-Schutz)"):
         col_bk1, col_bk2 = st.columns(2)
         with col_bk1:
@@ -549,6 +551,7 @@ with tab8:
         if f"history_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
             h_series = st.session_state[f"history_{chosen_ticker}"]
             tg = st.session_state[f"targets_{chosen_ticker}"]
+            s = st.session_state[f"stats_{chosen_ticker}"]
             curr_sym = tg.get("currency_symbol", "€")
 
             zoom_choice = st.radio(
@@ -558,64 +561,72 @@ with tab8:
                 key=f"zoom_{chosen_ticker}"
             )
             plot_history = h_series.tail(90) if "90 Tage" in zoom_choice else h_series
-
             last_date = h_series.index[-1]
-            future_dates = [
-                last_date,
-                last_date + timedelta(days=7),
-                last_date + timedelta(days=30),
-                last_date + timedelta(days=90)
-            ]
-            future_prices = [tg["p_curr"], tg["t_7"], tg["t_30"], tg["t_90"]]
-            
-            # Dynamischer Korridorverlauf basierend auf berechnetem Best- & Worst-Case
-            bull_prices = [
-                tg["p_curr"],
-                round(tg["p_curr"] + (tg["t_bull"] - tg["p_curr"]) * 0.35, 2),
-                tg["t_bull"],
-                round(tg["t_bull"] * (1.0 + (tg["t_90"] - tg["t_30"]) / tg["t_30"]), 2)
-            ]
-            bear_prices = [
-                tg["p_curr"],
-                round(tg["p_curr"] - (tg["p_curr"] - tg["t_bear"]) * 0.35, 2),
-                tg["t_bear"],
-                round(tg["t_bear"] * 0.96, 2)
-            ]
+
+            # Erzeuge realistische tägliche Schwankungen
+            future_dates, f_prices, bull_curve, bear_curve, milestones = generate_realistic_forecast_path(
+                last_date=last_date,
+                p_curr=tg["p_curr"],
+                t_7=tg["t_7"],
+                t_30=tg["t_30"],
+                t_90=tg["t_90"],
+                t_bull=tg["t_bull"],
+                t_bear=tg["t_bear"],
+                volatility_pct=s.get("volatility_pct", 35.0),
+                ticker_seed=chosen_ticker
+            )
 
             fig_pred = go.Figure()
 
+            # 1. Reale Historie
             fig_pred.add_trace(go.Scatter(
                 x=plot_history.index, y=plot_history.values,
                 mode="lines", name=f"Reale Börsenkurse ({selected_stock_name})",
                 line=dict(color="#0693E3", width=2.5)
             ))
 
+            # 2. Bullish Korridor
             fig_pred.add_trace(go.Scatter(
-                x=future_dates, y=bull_prices,
+                x=future_dates, y=bull_curve,
                 mode="lines", name="🟢 Best-Case Korridor",
-                line=dict(color="rgba(0, 208, 132, 0.4)", width=1, dash="dot")
+                line=dict(color="rgba(0, 208, 132, 0.4)", width=1, dash="dot"),
+                hoverinfo="skip"
             ))
 
+            # 3. Bearish Korridor (Gefüllter Trichter)
             fig_pred.add_trace(go.Scatter(
-                x=future_dates, y=bear_prices,
+                x=future_dates, y=bear_curve,
                 mode="lines", name="🔴 Absicherungs-Kanal",
-                fill='tonexty', fillcolor='rgba(0, 208, 132, 0.12)',
-                line=dict(color="rgba(235, 20, 76, 0.4)", width=1, dash="dot")
+                fill='tonexty', fillcolor='rgba(0, 208, 132, 0.10)',
+                line=dict(color="rgba(235, 20, 76, 0.4)", width=1, dash="dot"),
+                hoverinfo="skip"
             ))
 
+            # 4. Zackige, realistische tägliche KI-Prognosekurve
             fig_pred.add_trace(go.Scatter(
-                x=future_dates, y=future_prices,
-                mode="lines+markers", name="🎯 KI-Hauptprognose (7/30/90 Tage)",
-                line=dict(color="#FCB900", width=3, dash="dash"),
-                marker=dict(size=8, color="#FCB900")
+                x=future_dates, y=f_prices,
+                mode="lines", name="🎯 KI-Prognose (Täglicher Pfad)",
+                line=dict(color="#FCB900", width=2.5, dash="dash"),
+                hovertemplate="Prognose (%{x|%d. %b}): <b>%{y:.2f} " + curr_sym + "</b><extra></extra>"
+            ))
+
+            # 5. Konkrete Zielmarken als Punkte hervorheben
+            fig_pred.add_trace(go.Scatter(
+                x=milestones["dates"], y=milestones["prices"],
+                mode="markers+text", name="📍 KI-Zielmarken",
+                text=[f"{p:.1f}" for p in milestones["prices"]],
+                textposition="top center",
+                textfont=dict(color="#FCB900", size=10),
+                marker=dict(size=8, color="#FCB900", symbol="diamond"),
+                hovertemplate="%{text}: <b>%{y:.2f} " + curr_sym + "</b><extra></extra>"
             ))
 
             fig_pred.update_layout(
-                title=f"Individuelle 90-Tage Kursprognose für {selected_stock_name} (inkl. Konfidenzkanal)",
+                title=f"90-Tage Kursprognose für {selected_stock_name} (inkl. täglichem Volatilitätsverlauf)",
                 xaxis=dict(title="Datum", type="date"),
                 yaxis=dict(title=f"Kurs ({curr_sym})", ticksuffix=f" {curr_sym}"),
                 hovermode="x unified",
-                height=440,
+                height=450,
                 margin=dict(l=10, r=10, t=40, b=10)
             )
             st.plotly_chart(fig_pred, width="stretch", key=f"plotly_pred_chart_{chosen_ticker}")
