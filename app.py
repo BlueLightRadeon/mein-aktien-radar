@@ -1,14 +1,44 @@
-import streamlit as st
+import os
+import json
+import time
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
-from datetime import datetime, timezone, timedelta
-import json
-import time
+import streamlit as st
 
+PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_portfolio.json")
+
+def load_saved_portfolio():
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("items", []), float(data.get("cash", 0.0))
+        except Exception:
+            return [], 0.0
+    return [], 0.0
+
+def save_saved_portfolio(items, cash):
+    try:
+        with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+            json.dump({"items": items, "cash": float(cash)}, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def delete_saved_portfolio():
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            os.remove(PORTFOLIO_FILE)
+        except Exception:
+            pass
+
+# Dauerhafte Initialisierung beim Start
 if "v_portfolio" not in st.session_state:
-    st.session_state["v_portfolio"] = []
+    saved_items, saved_cash = load_saved_portfolio()
+    st.session_state["v_portfolio"] = saved_items
+    st.session_state["v_cash"] = saved_cash
 
 if "v_cash" not in st.session_state:
     st.session_state["v_cash"] = 0.0
@@ -108,7 +138,6 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         st.error(f"⚠️ Groq API Fehler: {str(e)}")
         return False
 
-# Dekorator für sekundengenaue Live-Aktualisierung
 def get_fragment_decorator(interval_sec=1):
     if hasattr(st, "fragment"):
         return st.fragment(run_every=interval_sec)
@@ -118,7 +147,6 @@ def get_fragment_decorator(interval_sec=1):
 
 @get_fragment_decorator(interval_sec=1)
 def render_live_timer_panel(ten_mins, auto_refresh_active, has_portfolio):
-    """Aktualisiert sich jede Sekunde völlig unabhängig ohne Neuladen der Charts."""
     now_ts = time.time()
     last_ts = st.session_state.get("last_auto_run_ts", 0.0)
     last_time_str = st.session_state.get("last_analysis_time", "")
@@ -140,29 +168,36 @@ with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
     with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
-        st.caption("Wähle deine PDF aus und klicke auf '📄 Auszug jetzt einlesen'.")
+        st.caption("Wähle deine PDF aus und klicke auf '📄 Einlesen'.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
-        if tr_pdf is not None:
-            if st.button("📄 Auszug jetzt einlesen", width="stretch", type="primary"):
+        
+        # Zwei Buttons nebeneinander: Einlesen und Löschen
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            if st.button("📄 Einlesen", width="stretch", type="primary", disabled=(tr_pdf is None)):
                 imported_items, imported_cash = parse_trade_republic_pdf(tr_pdf)
                 st.session_state["v_portfolio"] = imported_items
                 st.session_state["v_cash"] = float(imported_cash)
+                save_saved_portfolio(imported_items, float(imported_cash))
                 st.session_state["last_auto_run_ts"] = 0.0
-                st.success(f"✅ {len(imported_items)} Positionen & Cash ({fmt_eur(st.session_state['v_cash'])}) eingelesen!")
+                st.success(f"✅ {len(imported_items)} Positionen & Cash dauerhaft gesichert!")
+                st.rerun()
+                
+        with col_p2:
+            if st.button("🗑️ Löschen", width="stretch"):
+                delete_saved_portfolio()
+                st.session_state["v_portfolio"] = []
+                st.session_state["v_cash"] = 0.0
+                st.session_state.pop("ai_signals", None)
+                st.session_state.pop("ai_market", None)
+                st.session_state.pop("ai_depot", None)
+                st.session_state.pop("ai_cluster", None)
+                st.session_state["last_auto_run_ts"] = 0.0
+                st.success("✅ Auszug gelöscht!")
                 st.rerun()
 
     display_cash = float(st.session_state.get("v_cash", 0.0))
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
-
-    if st.button("🗑️ Depot & Cash leeren", width="stretch"):
-        st.session_state["v_portfolio"] = []
-        st.session_state["v_cash"] = 0.0
-        st.session_state.pop("ai_signals", None)
-        st.session_state.pop("ai_market", None)
-        st.session_state.pop("ai_depot", None)
-        st.session_state.pop("ai_cluster", None)
-        st.session_state["last_auto_run_ts"] = 0.0
-        st.rerun()
 
     st.divider()
     st.subheader("🔍 Aktie manuell hinzufügen:")
@@ -182,6 +217,7 @@ with st.sidebar:
                     "shares": 1.0,
                     "buy_price": float(in_money)
                 })
+                save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"])
                 st.session_state["last_auto_run_ts"] = 0.0
                 st.success(f"✅ {disp_name} hinzugefügt!")
                 st.rerun()
@@ -206,10 +242,12 @@ with st.sidebar:
                 )
                 if new_val != current_val:
                     st.session_state["v_portfolio"][idx]["buy_price"] = float(new_val)
+                    save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"])
                     st.rerun()
             with col_pos_b:
                 if st.button("❌", key=f"del_item_{idx}_{item.get('ticker','')}"):
                     st.session_state["v_portfolio"].pop(idx)
+                    save_saved_portfolio(st.session_state["v_portfolio"], st.session_state["v_cash"])
                     st.rerun()
     else:
         st.info("Noch kein Auszug geladen (0 Positionen).")
@@ -263,7 +301,6 @@ with col_btn:
                 st.rerun()
 
 with col_info:
-    # Hier wird der sekundengenaue Live-Timer ausgeführt
     render_live_timer_panel(ten_mins, auto_refresh_active, bool(portfolio_list))
 
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
@@ -643,14 +680,12 @@ with tab8:
 
             fig_pred = go.Figure()
 
-            # 1. Reale Historie
             fig_pred.add_trace(go.Scatter(
                 x=plot_history.index, y=plot_history.values,
                 mode="lines", name=f"Reale Börsenkurse ({selected_stock_name})",
                 line=dict(color="#0693E3", width=2.5)
             ))
 
-            # 2. Bullish Korridor
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bull_curve,
                 mode="lines", name="🟢 Best-Case Korridor (30T)",
@@ -658,7 +693,6 @@ with tab8:
                 hoverinfo="skip"
             ))
 
-            # 3. Bearish Korridor (Gefüllter Trichter)
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bear_curve,
                 mode="lines", name="🔴 Absicherungs-Kanal (30T)",
@@ -667,7 +701,6 @@ with tab8:
                 hoverinfo="skip"
             ))
 
-            # 4. Zackige, realistische 30-Tage-Kurve
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=f_prices,
                 mode="lines", name="🎯 30-Tage KI-Prognose (Tagespfad)",
@@ -675,7 +708,6 @@ with tab8:
                 hovertemplate="Prognose (%{x|%d. %b}): <b>%{y:.2f} " + curr_sym + "</b><extra></extra>"
             ))
 
-            # 5. Konkrete Zielmarken (Tag 7, 14, 30)
             fig_pred.add_trace(go.Scatter(
                 x=milestones["dates"], y=milestones["prices"],
                 mode="markers+text", name="📍 Meilensteine",
