@@ -34,7 +34,6 @@ def delete_saved_portfolio():
         except Exception:
             pass
 
-# Dauerhafte Initialisierung beim Start
 if "v_portfolio" not in st.session_state:
     saved_items, saved_cash = load_saved_portfolio()
     st.session_state["v_portfolio"] = saved_items
@@ -171,7 +170,6 @@ with st.sidebar:
         st.caption("Wähle deine PDF aus und klicke auf '📄 Einlesen'.")
         tr_pdf = st.file_uploader("PDF auswählen", type=["pdf"], key="tr_pdf_file_input")
         
-        # Zwei Buttons nebeneinander: Einlesen und Löschen
         col_p1, col_p2 = st.columns(2)
         with col_p1:
             if st.button("📄 Einlesen", width="stretch", type="primary", disabled=(tr_pdf is None)):
@@ -347,20 +345,23 @@ with tab1:
             ] if c in stock_df.columns
         ]
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
-    if st.session_state.get("ai_depot"):
+    
+    depot_text = st.session_state.get("ai_depot", "")
+    if depot_text and len(depot_text.strip()) > 15 and depot_text.strip() != ",":
         st.divider()
         st.subheader("🤖 Detaillierter KI-Handelsbericht für deine Aktien:")
-        st.markdown(st.session_state["ai_depot"])
+        st.markdown(depot_text)
     else:
-        st.info("Lade ein Depot hoch, um die Handelsempfehlungen zu berechnen.")
+        st.info("Klicke auf '🚀 Jetzt sofort manuell aktualisieren', um die Handelsempfehlungen zu berechnen.")
 
 with tab2:
     st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
-    if st.session_state.get("ai_market"):
+    market_text = st.session_state.get("ai_market", "")
+    if market_text and len(market_text.strip()) > 15 and market_text.strip() != ",":
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
-        st.markdown(st.session_state["ai_market"])
+        st.markdown(market_text)
     else:
-        st.info("Lade dein Depot hoch, um die Marktanalyse automatisch zu laden.")
+        st.info("Klicke auf '🚀 Jetzt sofort manuell aktualisieren', um den Marktbericht zu laden.")
 
 with tab3:
     st.info("ℹ️ **Kurzinfo:** Zeigt Termine für Quartalszahlen und dein passives Einkommen (Ausschüttungen in €).")
@@ -380,11 +381,12 @@ with tab3:
 
 with tab4:
     st.info("ℹ️ **Kurzinfo:** KI-Ratgeber zur Portfolio-Erweiterung: 5 konkrete Top-Aktien basierend auf der aktuellen Welt- und Marktlage.")
-    if st.session_state.get("ai_signals"):
+    signals_text = st.session_state.get("ai_signals", "")
+    if signals_text and len(signals_text.strip()) > 15 and signals_text.strip() != ",":
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
-        st.markdown(st.session_state["ai_signals"])
+        st.markdown(signals_text)
     else:
-        st.info("Lade ein Depot ein, um die Kaufempfehlungen zu sehen.")
+        st.info("Klicke auf '🚀 Jetzt sofort manuell aktualisieren', um die Kaufempfehlungen zu laden.")
 
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Performance-Verläufe deiner Aktien im gewählten Zeitraum.")
@@ -488,10 +490,11 @@ with tab6:
                     st.write(f"**Deine Aktien hier:** {stock_names}")
                     st.write(f"**Anteil am Depot:** `{fmt_eur(role_sum)}` ({role_pct:.1f} %)")
 
-    if st.session_state.get("ai_cluster"):
+    cluster_text = st.session_state.get("ai_cluster", "")
+    if cluster_text and len(cluster_text.strip()) > 15 and cluster_text.strip() != ",":
         st.divider()
         st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
-        st.markdown(st.session_state["ai_cluster"])
+        st.markdown(cluster_text)
 
 with tab7:
     st.info("ℹ️ **Kurzinfo:** Direktes 1-gegen-1-Duell zweier beliebiger Aktien aus deinem Depot.")
@@ -680,12 +683,14 @@ with tab8:
 
             fig_pred = go.Figure()
 
+            # 1. Reale Historie
             fig_pred.add_trace(go.Scatter(
                 x=plot_history.index, y=plot_history.values,
                 mode="lines", name=f"Reale Börsenkurse ({selected_stock_name})",
                 line=dict(color="#0693E3", width=2.5)
             ))
 
+            # 2. Bullish Korridor
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bull_curve,
                 mode="lines", name="🟢 Best-Case Korridor (30T)",
@@ -693,6 +698,7 @@ with tab8:
                 hoverinfo="skip"
             ))
 
+            # 3. Bearish Korridor (Gefüllter Trichter)
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bear_curve,
                 mode="lines", name="🔴 Absicherungs-Kanal (30T)",
@@ -701,6 +707,7 @@ with tab8:
                 hoverinfo="skip"
             ))
 
+            # 4. Zackige, realistische 30-Tage-Kurve
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=f_prices,
                 mode="lines", name="🎯 30-Tage KI-Prognose (Tagespfad)",
@@ -708,6 +715,7 @@ with tab8:
                 hovertemplate="Prognose (%{x|%d. %b}): <b>%{y:.2f} " + curr_sym + "</b><extra></extra>"
             ))
 
+            # 5. Konkrete Zielmarken (Tag 7, 14, 30)
             fig_pred.add_trace(go.Scatter(
                 x=milestones["dates"], y=milestones["prices"],
                 mode="markers+text", name="📍 Meilensteine",
