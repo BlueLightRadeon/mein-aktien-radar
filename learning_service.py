@@ -61,12 +61,15 @@ def fetch_365d_stats(ticker_sym):
         low_365 = float(close.min())
         volatility = float(close.pct_change().std() * np.sqrt(252) * 100.0)
 
-        # Volumen-Trend
+        # Volumen-Verhältnis
         avg_vol_20 = float(volume.tail(20).mean()) if not volume.empty else 1.0
         last_vol = float(volume.iloc[-1]) if not volume.empty else 1.0
         vol_ratio = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
 
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
+
+        # Trend-Signal ableiten
+        trend_status = "Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase")
 
         return {
             "current_price": round(current_p, 2),
@@ -79,6 +82,7 @@ def fetch_365d_stats(ticker_sym):
             "low_365d": round(low_365, 2),
             "volatility_pct": round(volatility, 2),
             "volume_ratio": vol_ratio,
+            "trend_status": trend_status,
             "last_5_days": recent_trend,
             "data_points": len(close)
         }
@@ -86,7 +90,6 @@ def fetch_365d_stats(ticker_sym):
         return None
 
 def fetch_company_specific_news(ticker_sym):
-    """Zieht aktuelle Unternehmensschlagzeilen direkt über yfinance."""
     try:
         t = yf.Ticker(ticker_sym)
         news_items = getattr(t, "news", [])
@@ -96,80 +99,84 @@ def fetch_company_specific_news(ticker_sym):
                 title = item.get("title", "")
                 if title:
                     headlines.append(f"• {title}")
-        return "\n".join(headlines) if headlines else "Keine spezifischen Ticker-Meldungen abrufbar."
+        return "\n".join(headlines) if headlines else "Keine aktuellen Unternehmensmeldungen vorhanden."
     except Exception:
-        return "Keine spezifischen Ticker-Meldungen abrufbar."
+        return "Keine aktuellen Unternehmensmeldungen vorhanden."
 
 def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, stats, memory, macro_news=""):
     t = ticker_sym.upper()
     past_stock_memory = memory.get(t, {})
     past_predictions = past_stock_memory.get("history", [])
 
-    # Selbstkorrektur / Feedback-Schleife aus früheren Prognosen
-    accuracy_eval = "ERST-ANALYSE: Noch keine historischen Vorhersagen im Speicher."
+    # Mathematische Fehler-Rückkopplung
+    accuracy_eval = "ERSTMALIGE ANALYSE: Es liegt noch kein historischer Lernstand in der Datenbank vor."
+    error_list = []
     if past_predictions:
-        accuracy_eval = "HISTORISCHE LERN-BILANZ & FEHLERKORREKTUR:\n"
-        for idx, entry in enumerate(past_predictions[-3:]):
-            prev_price = entry.get("price", 0.0)
-            target = entry.get("target_30d", prev_price)
+        accuracy_eval = "HISTORISCHER LERNSTAND & ABWEICHUNGSANALYSE:\n"
+        for entry in past_predictions[-4:]:
+            prev_p = entry.get("price", 0.0)
+            target = entry.get("target_30d", prev_p)
             date_str = entry.get("date", "Unbekannt")
-            # Wie weit wich die damalige Prognose vom jetzigen Realkurs ab?
-            diff_pct = ((stats["current_price"] - target) / target) * 100.0 if target > 0 else 0.0
-            accuracy_eval += f"- Prognose vom {date_str} (Kurs damals: {prev_price} €, 30T-Ziel: {target} €) -> Tatsächlicher Kurs heute: {stats['current_price']} € (Abweichung: {diff_pct:+.1f}%).\n"
-        accuracy_eval += "LERN-AUFTRAG: Berücksichtige deine bisherigen Abweichungen. Passe deine Konfidenz und dein Kurspotenzial entsprechend an!"
+            if target > 0:
+                diff_pct = abs((stats["current_price"] - target) / target) * 100.0
+                error_list.append(diff_pct)
+                accuracy_eval += f"- Prognose vom {date_str}: Damals {prev_p:.2f} € -> Ziel war {target:.2f} €. Aktueller Realkurs: {stats['current_price']:.2f} € (Differenz: {diff_pct:.1f}%)\n"
+        
+        if error_list:
+            avg_err = sum(error_list) / len(error_list)
+            accuracy_eval += f"\n-> Bisherige durchschnittliche Abweichung: {avg_err:.1f}%. Nutze diesen Fehlerfaktor, um Übertreibungen im Kursziel zu dämpfen!"
 
-    # Spezifische Unternehmensnachrichten abrufen
     specific_news = fetch_company_specific_news(ticker_sym)
 
     prompt = f"""
-Du bist ein quantitatives KI-Prognose-System auf Hedgefonds-Niveau. 
-Verbinde die quantitativen 365-Tage-Chartmuster mit dem aktuellen Weltgeschehen und den neuesten Unternehmensnachrichten von {company_name} ({t}), um eine fundierte Kursprognose zu erstellen.
+Du bist ein quantitatives KI-Prognosemodell. Erstelle eine fundierte, professionelle Aktienprognose AUSSCHLIESSLICH AUF DEUTSCH.
+Verwende kein einziges englisches Wort in den Überschriften und Floskeln.
 
-[1. AKTUELLE NACHRICHTENLAGE & WELTGESCHEHEN]
-Globale Makro-Trends:
+[1. WELTWIRTSCHAFT & UNTERNEHMENSNACHRICHTEN]
+Globale Leitnachrichten:
 {macro_news}
 
-Spezifische Unternehmens-News zu {company_name}:
+Unternehmensspezifische Nachrichten zu {company_name}:
 {specific_news}
 
-[2. TECHNISCHE 365-TAGE-HISTORIE & KENNZAHLEN]
+[2. TECHNISCHE 365-TAGE-KENNZAHLEN]
 - Aktueller Börsenkurs: {stats['current_price']} €
-- 365-Tage Gesamt-Rendite: {stats['return_365d_pct']} %
-- 52-Wochen Spanne: Tief {stats['low_365d']} € | Hoch {stats['high_365d']} €
-- Gleitende Durchschnitte: SMA20: {stats['sma20']} | SMA50: {stats['sma50']} | SMA200: {stats['sma200']}
-- RSI (14 Tage Momentum): {stats['rsi_14']}
-- Annualisierte Volatilität: {stats['volatility_pct']} %
-- Letzte 5 Handelstage: {stats['last_5_days']}
+- 365-Tage Wertentwicklung: {stats['return_365d_pct']} %
+- 52-Wochen Tief / Hoch: {stats['low_365d']} € / {stats['high_365d']} €
+- Gleitende Durchschnitte: 20 Tage: {stats['sma20']} € | 50 Tage: {stats['sma50']} € | 200 Tage: {stats['sma200']} €
+- RSI (14 Tage): {stats['rsi_14']} (Momentum-Status)
+- Schwankungsbreite (Volatilität): {stats['volatility_pct']} %
+- Trendrichtung: {stats['trend_status']}
+- Schlusskurse der letzten 5 Handelstage: {stats['last_5_days']}
 
-[3. DEIN LERNGEDÄCHTNIS]
+[3. LERNGEDÄCHTNIS & FEHLERKORREKTUR]
 {accuracy_eval}
 
 AUFGABE:
-Analysiere objektiv: Stützen die Nachrichten den Chart-Trend oder widersprechen sie ihm?
-Gliedere deine Antwort auf Deutsch strukturiert in diese 4 Abschnitte:
+Formuliere deine Analyse komplett auf Deutsch mit folgenden 4 Abschnitten:
 
-### 1. 🌐 Synthese: Weltgeschehen vs. Charttechnik
-(Erläutere in 3-4 Sätzen, wie Notenbankzinsen, geopolitische Lage und Branchennachrichten auf den Kurs wirken)
+### 1. 🌐 Marktlage & Nachrichten-Synthese
+Bewerte in 3-4 Sätzen, wie die Zinspolitik, Weltwirtschaft und aktuelle Unternehmensnachrichten die Aktie beeinflussen.
 
-### 2. 🧠 Erkenntnisse aus der 365-Tage-Historie & Fehlern
-(Welche Zyklen und Kursmuster wurden gelernt? Welche Korrekturen wurden aus früheren Fehleinschätzungen gezogen?)
+### 2. 🧠 Erkenntnisse aus dem 365-Tage-Lernprozess
+Welche Chart-Muster, Unterstützungszonen und Widerstände hat die KI aus den Kursdaten der letzten 365 Tage gelernt? Wie wurde die frühere Prognoseabweichung korrigiert?
 
 ### 3. 🎯 Multi-Szenario Kursprognose
 - **Ziel in 7 Tagen:** [Zahl in €] ([+/- %])
-- **Ziel in 30 Tagen (Basis-Szenario):** [Zahl in €] ([+/- %])
+- **Ziel in 30 Tagen (Hauptszenario):** [Zahl in €] ([+/- %])
 - **Ziel in 90 Tagen:** [Zahl in €] ([+/- %])
-- **🟢 Bullish Best-Case (30T):** [Zahl in €]
-- **🔴 Bearish Worst-Case (30T / Stop-Loss):** [Zahl in €]
-- **Prognose-Wahrscheinlichkeit:** [z. B. 75%]
+- **🟢 Optimistisches Best-Case-Ziel (30 Tage):** [Zahl in €]
+- **🔴 Absicherungs-Marke / Stop-Loss:** [Zahl in €]
+- **Treffer-Wahrscheinlichkeit:** [z. B. 78 %]
 
-### 4. 🧭 Konkrete Handlungsanweisung
-(Klare Empfehlung: Jetzt Limit-Order setzen, Einstieg abwarten oder bestehende Gewinne sichern)
+### 4. 🧭 Konkreter Handlungsplan
+Klare Anweisung für Privatanleger: Abwarten, Limit-Order platzieren oder schrittweise aufstocken?
 """
 
     res = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "Du bist ein führender quantitativer Analyst. Antworte strukturiert und fundiert auf Deutsch."},
+            {"role": "system", "content": "Du bist ein führender deutscher quantitativer Analyst. Antworte ausschließlich in verständlichem, professionellem Deutsch."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2,
@@ -177,7 +184,7 @@ Gliedere deine Antwort auf Deutsch strukturiert in diese 4 Abschnitte:
     )
     analysis_text = res.choices[0].message.content
 
-    # Erwartetes 30-Tage-Ziel extrahieren
+    # 30-Tage Zielwert aus dem deutschen Text ziehen
     t_30 = stats['current_price']
     match_30 = re.search(r'Ziel in 30 Tagen[^\d]*([\d.,]+)', analysis_text)
     if match_30:
@@ -190,7 +197,7 @@ Gliedere deine Antwort auf Deutsch strukturiert in diese 4 Abschnitte:
         memory[t] = {"name": company_name, "history": []}
 
     memory[t]["history"].append({
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M Uhr"),
         "price": stats['current_price'],
         "target_30d": t_30,
         "rsi": stats['rsi_14'],
