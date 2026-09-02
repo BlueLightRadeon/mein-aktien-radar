@@ -7,7 +7,7 @@ import streamlit as st
 PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_portfolio.json")
 
 def sync_portfolio_to_github(items, cash):
-    """Sichert das Depot NUR bei Upload/Änderung auf GitHub."""
+    """Sichert das Depot bei Upload oder Wertänderung im GitHub-Repository."""
     token = str(st.secrets.get("GITHUB_TOKEN", "")).strip()
     repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
     if not token or not repo:
@@ -50,6 +50,7 @@ def sync_portfolio_to_github(items, cash):
         pass
 
 def delete_portfolio_from_github():
+    """Löscht das Depot aus dem GitHub-Repository bei Nutzerklick."""
     token = str(st.secrets.get("GITHUB_TOKEN", "")).strip()
     repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
     if not token or not repo:
@@ -82,6 +83,7 @@ def delete_portfolio_from_github():
         pass
 
 def load_saved_portfolio():
+    """Lädt das Depot lokal oder stellt es nach Server-Reboot via GitHub wieder her."""
     if os.path.exists(PORTFOLIO_FILE):
         try:
             with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
@@ -121,6 +123,7 @@ def load_saved_portfolio():
     return [], 0.0
 
 def save_saved_portfolio(items, cash, sync_github=True):
+    """Speichert das Portfolio lokal und synchronisiert es optional mit GitHub."""
     try:
         with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
             json.dump({"items": items, "cash": float(cash)}, f, indent=2, ensure_ascii=False)
@@ -130,6 +133,7 @@ def save_saved_portfolio(items, cash, sync_github=True):
         sync_portfolio_to_github(items, cash)
 
 def delete_saved_portfolio():
+    """Entfernt das Portfolio lokal sowie aus dem GitHub-Speicher."""
     if os.path.exists(PORTFOLIO_FILE):
         try:
             os.remove(PORTFOLIO_FILE)
