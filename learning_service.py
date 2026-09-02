@@ -65,7 +65,7 @@ def fetch_365d_stats(ticker_sym):
         vol_ratio = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
 
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
-        trend_status = "Starker Aufwaertstrend" if current_p > sma20 > sma50 else ("Aufwaertstrend" if current_p > sma50 else ("Abwaertstrend" if current_p < sma50 else "Seitwaertsphase"))
+        trend_status = "Starker Aufwärtstrend" if current_p > sma20 > sma50 else ("Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase"))
 
         stats_dict = {
             "current_price": round(current_p, 2),
@@ -105,7 +105,7 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     past_stock_memory = memory.get(t, {})
     past_predictions = past_stock_memory.get("history", [])
 
-    accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen fuer diesen Ticker gespeichert."
+    accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen für diesen Ticker gespeichert."
     if past_predictions:
         accuracy_eval = "HISTORISCHE ABWEICHUNGEN AUS DEINEM SPEICHER:\n"
         for entry in past_predictions[-3:]:
@@ -114,13 +114,12 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
             date_str = entry.get("date", "Unbekannt")
             if target > 0:
                 diff_pct = abs((stats["current_price"] - target) / target) * 100.0
-                accuracy_eval += f"- {date_str}: Kurs damals {prev_p:.2f} Euro -> Ziel war {target:.2f} Euro. Realkurs heute: {stats['current_price']:.2f} Euro (Differenz: {diff_pct:.1f}%)\n"
+                accuracy_eval += f"- {date_str}: Kurs damals {prev_p:.2f} € -> Ziel war {target:.2f} €. Realkurs heute: {stats['current_price']:.2f} € (Differenz: {diff_pct:.1f}%)\n"
 
     specific_news = fetch_company_specific_news(ticker_sym)
 
-    # Sichere Prompt-Zusammensetzung ohne ungeschützte JSON-Klammern im F-String
     prompt_lines = [
-        "Antworte zu 100 % AUF DEUTSCH. Es ist streng verboten, englische Woerter oder englische Saetze zu verwenden.",
+        "Du musst ausnahmslos auf DEUTSCH antworten. Kein einziges Wort auf Englisch!",
         "",
         f"[UNTERNEHMEN: {company_name} ({t})]",
         "[AKTUELLE WELTMARKTLAGE]",
@@ -130,12 +129,12 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         specific_news,
         "",
         "[365-TAGE DATEN & KENNZAHLEN]",
-        f"- Aktueller Boersenkurs: {stats['current_price']} Euro",
+        f"- Aktueller Börsenkurs: {stats['current_price']} €",
         f"- 365-Tage Performance: {stats['return_365d_pct']} %",
-        f"- 52-Wochen Bandbreite: Tief {stats['low_365d']} Euro bis Hoch {stats['high_365d']} Euro",
-        f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} Euro | SMA50: {stats['sma50']} Euro | SMA200: {stats['sma200']} Euro",
+        f"- 52-Wochen Bandbreite: Tief {stats['low_365d']} € bis Hoch {stats['high_365d']} €",
+        f"- Gleitende Durchschnitte: SMA20: {stats['sma20']} € | SMA50: {stats['sma50']} € | SMA200: {stats['sma200']} €",
         f"- RSI (14 Tage): {stats['rsi_14']}",
-        f"- Schwankungsbreite (Volatilitaet): {stats['volatility_pct']} %",
+        f"- Schwankungsbreite (Volatilität): {stats['volatility_pct']} %",
         f"- Trendrichtung: {stats['trend_status']}",
         f"- Kurse der letzten 5 Tage: {stats['last_5_days']}",
         "",
@@ -154,17 +153,17 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         f"worst_case_30d = {round(stats['current_price'] * 0.94, 2)}",
         "wahrscheinlichkeit = 75",
         "PROGNOSE_WERTE_ENDE",
-        "(Passe die Zahlenwerte hinter dem Gleichheitszeichen exakt an deine tatsaechliche Berechnung an!)",
+        "(Passe die Zahlenwerte hinter dem Gleichheitszeichen exakt an deine tatsächliche Berechnung an!)",
         "",
-        "TEIL 2: AUSFUEHRLICHER DEUTSCHER ANALYSEBERICHT",
+        "TEIL 2: AUSFÜHRLICHER DEUTSCHER ANALYSEBERICHT",
         "### 1. Marktlage & Nachrichten-Synthese",
         "(Analysiere auf Deutsch, wie Weltgeschehen, Zinsen und News die Aktie beeinflussen)",
         "",
         "### 2. Erkenntnisse aus den 365-Tage-Mustern",
-        "(Welche Chartmuster und Unterstuetzungen hat die KI gelernt?)",
+        "(Welche Chartmuster und Unterstützungen hat die KI gelernt?)",
         "",
-        "### 3. Begruendung der Kursprognose",
-        "(Begruendung fuer 7, 30 und 90 Tage sowie Best-Case und Absicherungsmarke)",
+        "### 3. Begründung der Kursprognose",
+        "(Begründung für 7, 30 und 90 Tage sowie Best-Case und Absicherungsmarke)",
         "",
         "### 4. Konkrete Handlungsanweisung",
         "(Klare deutsche Anweisung: Kaufen, Halten, Zukauf-Limit setzen)"
@@ -174,13 +173,17 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     res = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "Du bist ein fuehrender deutscher quantitativer Boersenanalyst. Deine gesamte Antwort muss zwingend und ausnahmslos in deutscher Sprache verfasst sein."},
+            {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Schreibe unter keinen Umständen englische Denkprozesse oder Wörter in die Ausgabe."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2,
         max_tokens=1400
     )
     full_output = res.choices[0].message.content
+
+    # 1. Entfernt interne <think>...</think> Abschnitte der KI
+    full_output = re.sub(r'<think>.*?</think>', '', full_output, flags=re.DOTALL).strip()
+    full_output = re.sub(r'^.*?Here\'s a thinking process.*?\n\n', '', full_output, flags=re.DOTALL | re.IGNORECASE).strip()
 
     p_curr = stats['current_price']
     targets_dict = {
@@ -193,7 +196,7 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "prob": "75 %"
     }
 
-    # Zahlenblock parsen
+    # 2. Zahlenblock parsen
     val_block = re.search(r'PROGNOSE_WERTE_START(.*?)PROGNOSE_WERTE_ENDE', full_output, re.DOTALL)
     if val_block:
         lines = val_block.group(1).split("\n")
@@ -211,6 +214,7 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
                     elif k == "worst_case_30d": targets_dict["t_bear"] = num_val
                     elif k == "wahrscheinlichkeit": targets_dict["prob"] = f"{int(num_val)} %"
 
+    # 3. Bereinigung für die saubere deutsche Anzeige
     clean_report = re.sub(r'PROGNOSE_WERTE_START.*?PROGNOSE_WERTE_ENDE', '', full_output, flags=re.DOTALL).strip()
     clean_report = re.sub(r'^TEIL\s*2:?[^\n]*\n', '', clean_report, flags=re.IGNORECASE).strip()
 
