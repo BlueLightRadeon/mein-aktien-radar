@@ -28,7 +28,7 @@ def fetch_365d_stats(ticker_sym):
     try:
         data = yf.download(ticker_sym, period="1y", interval="1d", progress=False, auto_adjust=True)
         if data is None or data.empty:
-            return None
+            return None, None
         
         if isinstance(data.columns, pd.MultiIndex):
             close = data["Close"][ticker_sym] if ticker_sym in data["Close"] else data["Close"].iloc[:, 0]
@@ -39,7 +39,7 @@ def fetch_365d_stats(ticker_sym):
             
         close = close.dropna()
         if len(close) < 30:
-            return None
+            return None, None
 
         current_p = float(close.iloc[-1])
         start_p = float(close.iloc[0])
@@ -61,17 +61,14 @@ def fetch_365d_stats(ticker_sym):
         low_365 = float(close.min())
         volatility = float(close.pct_change().std() * np.sqrt(252) * 100.0)
 
-        # Volumen-Verhältnis
         avg_vol_20 = float(volume.tail(20).mean()) if not volume.empty else 1.0
         last_vol = float(volume.iloc[-1]) if not volume.empty else 1.0
         vol_ratio = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
 
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
-
-        # Trend-Signal ableiten
         trend_status = "Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase")
 
-        return {
+        stats_dict = {
             "current_price": round(current_p, 2),
             "return_365d_pct": round(ret_365d, 2),
             "sma20": round(sma20, 2),
@@ -86,8 +83,9 @@ def fetch_365d_stats(ticker_sym):
             "last_5_days": recent_trend,
             "data_points": len(close)
         }
+        return stats_dict, close
     except Exception:
-        return None
+        return None, None
 
 def fetch_company_specific_news(ticker_sym):
     try:
@@ -108,7 +106,6 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     past_stock_memory = memory.get(t, {})
     past_predictions = past_stock_memory.get("history", [])
 
-    # Mathematische Fehler-Rückkopplung
     accuracy_eval = "ERSTMALIGE ANALYSE: Es liegt noch kein historischer Lernstand in der Datenbank vor."
     error_list = []
     if past_predictions:
@@ -124,13 +121,12 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         
         if error_list:
             avg_err = sum(error_list) / len(error_list)
-            accuracy_eval += f"\n-> Bisherige durchschnittliche Abweichung: {avg_err:.1f}%. Nutze diesen Fehlerfaktor, um Übertreibungen im Kursziel zu dämpfen!"
+            accuracy_eval += f"\n-> Bisherige durchschnittliche Abweichung: {avg_err:.1f}%. Passe deine Wahrscheinlichkeiten entsprechend an."
 
     specific_news = fetch_company_specific_news(ticker_sym)
 
     prompt = f"""
-Du bist ein quantitatives KI-Prognosemodell. Erstelle eine fundierte, professionelle Aktienprognose AUSSCHLIESSLICH AUF DEUTSCH.
-Verwende kein einziges englisches Wort in den Überschriften und Floskeln.
+Du bist ein führendes quantitatives KI-Prognosemodell. Erstelle eine fundierte Aktienprognose AUSSCHLIESSLICH AUF DEUTSCH.
 
 [1. WELTWIRTSCHAFT & UNTERNEHMENSNACHRICHTEN]
 Globale Leitnachrichten:
@@ -144,7 +140,7 @@ Unternehmensspezifische Nachrichten zu {company_name}:
 - 365-Tage Wertentwicklung: {stats['return_365d_pct']} %
 - 52-Wochen Tief / Hoch: {stats['low_365d']} € / {stats['high_365d']} €
 - Gleitende Durchschnitte: 20 Tage: {stats['sma20']} € | 50 Tage: {stats['sma50']} € | 200 Tage: {stats['sma200']} €
-- RSI (14 Tage): {stats['rsi_14']} (Momentum-Status)
+- RSI (14 Tage): {stats['rsi_14']}
 - Schwankungsbreite (Volatilität): {stats['volatility_pct']} %
 - Trendrichtung: {stats['trend_status']}
 - Schlusskurse der letzten 5 Handelstage: {stats['last_5_days']}
@@ -156,10 +152,10 @@ AUFGABE:
 Formuliere deine Analyse komplett auf Deutsch mit folgenden 4 Abschnitten:
 
 ### 1. 🌐 Marktlage & Nachrichten-Synthese
-Bewerte in 3-4 Sätzen, wie die Zinspolitik, Weltwirtschaft und aktuelle Unternehmensnachrichten die Aktie beeinflussen.
+Bewerte in 3-4 Sätzen, wie Zinspolitik, Weltwirtschaft und Unternehmensmeldungen den Kurs beeinflussen.
 
 ### 2. 🧠 Erkenntnisse aus dem 365-Tage-Lernprozess
-Welche Chart-Muster, Unterstützungszonen und Widerstände hat die KI aus den Kursdaten der letzten 365 Tage gelernt? Wie wurde die frühere Prognoseabweichung korrigiert?
+Welche Zyklen und Unterstützungen wurden gelernt? Wie wurde die frühere Abweichung korrigiert?
 
 ### 3. 🎯 Multi-Szenario Kursprognose
 - **Ziel in 7 Tagen:** [Zahl in €] ([+/- %])
@@ -170,13 +166,13 @@ Welche Chart-Muster, Unterstützungszonen und Widerstände hat die KI aus den Ku
 - **Treffer-Wahrscheinlichkeit:** [z. B. 78 %]
 
 ### 4. 🧭 Konkreter Handlungsplan
-Klare Anweisung für Privatanleger: Abwarten, Limit-Order platzieren oder schrittweise aufstocken?
+Klare Anweisung für Privatanleger (Kauf-Limit, Aufstocken, Halten).
 """
 
     res = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "Du bist ein führender deutscher quantitativer Analyst. Antworte ausschließlich in verständlichem, professionellem Deutsch."},
+            {"role": "system", "content": "Du bist ein führender quantitativer Analyst. Antworte ausschließlich in verständlichem, professionellem Deutsch."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2,
@@ -184,14 +180,37 @@ Klare Anweisung für Privatanleger: Abwarten, Limit-Order platzieren oder schrit
     )
     analysis_text = res.choices[0].message.content
 
-    # 30-Tage Zielwert aus dem deutschen Text ziehen
-    t_30 = stats['current_price']
-    match_30 = re.search(r'Ziel in 30 Tagen[^\d]*([\d.,]+)', analysis_text)
-    if match_30:
-        try:
-            t_30 = float(match_30.group(1).replace(",", "."))
-        except Exception:
-            pass
+    # Zielwerte für Chart-Visualisierung parsen
+    p_curr = stats['current_price']
+    t_7 = p_curr
+    t_30 = p_curr
+    t_90 = p_curr
+    t_bull = p_curr * 1.08
+    t_bear = p_curr * 0.94
+
+    m_7 = re.search(r'Ziel in 7 Tagen[^\d]*([\d.,]+)', analysis_text)
+    m_30 = re.search(r'Ziel in 30 Tagen[^\d]*([\d.,]+)', analysis_text)
+    m_90 = re.search(r'Ziel in 90 Tagen[^\d]*([\d.,]+)', analysis_text)
+    m_bull = re.search(r'Best-Case-Ziel[^\d]*([\d.,]+)', analysis_text)
+    m_bear = re.search(r'(?:Stop-Loss|Absicherungs-Marke)[^\d]*([\d.,]+)', analysis_text)
+
+    try:
+        if m_7: t_7 = float(m_7.group(1).replace(",", "."))
+        if m_30: t_30 = float(m_30.group(1).replace(",", "."))
+        if m_90: t_90 = float(m_90.group(1).replace(",", "."))
+        if m_bull: t_bull = float(m_bull.group(1).replace(",", "."))
+        if m_bear: t_bear = float(m_bear.group(1).replace(",", "."))
+    except Exception:
+        pass
+
+    targets_dict = {
+        "p_curr": p_curr,
+        "t_7": t_7,
+        "t_30": t_30,
+        "t_90": t_90,
+        "t_bull": t_bull,
+        "t_bear": t_bear
+    }
 
     if t not in memory:
         memory[t] = {"name": company_name, "history": []}
@@ -205,4 +224,4 @@ Klare Anweisung für Privatanleger: Abwarten, Limit-Order platzieren oder schrit
     })
     save_memory(memory)
 
-    return analysis_text
+    return analysis_text, targets_dict
