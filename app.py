@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from groq import Groq
 from datetime import datetime, timezone, timedelta
+import json
 import time
 
 if "v_portfolio" not in st.session_state:
@@ -22,7 +23,7 @@ try:
         get_display_name
     )
     from ai_service import get_account_models, run_analysis, run_duel_analysis
-    from learning_service import fetch_365d_stats, run_ai_learning_prediction, load_memory
+    from learning_service import fetch_365d_stats, run_ai_learning_prediction, load_memory, save_memory
 except Exception as e:
     st.error(f"Import-Fehler: {e}")
     st.stop()
@@ -449,7 +450,35 @@ with tab7:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
 
 with tab8:
-    st.info("ℹ️ **Kurzinfo:** Das System verknüpft die 365-Tage-Historie mit aktuellen Welt- und Unternehmensnachrichten, lernt aus Fehlern im Gedächtnisspeicher und visualisiert den künftigen Kursverlauf inklusive Konfidenzkanal.")
+    st.info("ℹ️ **Kurzinfo:** Verknüpft die 365-Tage-Historie mit aktuellen Nachrichten, führt dynamische Monte-Carlo-Simulationen durch und lernt aus früheren Prognose-Abweichungen.")
+    
+    memory = load_memory()
+
+    # Dauerhafter Backup & Restore Bereich
+    with st.expander("💾 Wissensspeicher dauerhaft sichern & wiederherstellen (Server-Schutz)"):
+        col_bk1, col_bk2 = st.columns(2)
+        with col_bk1:
+            mem_json_str = json.dumps(memory, indent=2, ensure_ascii=False)
+            st.download_button(
+                label="📥 Gespeicherten Lernstand herunterladen (JSON)",
+                data=mem_json_str,
+                file_name="stock_memory.json",
+                mime="application/json",
+                width="stretch"
+            )
+            st.caption("Sichere deine gelernten Daten regelmäßig auf deinem PC.")
+        with col_bk2:
+            uploaded_mem = st.file_uploader("📤 Gesichertes Gedächtnis einspielen", type=["json"], key="restore_mem_uploader")
+            if uploaded_mem is not None:
+                try:
+                    loaded_data = json.load(uploaded_mem)
+                    save_memory(loaded_data)
+                    st.success("✅ Wissensstand erfolgreich wiederhergestellt!")
+                    time.sleep(0.8)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Fehlerhafte Datei: {e}")
+
     if portfolio_list:
         selected_stock_name = st.selectbox(
             "Wähle eine Aktie aus deinem Depot zum Lernen & Prognostizieren:",
@@ -469,10 +498,8 @@ with tab8:
         with col_learn2:
             start_learn = st.button("🧠 365 Tage + News analysieren", type="primary", width="stretch")
 
-        memory = load_memory()
-
         if start_learn:
-            with st.spinner(f"Lade 365-Tage-Historie & vergleiche Weltnachrichten für {selected_stock_name}..."):
+            with st.spinner(f"Lade 365-Tage-Historie & berechne dynamische Simulation für {selected_stock_name}..."):
                 stats, history_series = fetch_365d_stats(chosen_ticker)
                 if stats and history_series is not None:
                     client = Groq(api_key=GROQ_KEY)
@@ -486,7 +513,7 @@ with tab8:
                     st.session_state[f"stats_{chosen_ticker}"] = stats
                     st.session_state[f"targets_{chosen_ticker}"] = targets_dict
                     st.session_state[f"history_{chosen_ticker}"] = history_series
-                    st.success("✅ Analyse abgeschlossen, Muster gelernt & Prognose gesichert!")
+                    st.success("✅ Individuelle Analyse abgeschlossen & Muster gesichert!")
                 else:
                     st.error("Konnte historische 365-Tage-Börsendaten nicht vollständig laden.")
 
@@ -503,7 +530,7 @@ with tab8:
             with m_col3:
                 st.metric("RSI (14 Tage)", f"{s['rsi_14']}")
             with m_col4:
-                st.metric("Treffer-Konfidenz", f"{tg.get('prob', '78 %')}")
+                st.metric("Echter Trend-Status", f"{s.get('trend_status', 'Neutral')}")
 
             p_col1, p_col2, p_col3, p_col4 = st.columns(4)
             diff_7 = ((tg['t_7'] - s['current_price']) / s['current_price']) * 100.0
@@ -524,7 +551,6 @@ with tab8:
             tg = st.session_state[f"targets_{chosen_ticker}"]
             curr_sym = tg.get("currency_symbol", "€")
 
-            # Umschalter für optimale Chart-Lesbarkeit
             zoom_choice = st.radio(
                 "Zeitbereich im Chart:", 
                 ["Letzte 90 Tage + Prognose (Detailansicht)", "Volle 365 Tage"], 
@@ -541,14 +567,26 @@ with tab8:
                 last_date + timedelta(days=90)
             ]
             future_prices = [tg["p_curr"], tg["t_7"], tg["t_30"], tg["t_90"]]
-            bull_prices = [tg["p_curr"], tg["p_curr"] * 1.02, tg["t_bull"], tg["t_bull"] * 1.05]
-            bear_prices = [tg["p_curr"], tg["p_curr"] * 0.98, tg["t_bear"], tg["t_bear"] * 0.95]
+            
+            # Dynamischer Korridorverlauf basierend auf berechnetem Best- & Worst-Case
+            bull_prices = [
+                tg["p_curr"],
+                round(tg["p_curr"] + (tg["t_bull"] - tg["p_curr"]) * 0.35, 2),
+                tg["t_bull"],
+                round(tg["t_bull"] * (1.0 + (tg["t_90"] - tg["t_30"]) / tg["t_30"]), 2)
+            ]
+            bear_prices = [
+                tg["p_curr"],
+                round(tg["p_curr"] - (tg["p_curr"] - tg["t_bear"]) * 0.35, 2),
+                tg["t_bear"],
+                round(tg["t_bear"] * 0.96, 2)
+            ]
 
             fig_pred = go.Figure()
 
             fig_pred.add_trace(go.Scatter(
                 x=plot_history.index, y=plot_history.values,
-                mode="lines", name="Reale Börsenkurse",
+                mode="lines", name=f"Reale Börsenkurse ({selected_stock_name})",
                 line=dict(color="#0693E3", width=2.5)
             ))
 
@@ -573,7 +611,7 @@ with tab8:
             ))
 
             fig_pred.update_layout(
-                title=f"90-Tage Kursprognose für {selected_stock_name} (inkl. Konfidenzkanal)",
+                title=f"Individuelle 90-Tage Kursprognose für {selected_stock_name} (inkl. Konfidenzkanal)",
                 xaxis=dict(title="Datum", type="date"),
                 yaxis=dict(title=f"Kurs ({curr_sym})", ticksuffix=f" {curr_sym}"),
                 hovermode="x unified",
@@ -590,7 +628,7 @@ with tab8:
             with st.expander(f"📚 Gespeichertes Wissensgedächtnis für {selected_stock_name} ({len(memory[chosen_ticker]['history'])} Lernpunkte)"):
                 for entry in reversed(memory[chosen_ticker]["history"]):
                     c_sym = entry.get("currency", "€")
-                    st.write(f"• **{entry.get('date')}** | Basis-Kurs: `{entry.get('price')} {c_sym}` | Erwartetes 30T-Ziel: `{entry.get('target_30d')} {c_sym}`")
+                    st.write(f"• **{entry.get('date')}** | Basis-Kurs: `{entry.get('price')} {c_sym}` | Erwartetes 30T-Ziel: `{entry.get('target_30d')} {c_sym}` | Trend: `{entry.get('trend', 'Neutral')}`")
                     st.caption(entry.get("analysis_summary", ""))
     else:
         st.info("Lade ein Depot hoch, um das Lernlabor für deine Aktien zu aktivieren.")
