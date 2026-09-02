@@ -161,14 +161,6 @@ def render_live_timer_panel(ten_mins, auto_refresh_active, has_portfolio):
     else:
         st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
-def is_valid_report(text):
-    if not text:
-        return False
-    t = text.strip()
-    if len(t) < 30 or t == "," or "wird geladen" in t.lower():
-        return False
-    return True
-
 with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
@@ -291,7 +283,7 @@ ten_mins = 600.0
 
 if portfolio_list and GROQ_KEY and auto_refresh_active:
     if (now_ts - last_ts) >= ten_mins:
-        with st.spinner("🔄 KI-Radar analysiert Marktlage & lernt im Hintergrund..."):
+        with st.spinner("🔄 KI-Radar analysiert Marktlage & Portfolio..."):
             trigger_ai_run(portfolio_list, stock_df, selected_model)
             now_ts = time.time()
             last_ts = st.session_state.get("last_auto_run_ts", now_ts)
@@ -302,7 +294,6 @@ with col_btn:
         with st.spinner("Analysiere Markt & Portfolio mit Groq KI..."):
             if trigger_ai_run(portfolio_list, stock_df, selected_model):
                 st.success("✅ Auswertung erfolgreich aktualisiert!")
-                st.rerun()
 
 with col_info:
     render_live_timer_panel(ten_mins, auto_refresh_active, bool(portfolio_list))
@@ -353,7 +344,7 @@ with tab1:
         st.dataframe(stock_df[disp_cols], hide_index=True, width="stretch")
     
     depot_text = st.session_state.get("ai_depot", "")
-    if is_valid_report(depot_text):
+    if depot_text and len(depot_text.strip()) > 15:
         st.divider()
         st.subheader("🤖 Detaillierter KI-Handelsbericht für deine Aktien:")
         st.markdown(depot_text)
@@ -363,7 +354,7 @@ with tab1:
 with tab2:
     st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
     market_text = st.session_state.get("ai_market", "")
-    if is_valid_report(market_text):
+    if market_text and len(market_text.strip()) > 15:
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(market_text)
     else:
@@ -388,7 +379,7 @@ with tab3:
 with tab4:
     st.info("ℹ️ **Kurzinfo:** KI-Ratgeber zur Portfolio-Erweiterung: 5 konkrete Top-Aktien basierend auf der aktuellen Welt- und Marktlage.")
     signals_text = st.session_state.get("ai_signals", "")
-    if is_valid_report(signals_text):
+    if signals_text and len(signals_text.strip()) > 15:
         st.caption(f"🕒 Stand (deutsche Zeit): **{st.session_state.get('last_analysis_time', '')}**")
         st.markdown(signals_text)
     else:
@@ -497,7 +488,7 @@ with tab6:
                     st.write(f"**Anteil am Depot:** `{fmt_eur(role_sum)}` ({role_pct:.1f} %)")
 
     cluster_text = st.session_state.get("ai_cluster", "")
-    if is_valid_report(cluster_text):
+    if cluster_text and len(cluster_text.strip()) > 15:
         st.divider()
         st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
         st.markdown(cluster_text)
