@@ -25,7 +25,8 @@ try:
     from ai_service import get_account_models, run_analysis, run_duel_analysis
     from learning_service import (
         fetch_365d_stats, run_ai_learning_prediction, load_memory, 
-        save_memory, generate_realistic_30d_forecast_path
+        save_memory, generate_realistic_30d_forecast_path,
+        audit_and_update_learning, run_full_portfolio_auto_learning
     )
 except Exception as e:
     st.error(f"Import-Fehler: {e}")
@@ -65,6 +66,8 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         return False
 
     try:
+        run_full_portfolio_auto_learning(portfolio_items)
+
         client = Groq(api_key=GROQ_KEY)
         news_data = fetch_all_headlines()
         news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
@@ -104,6 +107,34 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
     except Exception as e:
         st.error(f"⚠️ Groq API Fehler: {str(e)}")
         return False
+
+# Dekorator für sekundengenaue Live-Aktualisierung
+def get_fragment_decorator(interval_sec=1):
+    if hasattr(st, "fragment"):
+        return st.fragment(run_every=interval_sec)
+    elif hasattr(st, "experimental_fragment"):
+        return st.experimental_fragment(run_every=interval_sec)
+    return lambda f: f
+
+@get_fragment_decorator(interval_sec=1)
+def render_live_timer_panel(ten_mins, auto_refresh_active, has_portfolio):
+    """Aktualisiert sich jede Sekunde völlig unabhängig ohne Neuladen der Charts."""
+    now_ts = time.time()
+    last_ts = st.session_state.get("last_auto_run_ts", 0.0)
+    last_time_str = st.session_state.get("last_analysis_time", "")
+
+    if last_time_str:
+        st.write(f"🕒 Stand: **{last_time_str}**")
+        if auto_refresh_active:
+            elapsed = now_ts - last_ts
+            remaining = max(0, int(ten_mins - elapsed))
+            st.caption(f"⏳ Nächstes Auto-Update in ca. **{remaining // 60}m {remaining % 60:02d}s**")
+            if remaining <= 0 and has_portfolio:
+                st.rerun()
+        else:
+            st.caption("⏸️ Auto-Update pausiert")
+    else:
+        st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
 with st.sidebar:
     st.header("💼 Trade Republic Depot")
@@ -218,7 +249,7 @@ ten_mins = 600.0
 
 if portfolio_list and GROQ_KEY and auto_refresh_active:
     if (now_ts - last_ts) >= ten_mins:
-        with st.spinner("🔄 KI-Radar analysiert Marktlage & Portfolio..."):
+        with st.spinner("🔄 KI-Radar analysiert Marktlage & lernt im Hintergrund..."):
             trigger_ai_run(portfolio_list, stock_df, selected_model)
             now_ts = time.time()
             last_ts = st.session_state.get("last_auto_run_ts", now_ts)
@@ -232,14 +263,8 @@ with col_btn:
                 st.rerun()
 
 with col_info:
-    if st.session_state.get("last_analysis_time"):
-        st.write(f"🕒 Stand: **{st.session_state['last_analysis_time']}**")
-        if auto_refresh_active:
-            elapsed = now_ts - last_ts
-            remaining = max(0, int(ten_mins - elapsed))
-            st.caption(f"⏳ Nächstes Auto-Update in ca. **{remaining // 60}m {remaining % 60:02d}s**")
-    else:
-        st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
+    # Hier wird der sekundengenaue Live-Timer ausgeführt
+    render_live_timer_panel(ten_mins, auto_refresh_active, bool(portfolio_list))
 
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏦 TR-Konto",
@@ -453,7 +478,7 @@ with tab7:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
 
 with tab8:
-    st.info("ℹ️ **Kurzinfo:** 30-Tage-Hochpräzisionsprognose: Kombiniert Bollinger-Bänder, MACD, ATR-Tagesschwankung und Unternehmensnews mit einer tagesgenauen Monte-Carlo-Simulation.")
+    st.info("ℹ️ **Kurzinfo:** 30-Tage-Hochpräzisionsprognose: Die KI vergleicht ihre Prognosen autonom im Hintergrund mit den echten Börsenkursen und kalibriert ihre Treffsicherheit selbstständig.")
     
     memory = load_memory()
 
@@ -494,6 +519,26 @@ with tab8:
                 chosen_ticker = clean_ticker(item.get("ticker", ""))
                 break
 
+        stats_preview, history_preview = fetch_365d_stats(chosen_ticker)
+        current_profile = {}
+        if stats_preview and history_preview is not None:
+            current_profile = audit_and_update_learning(
+                chosen_ticker, stats_preview["current_price"], history_preview, memory
+            )
+
+        with st.container(border=True):
+            st.markdown(f"#### 🧠 Autonomes Lern-Dashboard: **{selected_stock_name}**")
+            l_col1, l_col2, l_col3, l_col4 = st.columns(4)
+            with l_col1:
+                st.metric("Geprüfte Prognosen", f"{current_profile.get('total_evaluations', 0)}")
+            with l_col2:
+                st.metric("Richtungstreffer (Auf/Ab)", f"{current_profile.get('direction_accuracy_pct', 100.0):.1f} %")
+            with l_col3:
+                st.metric("Mittlere Abweichung (Fehler)", f"{current_profile.get('avg_error_pct', 0.0):.1f} %")
+            with l_col4:
+                b_fac = current_profile.get('bias_factor', 1.0)
+                st.metric("Aktiver Bias-Kompensator", f"{b_fac:.3f}x", help="Mathematischer Dämpfungsfaktor, der Fehlprognosen ausgleicht.")
+
         col_learn1, col_learn2 = st.columns([2, 1])
         with col_learn1:
             st.write(f"Aktie im Fokus: **{selected_stock_name}** (`{chosen_ticker}`)")
@@ -501,8 +546,9 @@ with tab8:
             start_learn = st.button("🧠 30-Tage Präzisionsanalyse starten", type="primary", width="stretch")
 
         if start_learn:
-            with st.spinner(f"Berechne Bollinger-Bänder, MACD und 30-Tage-Simulation für {selected_stock_name}..."):
-                stats, history_series = fetch_365d_stats(chosen_ticker)
+            with st.spinner(f"Führe Soll-Ist-Abgleich durch & berechne neue 30-Tage-Prognose für {selected_stock_name}..."):
+                bias_factor = current_profile.get("bias_factor", 1.0)
+                stats, history_series = fetch_365d_stats(chosen_ticker, bias_factor=bias_factor)
                 if stats and history_series is not None:
                     client = Groq(api_key=GROQ_KEY)
                     news_data = fetch_all_headlines()
@@ -515,7 +561,7 @@ with tab8:
                     st.session_state[f"stats_{chosen_ticker}"] = stats
                     st.session_state[f"targets_{chosen_ticker}"] = targets_dict
                     st.session_state[f"history_{chosen_ticker}"] = history_series
-                    st.success("✅ 30-Tage-Präzisionsanalyse abgeschlossen & gesichert!")
+                    st.success("✅ 30-Tage-Präzisionsanalyse abgeschlossen, gelernt & gesichert!")
                 else:
                     st.error("Konnte historische Börsendaten nicht vollständig laden.")
 
@@ -535,7 +581,6 @@ with tab8:
             with m_col4:
                 st.metric("MACD / Trend", f"{s.get('trend_status', 'Neutral')[:18]}")
 
-            # Sicheres Auslesen mit Fallback (verhindert KeyError garantiert)
             val_7 = float(tg.get("t_7", p_base))
             val_14 = float(tg.get("t_14", tg.get("t_30", p_base)))
             val_30 = float(tg.get("t_30", p_base))
@@ -584,7 +629,6 @@ with tab8:
             val_bull = float(tg.get("t_bull", p_base * 1.05))
             val_bear = float(tg.get("t_bear", p_base * 0.95))
 
-            # 30-Tage täglicher Brownian-Bridge-Pfad mit sicheren Werten
             future_dates, f_prices, bull_curve, bear_curve, milestones = generate_realistic_30d_forecast_path(
                 last_date=last_date,
                 p_curr=p_base,
@@ -660,7 +704,10 @@ with tab8:
             with st.expander(f"📚 Gespeichertes Wissensgedächtnis für {selected_stock_name} ({len(memory[chosen_ticker]['history'])} Lernpunkte)"):
                 for entry in reversed(memory[chosen_ticker]["history"]):
                     c_sym = entry.get("currency", "€")
-                    st.write(f"• **{entry.get('date')}** | Basis-Kurs: `{entry.get('price')} {c_sym}` | Erwartetes 30T-Ziel: `{entry.get('target_30d')} {c_sym}` | Trend: `{entry.get('trend', 'Neutral')}`")
+                    status_badge = "✅ Richtung korrekt" if entry.get("direction_correct") else ("⚠️ Abweichung" if "direction_correct" in entry else "⏳ Läuft")
+                    st.write(f"• **{entry.get('date')}** | Basis: `{entry.get('price')} {c_sym}` | Ziel 30T: `{entry.get('target_30d')} {c_sym}` | Status: **{status_badge}**")
+                    if "error_pct" in entry:
+                        st.caption(f"Tatsächlicher Realkurs später: {entry.get('actual_evaluated_price')} {c_sym} (Abweichung: {entry.get('error_pct')}%)")
                     st.caption(entry.get("analysis_summary", ""))
     else:
         st.info("Lade ein Depot hoch, um das Lernlabor für deine Aktien zu aktivieren.")
