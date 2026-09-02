@@ -55,7 +55,7 @@ try:
     from learning_service import (
         fetch_365d_stats, run_ai_learning_prediction, load_memory, 
         save_memory, generate_realistic_30d_forecast_path,
-        audit_and_update_learning, run_full_portfolio_auto_learning
+        audit_and_update_learning
     )
 except Exception as e:
     st.error(f"Import-Fehler: {e}")
@@ -95,11 +95,6 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         return False
 
     try:
-        try:
-            run_full_portfolio_auto_learning(portfolio_items)
-        except Exception:
-            pass
-
         client = Groq(api_key=GROQ_KEY)
         news_data = fetch_all_headlines()
         news_text = "\n".join(news_data) if news_data else "Aktuell keine Sondermeldungen."
@@ -167,7 +162,6 @@ def render_live_timer_panel(ten_mins, auto_refresh_active, has_portfolio):
         st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
 def is_valid_report(text):
-    """Prüft, ob echter Analyse-Inhalt vorliegt und schließt alte Platzhalter aus."""
     if not text:
         return False
     t = text.strip()
