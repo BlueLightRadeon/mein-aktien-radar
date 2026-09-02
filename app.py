@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import base64
+import urllib.request
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import plotly.express as px
@@ -10,22 +12,127 @@ import streamlit as st
 
 PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_portfolio.json")
 
+def sync_portfolio_to_github(items, cash):
+    """Sichert das Depot direkt im GitHub-Repo, damit es Server-Reboots überlebt."""
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo = st.secrets.get("GITHUB_REPO", "")
+    if not token or not repo:
+        return
+    try:
+        url = f"https://api.github.com/repos/{repo}/contents/saved_portfolio.json"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Streamlit-Stock-Radar"
+        }
+        sha = None
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode())
+                sha = data.get("sha")
+        except Exception:
+            pass
+
+        content_str = json.dumps({"items": items, "cash": float(cash)}, indent=2, ensure_ascii=False)
+        content_b64 = base64.b64encode(content_str.encode()).decode()
+
+        payload = {
+            "message": "Update saved_portfolio.json [Dauerhafte Sicherung]",
+            "content": content_b64
+        }
+        if sha:
+            payload["sha"] = sha
+
+        req_put = urllib.request.Request(
+            url, 
+            data=json.dumps(payload).encode(), 
+            headers=headers, 
+            method="PUT"
+        )
+        with urllib.request.urlopen(req_put, timeout=5.0) as resp:
+            pass
+    except Exception:
+        pass
+
+def delete_portfolio_from_github():
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo = st.secrets.get("GITHUB_REPO", "")
+    if not token or not repo:
+        return
+    try:
+        url = f"https://api.github.com/repos/{repo}/contents/saved_portfolio.json"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Streamlit-Stock-Radar"
+        }
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode())
+            sha = data.get("sha")
+        if sha:
+            payload = {
+                "message": "Delete saved_portfolio.json",
+                "sha": sha
+            }
+            req_del = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode(), 
+                headers=headers, 
+                method="DELETE"
+            )
+            with urllib.request.urlopen(req_del, timeout=5.0) as resp:
+                pass
+    except Exception:
+        pass
+
 def load_saved_portfolio():
+    # 1. Versuch: Aus lokalem Speicher lesen
     if os.path.exists(PORTFOLIO_FILE):
         try:
             with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return data.get("items", []), float(data.get("cash", 0.0))
         except Exception:
-            return [], 0.0
+            pass
+
+    # 2. Versuch (nach Server-Reboot): Aus GitHub Repository nachladen
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo = st.secrets.get("GITHUB_REPO", "")
+    if token and repo:
+        try:
+            url = f"https://api.github.com/repos/{repo}/contents/saved_portfolio.json"
+            headers = {
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "Streamlit-Stock-Radar"
+            }
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                res_data = json.loads(resp.read().decode())
+                content_b64 = res_data.get("content", "")
+                if content_b64:
+                    content_str = base64.b64decode(content_b64).decode("utf-8")
+                    parsed = json.loads(content_str)
+                    items = parsed.get("items", [])
+                    cash = float(parsed.get("cash", 0.0))
+                    # Lokal für den schnellen Zugriff wieder anlegen
+                    save_saved_portfolio(items, cash, sync_github=False)
+                    return items, cash
+        except Exception:
+            pass
+
     return [], 0.0
 
-def save_saved_portfolio(items, cash):
+def save_saved_portfolio(items, cash, sync_github=True):
     try:
         with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
             json.dump({"items": items, "cash": float(cash)}, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
+    if sync_github:
+        sync_portfolio_to_github(items, cash)
 
 def delete_saved_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
@@ -33,6 +140,7 @@ def delete_saved_portfolio():
             os.remove(PORTFOLIO_FILE)
         except Exception:
             pass
+    delete_portfolio_from_github()
 
 if "v_portfolio" not in st.session_state:
     saved_items, saved_cash = load_saved_portfolio()
@@ -176,7 +284,7 @@ with st.sidebar:
                 st.session_state["v_cash"] = float(imported_cash)
                 save_saved_portfolio(imported_items, float(imported_cash))
                 st.session_state["last_auto_run_ts"] = 0.0
-                st.success(f"✅ {len(imported_items)} Positionen & Cash dauerhaft gesichert!")
+                st.success(f"✅ {len(imported_items)} Positionen dauerhaft gesichert!")
                 st.rerun()
                 
         with col_p2:
@@ -194,6 +302,13 @@ with st.sidebar:
 
     display_cash = float(st.session_state.get("v_cash", 0.0))
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
+
+    # Status-Anzeige der dauerhaften Sicherung
+    if len(st.session_state.get("v_portfolio", [])) > 0:
+        if st.secrets.get("GITHUB_TOKEN", "") and st.secrets.get("GITHUB_REPO", ""):
+            st.caption("☁️ **Status:** Depot dauerhaft mit GitHub synchronisiert (übersteht jeden Reboot).")
+        else:
+            st.caption("💾 **Status:** Depot lokal gespeichert. (Hinterlege `GITHUB_TOKEN` & `GITHUB_REPO` in Secrets für 100% Reboot-Schutz).")
 
     st.divider()
     st.subheader("🔍 Aktie manuell hinzufügen:")
