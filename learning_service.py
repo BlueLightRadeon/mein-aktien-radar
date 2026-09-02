@@ -66,7 +66,7 @@ def fetch_365d_stats(ticker_sym):
         vol_ratio = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
 
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
-        trend_status = "Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase")
+        trend_status = "Starker Aufwärtstrend" if current_p > sma20 > sma50 else ("Aufwärtstrend" if current_p > sma50 else ("Abwärtstrend" if current_p < sma50 else "Seitwärtsphase"))
 
         stats_dict = {
             "current_price": round(current_p, 2),
@@ -93,7 +93,7 @@ def fetch_company_specific_news(ticker_sym):
         news_items = getattr(t, "news", [])
         headlines = []
         if news_items:
-            for item in news_items[:4]:
+            for item in news_items[:3]:
                 title = item.get("title", "")
                 if title:
                     headlines.append(f"• {title}")
@@ -106,122 +106,52 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     past_stock_memory = memory.get(t, {})
     past_predictions = past_stock_memory.get("history", [])
 
-    accuracy_eval = "ERSTMALIGE ANALYSE: Es liegt noch kein historischer Lernstand in der Datenbank vor."
-    error_list = []
+    accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen für diesen Ticker gespeichert."
     if past_predictions:
-        accuracy_eval = "HISTORISCHER LERNSTAND & ABWEICHUNGSANALYSE:\n"
-        for entry in past_predictions[-4:]:
+        accuracy_eval = "HISTORISCHE ABWEICHUNGEN AUS DEINEM SPEICHER:\n"
+        for entry in past_predictions[-3:]:
             prev_p = entry.get("price", 0.0)
             target = entry.get("target_30d", prev_p)
             date_str = entry.get("date", "Unbekannt")
             if target > 0:
                 diff_pct = abs((stats["current_price"] - target) / target) * 100.0
-                error_list.append(diff_pct)
-                accuracy_eval += f"- Prognose vom {date_str}: Damals {prev_p:.2f} € -> Ziel war {target:.2f} €. Aktueller Realkurs: {stats['current_price']:.2f} € (Differenz: {diff_pct:.1f}%)\n"
-        
-        if error_list:
-            avg_err = sum(error_list) / len(error_list)
-            accuracy_eval += f"\n-> Bisherige durchschnittliche Abweichung: {avg_err:.1f}%. Passe deine Wahrscheinlichkeiten entsprechend an."
+                accuracy_eval += f"- {date_str}: Kurs damals {prev_p:.2f} € -> Ziel war {target:.2f} €. Aktueller Realkurs: {stats['current_price']:.2f} € (Differenz: {diff_pct:.1f}%)\n"
 
     specific_news = fetch_company_specific_news(ticker_sym)
 
     prompt = f"""
-Du bist ein führendes quantitatives KI-Prognosemodell. Erstelle eine fundierte Aktienprognose AUSSCHLIESSLICH AUF DEUTSCH.
+Antworte zu 100 % AUF DEUTSCH. Es ist streng verboten, englische Wörter oder englische Sätze zu verwenden.
 
-[1. WELTWIRTSCHAFT & UNTERNEHMENSNACHRICHTEN]
-Globale Leitnachrichten:
+[UNTERNEHMEN: {company_name} ({t})]
+[AKTUELLE WELTMARKTLAGE]
 {macro_news}
 
-Unternehmensspezifische Nachrichten zu {company_name}:
+[AKTUELLE MELDUNGEN ZU DIESER AKTIE]
 {specific_news}
 
-[2. TECHNISCHE 365-TAGE-KENNZAHLEN]
+[365-TAGE DATEN & KENNZAHLEN]
 - Aktueller Börsenkurs: {stats['current_price']} €
-- 365-Tage Wertentwicklung: {stats['return_365d_pct']} %
-- 52-Wochen Tief / Hoch: {stats['low_365d']} € / {stats['high_365d']} €
-- Gleitende Durchschnitte: 20 Tage: {stats['sma20']} € | 50 Tage: {stats['sma50']} € | 200 Tage: {stats['sma200']} €
+- 365-Tage Performance: {stats['return_365d_pct']} %
+- 52-Wochen Bandbreite: Tief {stats['low_365d']} € bis Hoch {stats['high_365d']} €
+- Gleitende Durchschnitte: SMA20: {stats['sma20']} € | SMA50: {stats['sma50']} € | SMA200: {stats['sma200']} €
 - RSI (14 Tage): {stats['rsi_14']}
 - Schwankungsbreite (Volatilität): {stats['volatility_pct']} %
 - Trendrichtung: {stats['trend_status']}
-- Schlusskurse der letzten 5 Handelstage: {stats['last_5_days']}
+- Kurse der letzten 5 Tage: {stats['last_5_days']}
 
-[3. LERNGEDÄCHTNIS & FEHLERKORREKTUR]
+[LERNSTAND & FEHLERKORREKTUR]
 {accuracy_eval}
 
-AUFGABE:
-Formuliere deine Analyse komplett auf Deutsch mit folgenden 4 Abschnitten:
+Gliedere deine Antwort zwingend in zwei Teile:
 
-### 1. 🌐 Marktlage & Nachrichten-Synthese
-Bewerte in 3-4 Sätzen, wie Zinspolitik, Weltwirtschaft und Unternehmensmeldungen den Kurs beeinflussen.
-
-### 2. 🧠 Erkenntnisse aus dem 365-Tage-Lernprozess
-Welche Zyklen und Unterstützungen wurden gelernt? Wie wurde die frühere Abweichung korrigiert?
-
-### 3. 🎯 Multi-Szenario Kursprognose
-- **Ziel in 7 Tagen:** [Zahl in €] ([+/- %])
-- **Ziel in 30 Tagen (Hauptszenario):** [Zahl in €] ([+/- %])
-- **Ziel in 90 Tagen:** [Zahl in €] ([+/- %])
-- **🟢 Optimistisches Best-Case-Ziel (30 Tage):** [Zahl in €]
-- **🔴 Absicherungs-Marke / Stop-Loss:** [Zahl in €]
-- **Treffer-Wahrscheinlichkeit:** [z. B. 78 %]
-
-### 4. 🧭 Konkreter Handlungsplan
-Klare Anweisung für Privatanleger (Kauf-Limit, Aufstocken, Halten).
-"""
-
-    res = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "Du bist ein führender quantitativer Analyst. Antworte ausschließlich in verständlichem, professionellem Deutsch."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.2,
-        max_tokens=1100
-    )
-    analysis_text = res.choices[0].message.content
-
-    # Zielwerte für Chart-Visualisierung parsen
-    p_curr = stats['current_price']
-    t_7 = p_curr
-    t_30 = p_curr
-    t_90 = p_curr
-    t_bull = p_curr * 1.08
-    t_bear = p_curr * 0.94
-
-    m_7 = re.search(r'Ziel in 7 Tagen[^\d]*([\d.,]+)', analysis_text)
-    m_30 = re.search(r'Ziel in 30 Tagen[^\d]*([\d.,]+)', analysis_text)
-    m_90 = re.search(r'Ziel in 90 Tagen[^\d]*([\d.,]+)', analysis_text)
-    m_bull = re.search(r'Best-Case-Ziel[^\d]*([\d.,]+)', analysis_text)
-    m_bear = re.search(r'(?:Stop-Loss|Absicherungs-Marke)[^\d]*([\d.,]+)', analysis_text)
-
-    try:
-        if m_7: t_7 = float(m_7.group(1).replace(",", "."))
-        if m_30: t_30 = float(m_30.group(1).replace(",", "."))
-        if m_90: t_90 = float(m_90.group(1).replace(",", "."))
-        if m_bull: t_bull = float(m_bull.group(1).replace(",", "."))
-        if m_bear: t_bear = float(m_bear.group(1).replace(",", "."))
-    except Exception:
-        pass
-
-    targets_dict = {
-        "p_curr": p_curr,
-        "t_7": t_7,
-        "t_30": t_30,
-        "t_90": t_90,
-        "t_bull": t_bull,
-        "t_bear": t_bear
-    }
-
-    if t not in memory:
-        memory[t] = {"name": company_name, "history": []}
-
-    memory[t]["history"].append({
-        "date": datetime.now().strftime("%d.%m.%Y %H:%M Uhr"),
-        "price": stats['current_price'],
-        "target_30d": t_30,
-        "rsi": stats['rsi_14'],
-        "analysis_summary": analysis_text[:280] + "..."
-    })
-    save_memory(memory)
-
-    return analysis_text, targets_dict
+TEIL 1: EXAKTE ZAHLEN (im reinen JSON-Format)
+Gib zuerst den folgenden JSON-Block aus:
+```json
+{{
+  "ziel_7d": {round(stats['current_price'] * 1.01, 2)},
+  "ziel_30d": {round(stats['current_price'] * 1.04, 2)},
+  "ziel_90d": {round(stats['current_price'] * 1.09, 2)},
+  "best_case_30d": {round(stats['current_price'] * 1.08, 2)},
+  "worst_case_30d": {round(stats['current_price'] * 0.94, 2)},
+  "wahrscheinlichkeit": 75
+}}
