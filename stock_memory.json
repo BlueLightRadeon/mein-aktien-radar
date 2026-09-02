@@ -1,0 +1,120 @@
+{
+  "AVGO": {
+    "name": "Broadcom",
+    "history": [
+      {
+        "timestamp": 1788371608.0736284,
+        "date": "02.09.2026 17:53 Uhr",
+        "price": 367.77,
+        "currency": "$",
+        "target_7d": 358.4,
+        "target_14d": 371.2,
+        "target_30d": 362.5,
+        "rsi": 24.2,
+        "trend": "Klarer Abwärtstrend",
+        "analysis_summary": "1.  **Analyze User Input:**\n   - **Role:** Quantitative German Stock Analyst / Chief Investment Strategist\n   - **Language:** 100% German, NO English words, NO thinking process output\n   - **Company:** Broadcom (AVGO)\n   - **Focus:** Next 30 days\n   - **Currency:** $\n   - **Data ..."
+      },
+      {
+        "date": "02.09.2026 11:33 Uhr",
+        "price": 369.68,
+        "currency": "$",
+        "target_14d": 384.2,
+        "target_30d": 395.0,
+        "rsi": 26.1,
+        "trend": "Seitwärtsphase / Konsolidierung",
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street\nDie makroökonomische Lage zeigt ein gemischtes Bild, das für den nächsten Monat eine hohe Unsicherheit mit sich bringt. Der DAX notiert unter der psychologisch wichtigen Marke von 26.000 Punkten und verzeichnet eine..."
+      },
+      {
+        "date": "02.09.2026 11:34 Uhr",
+        "price": 369.68,
+        "currency": "$",
+        "target_14d": 385.2,
+        "target_30d": 392.4,
+        "rsi": 26.1,
+        "trend": "Seitwärtsphase / Konsolidierung",
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street\nDas makroökonomische Umfeld zeigt derzeit eine gemischte, aber insgesamt stabilisierende Tendenz. Die Meldung über die Waffenruhe im Iran-Krieg wirkt als positiver Katalysator für risikofreudige Anleger und reduzier..."
+      },
+      {
+        "date": "02.09.2026 11:37 Uhr",
+        "price": 369.68,
+        "currency": "$",
+        "target_14d": 384.2,
+        "target_30d": 392.0,
+        "rsi": 26.1,
+        "trend": "Seitwärtsphase / Konsolidierung",
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street\nDie makroökonomische Lage zeigt ein gemischtes Bild, das für den nächsten Monat eine hohe Unsicherheit mit sich bringt. Der DAX notiert unter der psychologisch wichtigen Marke von 26.000 Punkten und verzeichnet eine..."
+      },
+      {
+        "timestamp": 1788349290.3066852,
+        "date": "02.09.2026 11:41 Uhr",
+        "price": 369.68,
+        "currency": "$",
+        "target_7d": 365.0,
+        "target_14d": 372.5,
+        "target_30d": 385.0,
+        "rsi": 26.1,
+        "trend": "Seitwärtsphase / Konsolidierung",
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street\nDas makroökonomische Umfeld zeigt derzeit eine gemischte, aber leicht belastende Tendenz. Der DAX hat die Marke von 26.000 Punkten verloren und notiert zum vierten Mal in Folge im Minus, was auf eine allgemeine Risi..."
+      }
+    ],
+    "learning_profile": {
+      "total_evaluations": 0,
+      "direction_accuracy_pct": 100.0,
+      "avg_error_pct": 0.0,
+      "bias_tendency": "Lernphase (Erste Prognosen aktiv)",
+      "bias_factor": 1.0,
+      "last_audit": "02.09.2026 18:01 Uhr"
+    }
+  },
+  "RHM.DE": {
+    "name": "Rheinmetall",
+    "history": [
+      {
+        "date": "02.09.2026 11:26 Uhr",
+        "price": 1086.2,
+        "currency": "€",
+        "target_30d": 1069.2,
+        "rsi": 36.9,
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft & Wall-Street-Konsens\n\nDie aktuelle Marktlage für Rheinmetall (RHM.DE) ist durch eine deutliche Diskrepanz zwischen dem langfristigen Fundamentalkonsens und der kurzfristigen Preisentwicklung gekennzeichnet. Der offizielle Analysten-Konsens der W..."
+      },
+      {
+        "date": "02.09.2026 11:28 Uhr",
+        "price": 1086.8,
+        "currency": "€",
+        "target_30d": 1040.0,
+        "target_90d": 1120.0,
+        "rsi": 37.1,
+        "trend": "Klarer Abwärtstrend",
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft & Wall-Street-Konsens\nDer offizielle Konsens der Wall Street liegt mit einem Zielkurs von 1.679,38 € deutlich über dem aktuellen Notierungsniveau von 1.086,80 €. Dies impliziert ein theoretisches Aufwärtspotenzial von über 50 %, was angesichts de..."
+      },
+      {
+        "date": "02.09.2026 11:32 Uhr",
+        "price": 1089.2,
+        "currency": "€",
+        "target_30d": 1040.0,
+        "target_90d": 1120.0,
+        "rsi": 37.6,
+        "trend": "Klarer Abwärtstrend",
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft & Wall-Street-Konsens\nDer offizielle Konsens der Wall Street liegt bei einem Kursziel von 1.679,38 €, was einer potenziellen Aufwärtspotenzial von über 54 % zum aktuellen Kurs von 1.089,20 € entspricht. Diese Einschätzung basiert stark auf den la..."
+      },
+      {
+        "date": "02.09.2026 11:34 Uhr",
+        "price": 1087.0,
+        "currency": "€",
+        "target_14d": 1110.0,
+        "target_30d": 1135.0,
+        "rsi": 37.1,
+        "trend": "Klarer Abwärtstrend",
+        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street\nDie makroökonomische Lage zeigt ein gemischtes Bild, das für defensive Werte wie Rheinmetall ambivalent ist. Der DAX notiert unter der psychologisch wichtigen Marke von 26.000 Punkten und verzeichnet einen vierten R..."
+      }
+    ],
+    "learning_profile": {
+      "total_evaluations": 0,
+      "direction_accuracy_pct": 100.0,
+      "avg_error_pct": 0.0,
+      "bias_tendency": "Lernphase (Erste Prognosen aktiv)",
+      "bias_factor": 1.0,
+      "last_audit": "02.09.2026 17:34 Uhr"
+    }
+  }
+}
