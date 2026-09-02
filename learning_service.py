@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -31,8 +32,11 @@ def fetch_365d_stats(ticker_sym):
         
         if isinstance(data.columns, pd.MultiIndex):
             close = data["Close"][ticker_sym] if ticker_sym in data["Close"] else data["Close"].iloc[:, 0]
+            volume = data["Volume"][ticker_sym] if ticker_sym in data["Volume"] else data["Volume"].iloc[:, 0]
         else:
             close = data["Close"]
+            volume = data["Volume"]
+            
         close = close.dropna()
         if len(close) < 30:
             return None
@@ -57,7 +61,11 @@ def fetch_365d_stats(ticker_sym):
         low_365 = float(close.min())
         volatility = float(close.pct_change().std() * np.sqrt(252) * 100.0)
 
-        # Letzte 5 Tage
+        # Volumen-Trend
+        avg_vol_20 = float(volume.tail(20).mean()) if not volume.empty else 1.0
+        last_vol = float(volume.iloc[-1]) if not volume.empty else 1.0
+        vol_ratio = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
+
         recent_trend = [round(float(x), 2) for x in close.tail(5).tolist()]
 
         return {
@@ -70,71 +78,108 @@ def fetch_365d_stats(ticker_sym):
             "high_365d": round(high_365, 2),
             "low_365d": round(low_365, 2),
             "volatility_pct": round(volatility, 2),
+            "volume_ratio": vol_ratio,
             "last_5_days": recent_trend,
             "data_points": len(close)
         }
     except Exception:
         return None
 
-def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, stats, memory):
+def fetch_company_specific_news(ticker_sym):
+    """Zieht aktuelle Unternehmensschlagzeilen direkt über yfinance."""
+    try:
+        t = yf.Ticker(ticker_sym)
+        news_items = getattr(t, "news", [])
+        headlines = []
+        if news_items:
+            for item in news_items[:4]:
+                title = item.get("title", "")
+                if title:
+                    headlines.append(f"• {title}")
+        return "\n".join(headlines) if headlines else "Keine spezifischen Ticker-Meldungen abrufbar."
+    except Exception:
+        return "Keine spezifischen Ticker-Meldungen abrufbar."
+
+def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, stats, memory, macro_news=""):
     t = ticker_sym.upper()
     past_stock_memory = memory.get(t, {})
     past_predictions = past_stock_memory.get("history", [])
 
-    history_context = ""
+    # Selbstkorrektur / Feedback-Schleife aus früheren Prognosen
+    accuracy_eval = "ERST-ANALYSE: Noch keine historischen Vorhersagen im Speicher."
     if past_predictions:
-        history_context = "FRÜHERE PROGNOSEN & DEIN LERNSTAND:\n"
-        for entry in past_predictions[-3:]:
-            history_context += f"- Stand {entry.get('date')}: Damaliger Kurs war {entry.get('price')} €. Deine 30-Tage-Prognose war {entry.get('target_30d')} €.\n"
-    else:
-        history_context = "Es liegen noch keine früheren Vorhersagen in deiner Wissensdatenbank vor. Dies ist dein Basis-Lernpunkt."
+        accuracy_eval = "HISTORISCHE LERN-BILANZ & FEHLERKORREKTUR:\n"
+        for idx, entry in enumerate(past_predictions[-3:]):
+            prev_price = entry.get("price", 0.0)
+            target = entry.get("target_30d", prev_price)
+            date_str = entry.get("date", "Unbekannt")
+            # Wie weit wich die damalige Prognose vom jetzigen Realkurs ab?
+            diff_pct = ((stats["current_price"] - target) / target) * 100.0 if target > 0 else 0.0
+            accuracy_eval += f"- Prognose vom {date_str} (Kurs damals: {prev_price} €, 30T-Ziel: {target} €) -> Tatsächlicher Kurs heute: {stats['current_price']} € (Abweichung: {diff_pct:+.1f}%).\n"
+        accuracy_eval += "LERN-AUFTRAG: Berücksichtige deine bisherigen Abweichungen. Passe deine Konfidenz und dein Kurspotenzial entsprechend an!"
+
+    # Spezifische Unternehmensnachrichten abrufen
+    specific_news = fetch_company_specific_news(ticker_sym)
 
     prompt = f"""
-Du bist ein quantitatives KI-Prognose-System. Analysiere das vollständige 365-Tage-Profil von {company_name} ({t}).
-Lerne aus den historischen Kursen, den technischen Indikatoren und deinen früheren Vorhersagen.
+Du bist ein quantitatives KI-Prognose-System auf Hedgefonds-Niveau. 
+Verbinde die quantitativen 365-Tage-Chartmuster mit dem aktuellen Weltgeschehen und den neuesten Unternehmensnachrichten von {company_name} ({t}), um eine fundierte Kursprognose zu erstellen.
 
-TECHNISCHE 365-TAGE-HISTORIE:
-- Aktueller Börsenkurs: {stats['current_price']}
-- 365-Tage-Performance: {stats['return_365d_pct']} %
-- 52-Wochen-Hoch: {stats['high_365d']} | 52-Wochen-Tief: {stats['low_365d']}
+[1. AKTUELLE NACHRICHTENLAGE & WELTGESCHEHEN]
+Globale Makro-Trends:
+{macro_news}
+
+Spezifische Unternehmens-News zu {company_name}:
+{specific_news}
+
+[2. TECHNISCHE 365-TAGE-HISTORIE & KENNZAHLEN]
+- Aktueller Börsenkurs: {stats['current_price']} €
+- 365-Tage Gesamt-Rendite: {stats['return_365d_pct']} %
+- 52-Wochen Spanne: Tief {stats['low_365d']} € | Hoch {stats['high_365d']} €
 - Gleitende Durchschnitte: SMA20: {stats['sma20']} | SMA50: {stats['sma50']} | SMA200: {stats['sma200']}
-- RSI (14 Tage): {stats['rsi_14']}
+- RSI (14 Tage Momentum): {stats['rsi_14']}
 - Annualisierte Volatilität: {stats['volatility_pct']} %
-- Letzte 5 Schlusskurse: {stats['last_5_days']}
+- Letzte 5 Handelstage: {stats['last_5_days']}
 
-{history_context}
+[3. DEIN LERNGEDÄCHTNIS]
+{accuracy_eval}
 
 AUFGABE:
-Formuliere deine Antwort auf Deutsch strukturiert wie folgt:
+Analysiere objektiv: Stützen die Nachrichten den Chart-Trend oder widersprechen sie ihm?
+Gliedere deine Antwort auf Deutsch strukturiert in diese 4 Abschnitte:
 
-### 1. 🧠 Was die KI aus den 365 Tagen gelernt hat
-(Analysiere Trendmuster, Zyklus-Verhalten und Unterstützungszonen)
+### 1. 🌐 Synthese: Weltgeschehen vs. Charttechnik
+(Erläutere in 3-4 Sätzen, wie Notenbankzinsen, geopolitische Lage und Branchennachrichten auf den Kurs wirken)
 
-### 2. 🎯 Konkrete Kursprognose
-- **Ziel in 7 Tagen:** [Zahl] (Prozentuale Veränderung)
-- **Ziel in 30 Tagen:** [Zahl] (Prozentuale Veränderung)
-- **Ziel in 90 Tagen:** [Zahl] (Prozentuale Veränderung)
-- **Konfidenz:** [Hoch / Mittel / Spekulativ]
+### 2. 🧠 Erkenntnisse aus der 365-Tage-Historie & Fehlern
+(Welche Zyklen und Kursmuster wurden gelernt? Welche Korrekturen wurden aus früheren Fehleinschätzungen gezogen?)
 
-### 3. 🛡️ Risikofaktoren & Validierung
-(Wann bricht das gelernte Muster?)
+### 3. 🎯 Multi-Szenario Kursprognose
+- **Ziel in 7 Tagen:** [Zahl in €] ([+/- %])
+- **Ziel in 30 Tagen (Basis-Szenario):** [Zahl in €] ([+/- %])
+- **Ziel in 90 Tagen:** [Zahl in €] ([+/- %])
+- **🟢 Bullish Best-Case (30T):** [Zahl in €]
+- **🔴 Bearish Worst-Case (30T / Stop-Loss):** [Zahl in €]
+- **Prognose-Wahrscheinlichkeit:** [z. B. 75%]
+
+### 4. 🧭 Konkrete Handlungsanweisung
+(Klare Empfehlung: Jetzt Limit-Order setzen, Einstieg abwarten oder bestehende Gewinne sichern)
 """
 
     res = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "Du bist eine lernende quantitative KI für Finanzprognosen."},
+            {"role": "system", "content": "Du bist ein führender quantitativer Analyst. Antworte strukturiert und fundiert auf Deutsch."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2,
-        max_tokens=900
+        max_tokens=1100
     )
     analysis_text = res.choices[0].message.content
 
-    # Vorhersage im Gedächtnis protokollieren
-    import re
+    # Erwartetes 30-Tage-Ziel extrahieren
     t_30 = stats['current_price']
-    match_30 = re.search(r'Ziel in 30 Tagen:[^\d]*([\d.,]+)', analysis_text)
+    match_30 = re.search(r'Ziel in 30 Tagen[^\d]*([\d.,]+)', analysis_text)
     if match_30:
         try:
             t_30 = float(match_30.group(1).replace(",", "."))
@@ -149,7 +194,7 @@ Formuliere deine Antwort auf Deutsch strukturiert wie folgt:
         "price": stats['current_price'],
         "target_30d": t_30,
         "rsi": stats['rsi_14'],
-        "analysis_summary": analysis_text[:250] + "..."
+        "analysis_summary": analysis_text[:280] + "..."
     })
     save_memory(memory)
 
