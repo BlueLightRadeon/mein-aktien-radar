@@ -13,9 +13,8 @@ import streamlit as st
 PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_portfolio.json")
 
 def sync_portfolio_to_github(items, cash):
-    """Sichert das Depot NUR bei Upload/Änderung auf GitHub, niemals auf Autopilot."""
-    token = st.secrets.get("GITHUB_TOKEN", "")
-    repo = st.secrets.get("GITHUB_REPO", "")
+    token = str(st.secrets.get("GITHUB_TOKEN", "")).strip()
+    repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
     if not token or not repo:
         return
     try:
@@ -56,8 +55,8 @@ def sync_portfolio_to_github(items, cash):
         pass
 
 def delete_portfolio_from_github():
-    token = st.secrets.get("GITHUB_TOKEN", "")
-    repo = st.secrets.get("GITHUB_REPO", "")
+    token = str(st.secrets.get("GITHUB_TOKEN", "")).strip()
+    repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
     if not token or not repo:
         return
     try:
@@ -88,7 +87,6 @@ def delete_portfolio_from_github():
         pass
 
 def load_saved_portfolio():
-    """Liest nur passiv aus der Datei oder GitHub. Committet NIEMALS selbstständig."""
     if os.path.exists(PORTFOLIO_FILE):
         try:
             with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
@@ -97,8 +95,8 @@ def load_saved_portfolio():
         except Exception:
             pass
 
-    token = st.secrets.get("GITHUB_TOKEN", "")
-    repo = st.secrets.get("GITHUB_REPO", "")
+    token = str(st.secrets.get("GITHUB_TOKEN", "")).strip()
+    repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
     if token and repo:
         try:
             url = f"https://api.github.com/repos/{repo}/contents/saved_portfolio.json"
@@ -112,7 +110,7 @@ def load_saved_portfolio():
                 res_data = json.loads(resp.read().decode())
                 content_b64 = res_data.get("content", "")
                 if content_b64:
-                    content_str = base64.b64decode(content_b64).decode("utf-8")
+                    content_str = base64.b64decode(content_b64.replace("\n", "")).decode("utf-8")
                     parsed = json.loads(content_str)
                     items = parsed.get("items", [])
                     cash = float(parsed.get("cash", 0.0))
@@ -264,6 +262,9 @@ def render_live_timer_panel(ten_mins, auto_refresh_active, has_portfolio):
             elapsed = now_ts - last_ts
             remaining = max(0, int(ten_mins - elapsed))
             st.caption(f"⏳ Nächstes Auto-Update in ca. **{remaining // 60}m {remaining % 60:02d}s**")
+            if remaining <= 0 and has_portfolio:
+                st.session_state["last_auto_run_ts"] = time.time()
+                st.rerun()
         else:
             st.caption("⏸️ Auto-Update pausiert")
     else:
@@ -304,7 +305,7 @@ with st.sidebar:
     st.info(f"💶 **Cash (aus Auszug):** `{fmt_eur(display_cash)}`")
 
     if len(st.session_state.get("v_portfolio", [])) > 0:
-        if st.secrets.get("GITHUB_TOKEN", "") and st.secrets.get("GITHUB_REPO", ""):
+        if str(st.secrets.get("GITHUB_TOKEN", "")).strip() and str(st.secrets.get("GITHUB_REPO", "")).strip():
             st.caption("☁️ **Status:** Depot mit GitHub synchronisiert.")
         else:
             st.caption("💾 **Status:** Depot lokal gesichert.")
@@ -505,8 +506,11 @@ with tab5:
         col_chart_focus, col_chart_period = st.columns([3, 2])
         
         series_names = [get_display_name(x.get("ticker", ""), x.get("name")) for x in portfolio_list]
+        options = ["Alle Aktien gleichzeitig"] + series_names
         with col_chart_focus:
-            selected_view = st.selectbox("Fokus-Ansicht:", ["Alle Aktien gleichzeitig"] + series_names, index=0, key="chart_focus_view")
+            prev_view = st.session_state.get("chart_focus_view", options[0])
+            sel_idx = options.index(prev_view) if prev_view in options else 0
+            selected_view = st.selectbox("Fokus-Ansicht:", options, index=sel_idx, key="chart_focus_view")
             
         with col_chart_period:
             selected_period = st.radio("Zeitraum:", ["1W", "1M", "6M", "1J", "Max"], index=1, horizontal=True, key="chart_period_radio")
@@ -670,7 +674,6 @@ with tab8:
                 chosen_ticker = clean_ticker(item.get("ticker", ""))
                 break
 
-        # Schnelles passives Lesen des Profils ohne Blocking-API-Aufrufe beim Rendern
         current_profile = memory.get(chosen_ticker, {}).get("learning_profile", {})
 
         with st.container(border=True):
@@ -694,11 +697,13 @@ with tab8:
 
         if start_learn:
             with st.spinner(f"Führe Soll-Ist-Abgleich durch & berechne neue 30-Tage-Prognose für {selected_stock_name}..."):
-                stats, history_series = fetch_365d_stats(chosen_ticker)
-                if stats and history_series is not None:
-                    # Soll-Ist-Abgleich nur bei echtem Analyse-Start durchführen
-                    current_profile = audit_and_update_learning(chosen_ticker, stats["current_price"], history_series, memory)
+                stats_raw, history_series = fetch_365d_stats(chosen_ticker)
+                if stats_raw and history_series is not None:
+                    current_profile = audit_and_update_learning(chosen_ticker, stats_raw["current_price"], history_series, memory)
                     bias_factor = current_profile.get("bias_factor", 1.0)
+                    stats, _ = fetch_365d_stats(chosen_ticker, bias_factor=bias_factor)
+                    if not stats:
+                        stats = stats_raw
                     
                     client = Groq(api_key=GROQ_KEY)
                     news_data = fetch_all_headlines()
@@ -719,7 +724,7 @@ with tab8:
             s = st.session_state[f"stats_{chosen_ticker}"]
             tg = st.session_state[f"targets_{chosen_ticker}"]
             curr_sym = tg.get("currency_symbol", s.get("currency_symbol", "€"))
-            p_base = float(s.get("current_price", 1.0))
+            p_base = float(s.get("current_price", 1.0) or 1.0)
             
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:
@@ -731,10 +736,10 @@ with tab8:
             with m_col4:
                 st.metric("MACD / Trend", f"{s.get('trend_status', 'Neutral')[:18]}")
 
-            val_7 = float(tg.get("t_7", p_base))
-            val_14 = float(tg.get("t_14", tg.get("t_30", p_base)))
-            val_30 = float(tg.get("t_30", p_base))
-            val_bear = float(tg.get("t_bear", p_base * 0.95))
+            val_7 = float(tg.get("t_7") or p_base)
+            val_14 = float(tg.get("t_14") or tg.get("t_30") or p_base)
+            val_30 = float(tg.get("t_30") or p_base)
+            val_bear = float(tg.get("t_bear") or (p_base * 0.95))
 
             diff_7 = ((val_7 - p_base) / p_base) * 100.0 if p_base > 0 else 0.0
             diff_14 = ((val_14 - p_base) / p_base) * 100.0 if p_base > 0 else 0.0
@@ -755,7 +760,7 @@ with tab8:
             tg = st.session_state[f"targets_{chosen_ticker}"]
             s = st.session_state[f"stats_{chosen_ticker}"]
             curr_sym = tg.get("currency_symbol", "€")
-            p_base = float(s.get("current_price", 1.0))
+            p_base = float(s.get("current_price", 1.0) or 1.0)
 
             zoom_choice = st.radio(
                 "Historischer Kontext im Chart:", 
@@ -773,11 +778,11 @@ with tab8:
 
             last_date = h_series.index[-1]
 
-            val_7 = float(tg.get("t_7", p_base))
-            val_14 = float(tg.get("t_14", tg.get("t_30", p_base)))
-            val_30 = float(tg.get("t_30", p_base))
-            val_bull = float(tg.get("t_bull", p_base * 1.05))
-            val_bear = float(tg.get("t_bear", p_base * 0.95))
+            val_7 = float(tg.get("t_7") or p_base)
+            val_14 = float(tg.get("t_14") or tg.get("t_30") or p_base)
+            val_30 = float(tg.get("t_30") or p_base)
+            val_bull = float(tg.get("t_bull") or (p_base * 1.05))
+            val_bear = float(tg.get("t_bear") or (p_base * 0.95))
 
             future_dates, f_prices, bull_curve, bear_curve, milestones = generate_realistic_30d_forecast_path(
                 last_date=last_date,
