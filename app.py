@@ -101,7 +101,6 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         st.error(f"⚠️ Groq API Fehler: {str(e)}")
         return False
 
-# --- SEITENLEISTE ---
 with st.sidebar:
     st.header("💼 Trade Republic Depot")
     
@@ -186,7 +185,6 @@ with st.sidebar:
     available_models = get_account_models(GROQ_KEY)
     selected_model = st.selectbox("KI-Modell:", available_models, index=0)
 
-# BERECHNUNG DER DEPOT-DATEN
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 
 if not stock_df.empty and "_raw_val" in stock_df.columns:
@@ -199,7 +197,6 @@ else:
 total_tr_account = stock_val + display_cash
 stock_pnl_pct = (stock_pnl / (stock_val - stock_pnl) * 100.0) if (stock_val - stock_pnl) > 0 else 0.0
 
-# DIE 3 HAUPTKARTEN
 c_m1, c_m2, c_m3 = st.columns(3)
 with c_m1:
     st.metric("TR Gesamtkonto", fmt_eur(total_tr_account), help="Gesamtwert deines Kontos: Brokerage + Cash")
@@ -208,7 +205,6 @@ with c_m2:
 with c_m3:
     st.metric("Gewinn / Verlust (Tag)", fmt_eur(stock_pnl), delta=f"{stock_pnl_pct:+.2f}%")
 
-# AUTO-REFRESH LOGIK
 now_ts = time.time()
 last_ts = st.session_state.get("last_auto_run_ts", 0.0)
 ten_mins = 600.0
@@ -238,7 +234,6 @@ with col_info:
     else:
         st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
-# 9 TABS
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏦 TR-Konto",
     "💼 Stimmung & Empfehlungen",
@@ -251,7 +246,6 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🧠 KI-Lernlabor & Prognose"
 ])
 
-# TAB 0: TR KONTO
 with tab0:
     st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash aus Auszug) und dem aktuellen Wert deiner Wertpapiere.")
     col_tr1, col_tr2 = st.columns(2)
@@ -267,7 +261,6 @@ with tab0:
     else:
         st.info("📂 Lade deinen Trade Republic Kontoauszug (PDF) in der linken Seitenleiste hoch, um deine Werte hier zu sehen.")
 
-# TAB 1: STIMMUNG & EMPFEHLUNGEN
 with tab1:
     st.info("ℹ️ **Kurzinfo:** Vollständige Gegenüberstellung: Aktuelle Empfehlungen & Begründungen vs. historische 3-Monats-Analyse.")
     if not stock_df.empty:
@@ -292,7 +285,6 @@ with tab1:
     else:
         st.info("Lade ein Depot hoch, um die Handelsempfehlungen zu berechnen.")
 
-# TAB 2: WELT-NACHRICHTEN
 with tab2:
     st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
     if st.session_state.get("ai_market"):
@@ -301,7 +293,6 @@ with tab2:
     else:
         st.info("Lade dein Depot hoch, um die Marktanalyse automatisch zu laden.")
 
-# TAB 3: TERMINE & CASHFLOW
 with tab3:
     st.info("ℹ️ **Kurzinfo:** Zeigt Termine für Quartalszahlen und dein passives Einkommen (Ausschüttungen in €).")
     if not stock_df.empty:
@@ -318,7 +309,6 @@ with tab3:
     else:
         st.info("Keine Positionen eingelesen.")
 
-# TAB 4: TOP 5 KAUFEMPFEHLUNGEN
 with tab4:
     st.info("ℹ️ **Kurzinfo:** KI-Ratgeber zur Portfolio-Erweiterung: 5 konkrete Top-Aktien basierend auf der aktuellen Welt- und Marktlage.")
     if st.session_state.get("ai_signals"):
@@ -327,7 +317,6 @@ with tab4:
     else:
         st.info("Lade ein Depot ein, um die Kaufempfehlungen zu sehen.")
 
-# TAB 5: CHARTS
 with tab5:
     st.info("ℹ️ **Kurzinfo:** Interaktive Performance-Verläufe deiner Aktien im gewählten Zeitraum.")
     if portfolio_list:
@@ -372,7 +361,6 @@ with tab5:
     else:
         st.info("Lade deinen TR-Kontoauszug hoch, um die Performance-Diagramme anzuzeigen.")
 
-# TAB 6: RISIKOSTREUUNG
 with tab6:
     st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines realen Geldes auf Rollen, Branchen und Länder.")
     if not stock_df.empty:
@@ -436,7 +424,6 @@ with tab6:
         st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
         st.markdown(st.session_state["ai_cluster"])
 
-# TAB 7: AKTIEN-VERGLEICH
 with tab7:
     st.info("ℹ️ **Kurzinfo:** Direktes 1-gegen-1-Duell zweier beliebiger Aktien aus deinem Depot.")
     if not stock_df.empty and len(stock_df) >= 2:
@@ -458,7 +445,6 @@ with tab7:
     else:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
 
-# TAB 8: KI-LERNLABOR & VISUELLE PROGNOSE
 with tab8:
     st.info("ℹ️ **Kurzinfo:** Das System verknüpft die 365-Tage-Historie mit aktuellen Welt- und Unternehmensnachrichten, lernt aus Fehlern im Gedächtnisspeicher und visualisiert den künftigen Kursverlauf inklusive Konfidenzkanal.")
     if portfolio_list:
@@ -501,8 +487,10 @@ with tab8:
                 else:
                     st.error("Konnte historische 365-Tage-Börsendaten nicht vollständig laden.")
 
-        if f"stats_{chosen_ticker}" in st.session_state:
+        if f"stats_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
             s = st.session_state[f"stats_{chosen_ticker}"]
+            tg = st.session_state[f"targets_{chosen_ticker}"]
+            
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:
                 st.metric("365-Tage Wertentwicklung", f"{s['return_365d_pct']:+.2f} %")
@@ -511,9 +499,22 @@ with tab8:
             with m_col3:
                 st.metric("RSI (14 Tage)", f"{s['rsi_14']}")
             with m_col4:
-                st.metric("Trendrichtung", f"{s.get('trend_status', 'Neutral')}")
+                st.metric("Treffer-Konfidenz", f"{tg.get('prob', '75 %')}")
 
-        # VISUELLER PROGNOSE-CHART
+            p_col1, p_col2, p_col3, p_col4 = st.columns(4)
+            diff_7 = ((tg['t_7'] - s['current_price']) / s['current_price']) * 100.0
+            diff_30 = ((tg['t_30'] - s['current_price']) / s['current_price']) * 100.0
+            diff_90 = ((tg['t_90'] - s['current_price']) / s['current_price']) * 100.0
+
+            with p_col1:
+                st.metric("Ziel 7 Tage", f"{tg['t_7']:.2f} €", delta=f"{diff_7:+.2f} %")
+            with p_col2:
+                st.metric("Ziel 30 Tage (Hauptpfad)", f"{tg['t_30']:.2f} €", delta=f"{diff_30:+.2f} %")
+            with p_col3:
+                st.metric("Ziel 90 Tage", f"{tg['t_90']:.2f} €", delta=f"{diff_90:+.2f} %")
+            with p_col4:
+                st.metric("Absicherung (Stop-Loss)", f"{tg['t_bear']:.2f} €")
+
         if f"history_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
             h_series = st.session_state[f"history_{chosen_ticker}"]
             tg = st.session_state[f"targets_{chosen_ticker}"]
@@ -531,40 +532,34 @@ with tab8:
 
             fig_pred = go.Figure()
 
-            # 1. Echte 365-Tage Historie
             fig_pred.add_trace(go.Scatter(
                 x=h_series.index, y=h_series.values,
-                mode="lines", name="Reale Börsenhistorie (365T)",
+                mode="lines", name="Reale Börsenkurse (letzte 365 Tage)",
                 line=dict(color="#0693E3", width=2.5)
             ))
 
-            # 2. Bullish Band
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bull_prices,
                 mode="lines", name="🟢 Best-Case Korridor",
-                line=dict(color="rgba(0, 208, 132, 0.4)", width=1, dash="dot"),
-                showlegend=True
+                line=dict(color="rgba(0, 208, 132, 0.4)", width=1, dash="dot")
             ))
 
-            # 3. Bearish Band (mit Fill für den Konfidenzkanal)
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=bear_prices,
                 mode="lines", name="🔴 Absicherungs-Kanal",
                 fill='tonexty', fillcolor='rgba(0, 208, 132, 0.12)',
-                line=dict(color="rgba(235, 20, 76, 0.4)", width=1, dash="dot"),
-                showlegend=True
+                line=dict(color="rgba(235, 20, 76, 0.4)", width=1, dash="dot")
             ))
 
-            # 4. Hauptszenario-Projektion
             fig_pred.add_trace(go.Scatter(
                 x=future_dates, y=future_prices,
                 mode="lines+markers", name="🎯 KI-Hauptprognose (7/30/90 Tage)",
                 line=dict(color="#FCB900", width=3, dash="dash"),
-                marker=dict(size=7, color="#FCB900")
+                marker=dict(size=8, color="#FCB900")
             ))
 
             fig_pred.update_layout(
-                title=f"Visuelle 90-Tage Kursprognose für {selected_stock_name} (inkl. Konfidenzkanal)",
+                title=f"90-Tage Kursprognose für {selected_stock_name} (inkl. Konfidenzkanal)",
                 xaxis=dict(title="Datum", type="date"),
                 yaxis=dict(title="Kurs (€)", ticksuffix=" €"),
                 hovermode="x unified",
