@@ -36,7 +36,7 @@ def sync_to_github(memory_data):
         content_str = json.dumps(memory_data, indent=2, ensure_ascii=False)
         content_b64 = base64.b64encode(content_str.encode()).decode()
         payload = {
-            "message": "Update KI-Wissensspeicher [Automatischer Sync]",
+            "message": "Update KI-Wissensspeicher [Autonomes Lernen]",
             "content": content_b64
         }
         if sha:
@@ -70,7 +70,117 @@ def save_memory(memory_data):
     except Exception:
         pass
 
-def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status, days=30, simulations=1000):
+def audit_and_update_learning(ticker_sym, current_price, history_series, memory):
+    """
+    Autonomer Soll-Ist-Abgleich:
+    Prüft alle bisherigen Prognosen gegen die echten Börsenkurse und berechnet
+    die reale Trefferquote, den Bias und den Korrekturfaktor.
+    """
+    t = ticker_sym.upper()
+    if t not in memory:
+        memory[t] = {"name": t, "history": [], "learning_profile": {}}
+
+    stock_data = memory[t]
+    history = stock_data.get("history", [])
+
+    if not history or history_series is None or history_series.empty:
+        return stock_data.get("learning_profile", {})
+
+    total_evals = 0
+    direction_hits = 0
+    abs_errors = []
+    signed_errors = []
+
+    for entry in history:
+        entry_ts = entry.get("timestamp")
+        entry_price = float(entry.get("price", current_price))
+        t_30 = float(entry.get("target_30d", entry_price))
+
+        if not entry_ts:
+            continue
+
+        days_passed = (time.time() - entry_ts) / 86400.0
+
+        # Wenn mindestens 3 Tage vergangen sind, prüfen wir den Trend
+        if days_passed >= 3.0:
+            # Realkurs finden
+            entry_date = datetime.fromtimestamp(entry_ts).date()
+            sub_series = history_series[history_series.index.date >= entry_date]
+            
+            if not sub_series.empty:
+                actual_price = float(sub_series.iloc[-1])
+                pred_up = t_30 > entry_price
+                actual_up = actual_price > entry_price
+
+                # Richtungstreffer
+                if pred_up == actual_up:
+                    direction_hits += 1
+
+                # Prozentuale Abweichung
+                err_signed = ((t_30 - actual_price) / actual_price) * 100.0
+                err_abs = abs(err_signed)
+
+                abs_errors.append(err_abs)
+                signed_errors.append(err_signed)
+                total_evals += 1
+
+                entry["audit_status"] = "Geprüft"
+                entry["actual_evaluated_price"] = round(actual_price, 2)
+                entry["error_pct"] = round(err_abs, 2)
+                entry["direction_correct"] = (pred_up == actual_up)
+
+    if total_evals > 0:
+        dir_accuracy = round((direction_hits / total_evals) * 100.0, 1)
+        mean_error = round(sum(abs_errors) / total_evals, 2)
+        mean_bias = round(sum(signed_errors) / total_evals, 2)
+
+        # Berechne den automatischen Bias-Kompensator
+        # Wenn KI im Schnitt +4% zu hoch lag, ist factor = 0.96
+        bias_factor = round(1.0 - (mean_bias / 100.0), 3)
+        bias_factor = max(0.85, min(1.15, bias_factor))
+
+        if mean_bias > 1.5:
+            tendency = f"Zu optimistisch (+{mean_bias} %)"
+        elif mean_bias < -1.5:
+            tendency = f"Zu vorsichtig ({mean_bias} %)"
+        else:
+            tendency = "Präzise kalibriert"
+
+        profile = {
+            "total_evaluations": total_evals,
+            "direction_accuracy_pct": dir_accuracy,
+            "avg_error_pct": mean_error,
+            "bias_tendency": tendency,
+            "bias_factor": bias_factor,
+            "last_audit": datetime.now().strftime("%d.%m.%Y %H:%M Uhr")
+        }
+    else:
+        profile = {
+            "total_evaluations": 0,
+            "direction_accuracy_pct": 100.0,
+            "avg_error_pct": 0.0,
+            "bias_tendency": "Lernphase (Erste Prognosen aktiv)",
+            "bias_factor": 1.0,
+            "last_audit": datetime.now().strftime("%d.%m.%Y %H:%M Uhr")
+        }
+
+    stock_data["learning_profile"] = profile
+    save_memory(memory)
+    return profile
+
+def run_full_portfolio_auto_learning(portfolio_list):
+    """Prüft das gesamte Depot im Hintergrund ohne Nutzerklick."""
+    if not portfolio_list:
+        return
+    memory = load_memory()
+    for item in portfolio_list:
+        sym = item.get("ticker", "").split(" ")[0].upper()
+        if sym in memory:
+            stats, series = fetch_365d_stats(sym)
+            if stats and series is not None:
+                audit_and_update_learning(sym, stats["current_price"], series, memory)
+
+def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status, days=30, simulations=1000, bias_factor=1.0):
     try:
         dt = 1.0 / 252.0
         sigma = max(volatility_annual / 100.0, 0.12)
@@ -82,6 +192,9 @@ def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status,
             mu = max(-0.35, min(-0.08, (return_365d / 100.0) * 0.35))
         else:
             mu = 0.01
+
+        # Gelernten Bias-Faktor in den Drift einrechnen
+        mu = mu * bias_factor
 
         drift = (mu - 0.5 * sigma**2) * dt
         diffusion = sigma * np.sqrt(dt) * np.random.normal(size=(days, simulations))
@@ -98,7 +211,6 @@ def run_monte_carlo(current_price, volatility_annual, return_365d, trend_status,
         return round(current_price * 0.90, 2), round(current_price * factor, 2), round(current_price * 1.12, 2)
 
 def generate_realistic_30d_forecast_path(last_date, p_curr, t_7, t_14, t_30, t_bull, t_bear, volatility_pct, ticker_seed=""):
-    """Erzeugt einen tagesgenauen Börsenverlauf über exakt 30 Tage mit realistischer Mikro-Volatilität."""
     end_date = last_date + timedelta(days=31)
     future_dates = pd.bdate_range(start=last_date, end=end_date)
     if len(future_dates) < 15:
@@ -196,7 +308,7 @@ def fetch_fundamental_and_wallstreet(ticker_sym):
         pass
     return fund
 
-def fetch_365d_stats(ticker_sym):
+def fetch_365d_stats(ticker_sym, bias_factor=1.0):
     try:
         data = yf.download(ticker_sym, period="1y", interval="1d", progress=False, auto_adjust=True)
         if data is None or data.empty:
@@ -223,7 +335,6 @@ def fetch_365d_stats(ticker_sym):
         sma50 = float(close.tail(50).mean())
         sma200 = float(close.tail(200).mean()) if len(close) >= 200 else float(close.mean())
 
-        # RSI (14 Tage)
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -231,12 +342,10 @@ def fetch_365d_stats(ticker_sym):
         rsi_series = 100 - (100 / (1 + rs))
         current_rsi = float(rsi_series.dropna().iloc[-1]) if not rsi_series.dropna().empty else 50.0
 
-        # Bollinger-Bänder (20 Tage, 2 Sigma)
         rolling_std_20 = float(close.tail(20).std())
         bb_upper = round(sma20 + (2.0 * rolling_std_20), 2)
         bb_lower = round(sma20 - (2.0 * rolling_std_20), 2)
 
-        # MACD (12, 26, 9)
         ema12 = close.ewm(span=12, adjust=False).mean()
         ema26 = close.ewm(span=26, adjust=False).mean()
         macd_line = ema12 - ema26
@@ -245,7 +354,6 @@ def fetch_365d_stats(ticker_sym):
         signal_val = round(float(signal_line.iloc[-1]), 2)
         macd_status = "Bullisch (MACD über Signallinie)" if macd_val > signal_val else "Bärisch (MACD unter Signallinie)"
 
-        # ATR (Average True Range - 14 Tage)
         prev_close = close.shift(1)
         tr = pd.concat([
             high - low,
@@ -254,7 +362,6 @@ def fetch_365d_stats(ticker_sym):
         ], axis=1).max(axis=1)
         atr_14 = round(float(tr.tail(14).mean()), 2)
 
-        # Unterstützungs- & Widerstandsniveaus der letzten 90 Tage
         recent_90 = close.tail(90)
         resistance_level = round(float(recent_90.max()), 2)
         support_level = round(float(recent_90.min()), 2)
@@ -274,7 +381,9 @@ def fetch_365d_stats(ticker_sym):
         else:
             trend_status = "Seitwärtsphase / Konsolidierung"
 
-        mc_worst, mc_median, mc_best = run_monte_carlo(current_p, volatility, ret_365d, trend_status, days=30)
+        mc_worst, mc_median, mc_best = run_monte_carlo(
+            current_p, volatility, ret_365d, trend_status, days=30, bias_factor=bias_factor
+        )
         currency_sym = "€" if ticker_sym.endswith(".DE") else "$"
 
         stats_dict = {
@@ -332,21 +441,31 @@ def parse_num_tolerant(key_name, text, fallback):
 def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, stats, memory, macro_news=""):
     t = ticker_sym.upper()
     past_stock_memory = memory.get(t, {})
+    profile = past_stock_memory.get("learning_profile", {})
     past_predictions = past_stock_memory.get("history", [])
 
     fund = fetch_fundamental_and_wallstreet(ticker_sym)
     curr_sym = fund.get("currency_symbol", stats.get("currency_symbol", "€"))
 
-    accuracy_eval = "ERSTMALIGE ANALYSE: Noch kein Vorwissen für diesen Ticker gespeichert."
+    # Lern-Feedback für den Prompt
+    accuracy_eval = f"""
+AUTONOMES SELBSTLERN-FEEDBACK (Aus deinen bisherigen realen Überprüfungen):
+- Durchgeführte Soll-Ist-Abgleiche: {profile.get('total_evaluations', 0)}
+- Deine historische Richtungstrefferquote: {profile.get('direction_accuracy_pct', 100)} %
+- Durchschnittliche prozentuale Abweichung: {profile.get('avg_error_pct', 0)} %
+- Bisherige Verzerrung: {profile.get('bias_tendency', 'Neutral')}
+- Mathematischer Korrekturfaktor: {profile.get('bias_factor', 1.0)}x
+"""
+
     if past_predictions:
-        accuracy_eval = "HISTORISCHE ABWEICHUNGEN AUS DEINEM SPEICHER:\n"
-        for entry in past_predictions[-4:]:
-            prev_p = entry.get("price", 0.0)
-            target = entry.get("target_30d", prev_p)
-            date_str = entry.get("date", "Unbekannt")
-            if target > 0:
-                diff_pct = ((target - stats["current_price"]) / stats["current_price"]) * 100.0
-                accuracy_eval += f"- {date_str}: Prognose 30T war {target:.2f} {curr_sym} -> Kurs heute: {stats['current_price']:.2f} {curr_sym} (Abweichung: {diff_pct:+.1f}%)\n"
+        accuracy_eval += "\nLETZTE PROGNOSEN & REALE ABWEICHUNGEN:\n"
+        for entry in past_predictions[-3:]:
+            p_date = entry.get("date", "Unbekannt")
+            p_price = entry.get("price", 0.0)
+            p_t30 = entry.get("target_30d", p_price)
+            p_act = entry.get("actual_evaluated_price", stats["current_price"])
+            p_err = entry.get("error_pct", 0.0)
+            accuracy_eval += f"- {p_date}: Damals {p_price:.2f} {curr_sym} -> Ziel: {p_t30:.2f} {curr_sym} | Realkurs heute: {p_act:.2f} {curr_sym} (Fehler: {p_err}%)\n"
 
     specific_news = fetch_company_specific_news(ticker_sym)
 
@@ -366,7 +485,7 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         f"- Bollinger-Bänder (20 Tage): Unteres Band {stats['bb_lower']} {curr_sym} | Oberes Band {stats['bb_upper']} {curr_sym}",
         f"- MACD-Signal: {stats['macd_status']}",
         f"- Reale Tagesschwankung (ATR 14T): ±{stats['atr_14']} {curr_sym} pro Handelstag",
-        f"- Wichtigste Chartmarken (90T): Unterstützung bei {stats['support_level']} {curr_sym} | Widerstand bei {stats['resistance_level']} {curr_sym}",
+        f"- Wichtigste Chartmarken: Unterstützung bei {stats['support_level']} {curr_sym} | Widerstand bei {stats['resistance_level']} {curr_sym}",
         f"- Volatilität: {stats['volatility_pct']} % | Letzte 5 Tage: {stats['last_5_days']}",
         "",
         "[2. STATISTISCHE MONTE-CARLO-SIMULATION (1.000 Pfade über 30 Tage)]",
@@ -384,14 +503,9 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         macro_news,
         specific_news,
         "",
-        "[5. LERNGEDÄCHTNIS]",
+        "[5. DEIN GELERNTES WISSEN & SOLL-IST-KORREKTUR]",
         accuracy_eval,
-        "",
-        "STRIKTE ANWEISUNG FÜR DIE 30-TAGE-PROGNOSE:",
-        "Berechne EXAKTE, UNABHÄNGIGE Zahlen für die nächsten 30 Tage auf Basis von MACD, Bollinger-Bändern und Trendrichtung!",
-        "- Liegt die Aktie am unteren Bollinger-Band mit überverkauftem RSI? -> Erholung einpreisen.",
-        "- Ist die Aktie in einem klaren Abwärtstrend unter SMA50? -> Konservative bzw. fallende Kursziele setzen.",
-        "- Beachte die tägliche Schwankungsbreite (ATR), damit die Ziele in 7, 14 und 30 Tagen mathematisch plausibel bleiben.",
+        f"LERN-AUFTRAG: Berücksichtige deinen Korrekturfaktor von {profile.get('bias_factor', 1.0)}x. Wenn du bisher zu optimistisch warst, ziehe deine Kursziele nach unten!",
         "",
         "Gliedere deine Antwort zwingend in zwei Teile:",
         "",
@@ -410,8 +524,8 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "### 1. 🌐 Synthese: Weltwirtschaft, Quartalstermine & Wall Street",
         "(Bewerte den Einfluss des Makroumfelds und eventueller Quartalszahlen auf die kommenden 30 Tage)",
         "",
-        "### 2. 🧠 Technische Tiefenanalyse: Bollinger, MACD & ATR",
-        "(Erkläre die Signale aus Bollinger-Bändern, MACD und der durchschnittlichen Tagesschwankung)",
+        "### 2. 🧠 Erkenntnisse aus bisherigen Fehlern & Indikatoren",
+        "(Erkläre, wie du aus deinen früheren Abweichungen gelernt hast und was Bollinger, MACD & ATR heute signalisieren)",
         "",
         "### 3. 🎯 Begründung der 30-Tage-Kursprognose",
         "(Konkrete Begründung der Meilensteine bei Tag 7, Tag 14 und Tag 30 sowie Stop-Loss)",
@@ -447,6 +561,7 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     p_curr = stats['current_price']
     
     fallback_factor = 1.03 if "Aufwärtstrend" in stats['trend_status'] else (0.97 if "Abwärtstrend" in stats['trend_status'] else 1.0)
+    fallback_factor *= profile.get("bias_factor", 1.0)
     fb_7 = round(p_curr * (1.0 + (fallback_factor - 1.0) * 0.35), 2)
     fb_14 = round(p_curr * (1.0 + (fallback_factor - 1.0) * 0.65), 2)
     fb_30 = round(p_curr * fallback_factor, 2)
@@ -466,12 +581,15 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
     clean_report = re.sub(r'^TEIL\s*2:?[^\n]*\n', '', clean_report, flags=re.IGNORECASE).strip()
 
     if t not in memory:
-        memory[t] = {"name": company_name, "history": []}
+        memory[t] = {"name": company_name, "history": [], "learning_profile": {}}
 
+    # Exakter Zeitstempel für den späteren Soll-Ist-Abgleich
     memory[t]["history"].append({
+        "timestamp": time.time(),
         "date": datetime.now().strftime("%d.%m.%Y %H:%M Uhr"),
         "price": stats['current_price'],
         "currency": curr_sym,
+        "target_7d": targets_dict["t_7"],
         "target_14d": targets_dict["t_14"],
         "target_30d": targets_dict["t_30"],
         "rsi": stats['rsi_14'],
@@ -479,8 +597,8 @@ def run_ai_learning_prediction(client, model_name, ticker_sym, company_name, sta
         "analysis_summary": clean_report[:280] + "..."
     })
     
-    if len(memory[t]["history"]) > 15:
-        memory[t]["history"] = memory[t]["history"][-15:]
+    if len(memory[t]["history"]) > 20:
+        memory[t]["history"] = memory[t]["history"][-20:]
         
     save_memory(memory)
 
