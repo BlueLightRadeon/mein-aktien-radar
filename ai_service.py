@@ -15,8 +15,7 @@ def get_account_models(api_key):
         valid_chat_models = []
         for m in models_data.data:
             m_id = str(m.id).lower()
-            # Filtert Audio-, Vision- und Denk/Reasoning-Modelle heraus, die englische Entwürfe ausgeben
-            if any(bad in m_id for bad in ["whisper", "tts", "orpheus", "arabic", "vision", "guard", "embed", "canopylabs", "deepseek", "r1"]):
+            if any(bad in m_id for bad in ["whisper", "tts", "orpheus", "arabic", "vision", "guard", "embed", "canopylabs", "deepseek", "r1", "qwq"]):
                 continue
             if any(allowed in m_id for allowed in ["llama-3.3", "llama-3.1", "gemma2", "qwen", "versatile"]):
                 valid_chat_models.append(m.id)
@@ -30,57 +29,66 @@ def get_account_models(api_key):
         return [DEFAULT_MODEL]
 
 def clean_ai_output(text):
-    """Entfernt Thinking-Tags und schneidet jeglichen Text vor der ersten echten Überschrift ab."""
     if not text:
         return ""
-    # 1. Tags entfernen
     cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
     cleaned = re.sub(r'^<think>.*?\n', '', cleaned, flags=re.DOTALL).strip()
-
-    # 2. RADIKALER FILTER: Schneidet ALLES ab, was vor '### 1. MARKTANALYSE' steht (Outlines, Drafts etc.)
-    start_match = re.search(r'#{1,4}\s*1[\.\s\:\-]+MARKT', cleaned, re.IGNORECASE)
-    if start_match:
-        cleaned = cleaned[start_match.start():]
-
+    cleaned = re.sub(r'^(?:Here\'s|Thinking Process).*?\n\n', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
     return cleaned.strip()
 
 def extract_4_sections(text):
-    """Trennt die vier Abschnitte sauber und fehlerfrei voneinander."""
     cleaned = clean_ai_output(text)
     if not cleaned:
         return "", "", "", ""
 
-    p_depot = re.search(r'#{1,4}\s*2[\.\s\:\-]+DEPOT[^\n]*', cleaned, re.IGNORECASE)
-    p_signals = re.search(r'#{1,4}\s*3[\.\s\:\-]+(?:TOP|KAUF)[^\n]*', cleaned, re.IGNORECASE)
-    p_cluster = re.search(r'#{1,4}\s*4[\.\s\:\-]+RISIKO[^\n]*', cleaned, re.IGNORECASE)
+    # Finde alle Abschnitte fehlertolerant (auch wenn Markdown-Überschriften mehrfach im Text vorkommen)
+    pat_m = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?1[\.\s\:\-]+MARKT[^\n]*', cleaned, re.IGNORECASE))
+    pat_d = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?2[\.\s\:\-]+DEPOT[^\n]*', cleaned, re.IGNORECASE))
+    pat_s = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?3[\.\s\:\-]+(?:TOP|KAUF)[^\n]*', cleaned, re.IGNORECASE))
+    pat_c = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?4[\.\s\:\-]+RISIKO[^\n]*', cleaned, re.IGNORECASE))
+
+    # Nimm das jeweils letzte Vorkommen, um vorangestellte Planungsnotizen/Outlines zu überspringen
+    idx_m = pat_m[-1].end() if pat_m else None
+    idx_d_start = pat_d[-1].start() if pat_d else None
+    idx_d_end = pat_d[-1].end() if pat_d else None
+    idx_s_start = pat_s[-1].start() if pat_s else None
+    idx_s_end = pat_s[-1].end() if pat_s else None
+    idx_c_start = pat_c[-1].start() if pat_c else None
+    idx_c_end = pat_c[-1].end() if pat_c else None
 
     out_market = ""
     out_depot = ""
     out_signals = ""
     out_cluster = ""
 
-    if p_depot:
-        out_market = cleaned[:p_depot.start()].strip()
-        out_market = re.sub(r'^#{1,4}\s*1[\.\s\:\-]+MARKT[^\n]*\n?', '', out_market, flags=re.IGNORECASE).strip()
+    if idx_m is not None and idx_d_start is not None:
+        out_market = cleaned[idx_m:idx_d_start].strip()
+    elif idx_m is not None:
+        out_market = cleaned[idx_m:].strip()
 
-        if p_signals:
-            out_depot = cleaned[p_depot.end():p_signals.start()].strip()
-            if p_cluster:
-                out_signals = cleaned[p_signals.end():p_cluster.start()].strip()
-                out_cluster = cleaned[p_cluster.end():].strip()
-            else:
-                out_signals = cleaned[p_signals.end():].strip()
-        else:
-            out_depot = cleaned[p_depot.end():].strip()
-    else:
+    if idx_d_end is not None and idx_s_start is not None:
+        out_depot = cleaned[idx_d_end:idx_s_start].strip()
+    elif idx_d_end is not None:
+        out_depot = cleaned[idx_d_end:].strip()
+
+    if idx_s_end is not None and idx_c_start is not None:
+        out_signals = cleaned[idx_s_end:idx_c_start].strip()
+    elif idx_s_end is not None:
+        out_signals = cleaned[idx_s_end:].strip()
+
+    if idx_c_end is not None:
+        out_cluster = cleaned[idx_c_end:].strip()
+
+    # Falls Trenner komplett fehlten, Text nicht verwerfen
+    if not out_market and not out_depot:
         out_market = cleaned
 
     return out_market, out_depot, out_signals, out_cluster
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     prompt = f"""
-Du bist ein quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
-Beginne sofort mit der Überschrift '### 1. MARKTANALYSE'. Schreibe keine Einleitung und keine Vorbemerkungen.
+Du bist ein führender quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
+Beginne direkt mit '### 1. MARKTANALYSE'. Schreibe keine englischen Entwürfe, keine Vorbemerkungen und kein Brainstorming.
 
 [AKTUELLE LEIT-NACHRICHTEN & WELTMÄRKTE]
 {news_text}
@@ -88,7 +96,7 @@ Beginne sofort mit der Überschrift '### 1. MARKTANALYSE'. Schreibe keine Einlei
 [DEPOT-KENNZAHLEN & AKTIEN]
 {metrics_summary}
 
-Gliedere deine Antwort zwingend in exakt diese vier Abschnitte:
+Gliedere deine Antwort zwingend in genau diese vier Abschnitte:
 
 ### 1. MARKTANALYSE
 - **TOP 10 Marktnachrichten**: Genau 10 konkrete, nummerierte Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
@@ -116,9 +124,7 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
 - **Konkreter Absicherungs-Tipp**: Klare Handlungsanweisung zur Portfolio-Absicherung.
 """
 
-    # Stellt sicher, dass niemals ein Reasoning-Modell genutzt wird
-    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
-
+    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1", "qwq"]) else DEFAULT_MODEL
     full_text = ""
     last_err = None
 
@@ -127,12 +133,12 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
             res = client.chat.completions.create(
                 model=target_model,
                 messages=[
-                    {"role": "system", "content": "Du bist ein quantitativer deutscher Börsenanalyst. Antworte zu 100% auf Deutsch. Beginne direkt mit '### 1. MARKTANALYSE'. Gib niemals Denkprozesse, Entwürfe oder englischen Text aus."},
+                    {"role": "system", "content": "Du bist ein präziser deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Beginne direkt mit '### 1. MARKTANALYSE'. Gib niemals Denkprozesse, Entwürfe oder englische Einleitungen aus."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.2,
-                max_tokens=3000,
-                timeout=35.0
+                max_tokens=3200,
+                timeout=40.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
@@ -156,7 +162,7 @@ Aktie B: {stock_b_info}
 1. Fundamentaler Kennzahlenvergleich (KGV, Dividende, Fair Value, Burggraben)
 2. Klares Fazit: Welche Aktie ist aktuell der bessere Kauf und warum?
 """
-    duel_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
+    duel_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1", "qwq"]) else DEFAULT_MODEL
     try:
         res = client.chat.completions.create(
             model=duel_model,
