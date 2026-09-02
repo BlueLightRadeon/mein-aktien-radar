@@ -183,7 +183,10 @@ with st.sidebar:
     st.header("🤖 KI-Einstellungen")
     auto_refresh_active = st.toggle("🔄 Auto-Update alle 10 Min.", value=True)
     available_models = get_account_models(GROQ_KEY)
-    selected_model = st.selectbox("KI-Modell:", available_models, index=0)
+    saved_model = st.session_state.get("selected_groq_model", available_models[0])
+    model_idx = available_models.index(saved_model) if saved_model in available_models else 0
+    selected_model = st.selectbox("KI-Modell:", available_models, index=model_idx)
+    st.session_state["selected_groq_model"] = selected_model
 
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 
@@ -490,16 +493,17 @@ with tab8:
         if f"stats_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
             s = st.session_state[f"stats_{chosen_ticker}"]
             tg = st.session_state[f"targets_{chosen_ticker}"]
+            curr_sym = tg.get("currency_symbol", s.get("currency_symbol", "€"))
             
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:
                 st.metric("365-Tage Wertentwicklung", f"{s['return_365d_pct']:+.2f} %")
             with m_col2:
-                st.metric("52-Wochen Tief / Hoch", f"{s['high_365d']} €", delta=f"Tief: {s['low_365d']} €")
+                st.metric("52-Wochen Tief / Hoch", f"{s['high_365d']} {curr_sym}", delta=f"Tief: {s['low_365d']} {curr_sym}")
             with m_col3:
                 st.metric("RSI (14 Tage)", f"{s['rsi_14']}")
             with m_col4:
-                st.metric("Treffer-Konfidenz", f"{tg.get('prob', '75 %')}")
+                st.metric("Treffer-Konfidenz", f"{tg.get('prob', '78 %')}")
 
             p_col1, p_col2, p_col3, p_col4 = st.columns(4)
             diff_7 = ((tg['t_7'] - s['current_price']) / s['current_price']) * 100.0
@@ -507,17 +511,27 @@ with tab8:
             diff_90 = ((tg['t_90'] - s['current_price']) / s['current_price']) * 100.0
 
             with p_col1:
-                st.metric("Ziel 7 Tage", f"{tg['t_7']:.2f} €", delta=f"{diff_7:+.2f} %")
+                st.metric("Ziel 7 Tage", f"{tg['t_7']:.2f} {curr_sym}", delta=f"{diff_7:+.2f} %")
             with p_col2:
-                st.metric("Ziel 30 Tage (Hauptpfad)", f"{tg['t_30']:.2f} €", delta=f"{diff_30:+.2f} %")
+                st.metric("Ziel 30 Tage (Hauptpfad)", f"{tg['t_30']:.2f} {curr_sym}", delta=f"{diff_30:+.2f} %")
             with p_col3:
-                st.metric("Ziel 90 Tage", f"{tg['t_90']:.2f} €", delta=f"{diff_90:+.2f} %")
+                st.metric("Ziel 90 Tage", f"{tg['t_90']:.2f} {curr_sym}", delta=f"{diff_90:+.2f} %")
             with p_col4:
-                st.metric("Absicherung (Stop-Loss)", f"{tg['t_bear']:.2f} €")
+                st.metric("Absicherung (Stop-Loss)", f"{tg['t_bear']:.2f} {curr_sym}")
 
         if f"history_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
             h_series = st.session_state[f"history_{chosen_ticker}"]
             tg = st.session_state[f"targets_{chosen_ticker}"]
+            curr_sym = tg.get("currency_symbol", "€")
+
+            # Umschalter für optimale Chart-Lesbarkeit
+            zoom_choice = st.radio(
+                "Zeitbereich im Chart:", 
+                ["Letzte 90 Tage + Prognose (Detailansicht)", "Volle 365 Tage"], 
+                horizontal=True, 
+                key=f"zoom_{chosen_ticker}"
+            )
+            plot_history = h_series.tail(90) if "90 Tage" in zoom_choice else h_series
 
             last_date = h_series.index[-1]
             future_dates = [
@@ -533,8 +547,8 @@ with tab8:
             fig_pred = go.Figure()
 
             fig_pred.add_trace(go.Scatter(
-                x=h_series.index, y=h_series.values,
-                mode="lines", name="Reale Börsenkurse (letzte 365 Tage)",
+                x=plot_history.index, y=plot_history.values,
+                mode="lines", name="Reale Börsenkurse",
                 line=dict(color="#0693E3", width=2.5)
             ))
 
@@ -561,7 +575,7 @@ with tab8:
             fig_pred.update_layout(
                 title=f"90-Tage Kursprognose für {selected_stock_name} (inkl. Konfidenzkanal)",
                 xaxis=dict(title="Datum", type="date"),
-                yaxis=dict(title="Kurs (€)", ticksuffix=" €"),
+                yaxis=dict(title=f"Kurs ({curr_sym})", ticksuffix=f" {curr_sym}"),
                 hovermode="x unified",
                 height=440,
                 margin=dict(l=10, r=10, t=40, b=10)
@@ -575,7 +589,8 @@ with tab8:
         if chosen_ticker in memory and "history" in memory[chosen_ticker]:
             with st.expander(f"📚 Gespeichertes Wissensgedächtnis für {selected_stock_name} ({len(memory[chosen_ticker]['history'])} Lernpunkte)"):
                 for entry in reversed(memory[chosen_ticker]["history"]):
-                    st.write(f"• **{entry.get('date')}** | Basis-Kurs: `{entry.get('price')} €` | Erwartetes 30T-Ziel: `{entry.get('target_30d')} €`")
+                    c_sym = entry.get("currency", "€")
+                    st.write(f"• **{entry.get('date')}** | Basis-Kurs: `{entry.get('price')} {c_sym}` | Erwartetes 30T-Ziel: `{entry.get('target_30d')} {c_sym}`")
                     st.caption(entry.get("analysis_summary", ""))
     else:
         st.info("Lade ein Depot hoch, um das Lernlabor für deine Aktien zu aktivieren.")
