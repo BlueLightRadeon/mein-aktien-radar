@@ -70,12 +70,16 @@
     "name": "Rheinmetall",
     "history": [
       {
-        "date": "02.09.2026 11:26 Uhr",
-        "price": 1086.2,
+        "timestamp": 1788372471.5364926,
+        "date": "02.09.2026 18:07 Uhr",
+        "price": 1090.4,
         "currency": "€",
-        "target_30d": 1069.2,
-        "rsi": 36.9,
-        "analysis_summary": "### 1. 🌐 Synthese: Weltwirtschaft & Wall-Street-Konsens\n\nDie aktuelle Marktlage für Rheinmetall (RHM.DE) ist durch eine deutliche Diskrepanz zwischen dem langfristigen Fundamentalkonsens und der kurzfristigen Preisentwicklung gekennzeichnet. Der offizielle Analysten-Konsens der W..."
+        "target_7d": 1068.5,
+        "target_14d": 1035.2,
+        "target_30d": 1048.0,
+        "rsi": 37.8,
+        "trend": "Klarer Abwärtstrend",
+        "analysis_summary": "1.  **Analyze User Input:**\n   - **Role:** Quantitative German Stock Analyst / Chief Investment Strategist\n   - **Language:** 100% German, NO English words, NO thinking process output\n   - **Company:** Rheinmetall (RHM.DE)\n   - **Focus:** Next 30 days\n   - **Currency:** €\n   - **..."
       },
       {
         "date": "02.09.2026 11:28 Uhr",
