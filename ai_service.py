@@ -29,7 +29,6 @@ def get_account_models(api_key):
         return [DEFAULT_MODEL]
 
 def clean_ai_output(text):
-    """Entfernt Thinking-Blöcke (<think>...</think>) und englische Preambles restlos."""
     if not text:
         return ""
     cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
@@ -38,10 +37,6 @@ def clean_ai_output(text):
     return cleaned
 
 def extract_4_sections(raw_text):
-    """
-    Extrahiert alle 4 Abschnitte positionsbasiert und fehlertolerant.
-    Funktioniert mit Tags (===ABSCHNITT===) ebenso wie mit Markdown-Headern (### 1.).
-    """
     cleaned = clean_ai_output(raw_text)
     if not cleaned:
         return "", "", "", ""
@@ -73,7 +68,6 @@ def extract_4_sections(raw_text):
     out_signals = sections.get("signals", "")
     out_cluster = sections.get("cluster", "")
 
-    # Notfall-Fallback: Falls alle Trenner fehlgeschlagen sind, Text nicht verwerfen
     if not out_market and not out_depot:
         out_market = cleaned
 
@@ -118,43 +112,36 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
 """
 
     target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
-    models_to_try = [target_model, DEFAULT_MODEL, "llama-3.3-70b-specdec"]
-    seen = set()
-    models_to_try = [x for x in models_to_try if x and not (x in seen or seen.add(x))]
 
-    full_text = ""
-    last_err = None
+    try:
+        res = client.chat.completions.create(
+            model=target_model,
+            messages=[
+                {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) aus."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=2800,
+            timeout=25.0
+        )
+        if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
+            return extract_4_sections(res.choices[0].message.content)
+    except Exception as e:
+        # Ein schneller Fallback auf das Standardmodell
+        try:
+            res_fb = client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=2500,
+                timeout=20.0
+            )
+            return extract_4_sections(res_fb.choices[0].message.content)
+        except Exception as e2:
+            err_msg = f"⚠️ Groq-Fehler: {str(e2)}"
+            return err_msg, err_msg, err_msg, err_msg
 
-    for m_id in models_to_try:
-        for attempt in range(2):
-            try:
-                res = client.chat.completions.create(
-                    model=m_id,
-                    messages=[
-                        {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) aus."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=3500,
-                    timeout=45.0
-                )
-                if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
-                    full_text = res.choices[0].message.content
-                    break
-            except Exception as e:
-                last_err = e
-                if "rate_limit" in str(e).lower() and attempt == 0:
-                    time.sleep(2.0)
-                    continue
-                break
-        if full_text:
-            break
-
-    if not full_text:
-        err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
-        return err_msg, err_msg, err_msg, err_msg
-
-    return extract_4_sections(full_text)
+    return "Keine Daten erhalten.", "", "", ""
 
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
@@ -166,25 +153,14 @@ Aktie B: {stock_b_info}
 2. Klares Fazit: Welche Aktie ist aktuell der bessere Kauf und warum?
 """
     duel_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
-    
     try:
         res = client.chat.completions.create(
             model=duel_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=800,
-            timeout=20.0
+            timeout=15.0
         )
         return clean_ai_output(res.choices[0].message.content)
-    except Exception:
-        try:
-            res_fallback = client.chat.completions.create(
-                model=DEFAULT_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=800,
-                timeout=20.0
-            )
-            return clean_ai_output(res_fallback.choices[0].message.content)
-        except Exception as e2:
-            return f"⚠️ Duell-Analyse Fehler: {str(e2)}"
+    except Exception as e:
+        return f"⚠️ Duell-Analyse Fehler: {str(e)}"
