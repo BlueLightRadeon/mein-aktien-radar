@@ -1,0 +1,66 @@
+import streamlit as st
+import plotly.express as px
+
+def render(stock_df, stock_val, fmt_eur):
+    st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines realen Geldes auf Rollen, Branchen und Länder.")
+    if not stock_df.empty:
+        c_pie1, c_pie2, c_pie3 = st.columns(3)
+        
+        colors_role = ["#2563EB", "#0284C7", "#0D9488", "#64748B", "#3B82F6"]
+        colors_sector = ["#059669", "#10B981", "#34D399", "#14B8A6", "#047857", "#6EE7B7", "#065F46"]
+        colors_geo = ["#D97706", "#F59E0B", "#8B5CF6", "#EC4899", "#6366F1", "#FB923C", "#A855F7"]
+        
+        pie_df = stock_df.copy()
+        if pie_df["_raw_val"].sum() <= 0:
+            pie_df["_raw_val"] = 1.0
+
+        with c_pie1:
+            fig_role = px.pie(
+                pie_df, names="Rolle", values="_raw_val",
+                title="1. Rollen im Depot", hole=0.45,
+                color_discrete_sequence=colors_role
+            )
+            fig_role.update_traces(textposition="inside", textinfo="percent+label")
+            st.plotly_chart(fig_role, width="stretch", key="pie_role")
+
+        with c_pie2:
+            fig_sec = px.pie(
+                pie_df, names="Sektor", values="_raw_val",
+                title="2. Branchen-Aufteilung", hole=0.45,
+                color_discrete_sequence=colors_sector
+            )
+            fig_sec.update_traces(textposition="inside", textinfo="percent+label")
+            st.plotly_chart(fig_sec, width="stretch", key="pie_sec")
+
+        with c_pie3:
+            fig_geo = px.pie(
+                pie_df, names="Land", values="_raw_val",
+                title="3. Länder-Aufteilung", hole=0.45,
+                color_discrete_sequence=colors_geo
+            )
+            fig_geo.update_traces(textposition="inside", textinfo="percent+label")
+            st.plotly_chart(fig_geo, width="stretch", key="pie_geo")
+
+        st.divider()
+        st.subheader("🧩 Wie verteilen sich deine tatsächlichen Aktien?")
+        
+        unique_roles = stock_df["Rolle"].unique()
+        r_cols = st.columns(2)
+        
+        for idx, r_name in enumerate(unique_roles):
+            sub_df = stock_df[stock_df["Rolle"] == r_name]
+            stock_names = ", ".join(sub_df["Unternehmen"].tolist())
+            role_sum = sub_df["_raw_val"].sum()
+            role_pct = (role_sum / stock_val * 100.0) if stock_val > 0 else (100.0 / len(unique_roles))
+            
+            with r_cols[idx % 2]:
+                with st.container(border=True):
+                    st.markdown(f"### {r_name}")
+                    st.write(f"**Deine Aktien hier:** {stock_names}")
+                    st.write(f"**Anteil am Depot:** `{fmt_eur(role_sum)}` ({role_pct:.1f} %)")
+
+    cluster_text = st.session_state.get("ai_cluster", "")
+    if cluster_text and len(cluster_text.strip()) > 15:
+        st.divider()
+        st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
+        st.markdown(cluster_text)
