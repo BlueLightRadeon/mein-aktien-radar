@@ -4,19 +4,30 @@ import streamlit as st
 from groq import Groq
 
 # Auslagerungen importieren
-from storage_service import load_saved_portfolio, save_saved_portfolio, delete_saved_portfolio
-from data_service import (
-    get_stock_data, fetch_all_headlines, search_ticker_candidates, 
-    clean_ticker, parse_trade_republic_pdf, get_display_name
-)
-from ai_service import get_account_models, run_analysis
+try:
+    from storage_service import load_saved_portfolio, save_saved_portfolio, delete_saved_portfolio
+    from data_service import (
+        get_stock_data, fetch_all_headlines, search_ticker_candidates, 
+        clean_ticker, parse_trade_republic_pdf, get_display_name
+    )
+    from ai_service import get_account_models, run_analysis
+except Exception as e:
+    st.error(f"❌ Fehler in den Service-Dateien (Hauptordner): {e}")
+    st.stop()
 
-# Die 9 modularen Tabs importieren
-from tabs import (
-    tab0_konto, tab1_empfehlungen, tab2_nachrichten, 
-    tab3_cashflow, tab4_kaufideen, tab5_charts, 
-    tab6_streuung, tab7_duell, tab8_prognose
-)
+# Die 9 modularen Tabs fehlersicher importieren
+try:
+    from tabs import (
+        tab0_konto, tab1_empfehlungen, tab2_nachrichten, 
+        tab3_cashflow, tab4_kaufideen, tab5_charts, 
+        tab6_streuung, tab7_duell, tab8_prognose
+    )
+except Exception as e:
+    st.error(f"❌ Tab-Import-Fehler: {e}")
+    st.info("💡 Prüfe die Dateinamen im Ordner 'tabs/' anhand der Checkliste unten.")
+    import traceback
+    st.code(traceback.format_exc())
+    st.stop()
 
 # Initialisierung
 if "v_portfolio" not in st.session_state:
@@ -83,7 +94,6 @@ def trigger_ai_run(portfolio_items, current_stock_df, model_to_use):
         st.error(f"⚠️ Groq API Fehler: {str(e)}")
         return False
 
-# Fragment für ruckelfreien Live-Timer
 def get_fragment_decorator(interval_sec=1):
     if hasattr(st, "fragment"):
         return st.fragment(run_every=interval_sec)
@@ -111,7 +121,6 @@ def render_live_timer_panel(ten_mins, auto_refresh_active, has_portfolio):
     else:
         st.caption("Lade ein Depot hoch, um die Analyse zu starten.")
 
-# --- SIDEBAR ---
 with st.sidebar:
     st.header("💼 Trade Republic Depot")
     with st.expander("📥 TR-Kontoauszug (PDF) einlesen", expanded=True):
@@ -198,7 +207,6 @@ with st.sidebar:
     selected_model = st.selectbox("KI-Modell:", available_models, index=model_idx)
     st.session_state["selected_groq_model"] = selected_model
 
-# --- BERECHNUNGEN & METRIKEN ---
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 
 if not stock_df.empty and "_raw_val" in stock_df.columns:
@@ -240,7 +248,6 @@ with col_btn:
 with col_info:
     render_live_timer_panel(ten_mins, auto_refresh_active, bool(portfolio_list))
 
-# --- TABS (MODULAR GERENDERT) ---
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏦 TR-Konto",
     "💼 Stimmung & Empfehlungen",
