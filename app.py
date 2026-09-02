@@ -458,9 +458,9 @@ with tab7:
     else:
         st.info("Mindestens 2 Positionen nötig, um ein Duell zu starten.")
 
-# TAB 8: KI-LERNLABOR & PROGNOSE (VERBINDUNG AUS CHART + NEWS)
+# TAB 8: KI-LERNLABOR & VISUELLE PROGNOSE
 with tab8:
-    st.info("ℹ️ **Kurzinfo:** Das System verknüpft die 365-Tage-Historie mit aktuellen Welt- und Unternehmensnachrichten, lernt aus Fehlern im Gedächtnisspeicher und berechnet ein fundiertes Multi-Szenario-Kursziel.")
+    st.info("ℹ️ **Kurzinfo:** Das System verknüpft die 365-Tage-Historie mit aktuellen Welt- und Unternehmensnachrichten, lernt aus Fehlern im Gedächtnisspeicher und visualisiert den künftigen Kursverlauf inklusive Konfidenzkanal.")
     if portfolio_list:
         selected_stock_name = st.selectbox(
             "Wähle eine Aktie aus deinem Depot zum Lernen & Prognostizieren:",
@@ -483,18 +483,20 @@ with tab8:
         memory = load_memory()
 
         if start_learn:
-            with st.spinner(f"Verbinde 365-Tage-Historie mit aktuellen Weltnachrichten für {selected_stock_name}..."):
-                stats = fetch_365d_stats(chosen_ticker)
-                if stats:
+            with st.spinner(f"Lade 365-Tage-Historie & vergleiche Weltnachrichten für {selected_stock_name}..."):
+                stats, history_series = fetch_365d_stats(chosen_ticker)
+                if stats and history_series is not None:
                     client = Groq(api_key=GROQ_KEY)
                     news_data = fetch_all_headlines()
                     macro_news_str = "\n".join(news_data) if news_data else "Stabile Weltwirtschaftslage."
                     
-                    pred_res = run_ai_learning_prediction(
+                    pred_res, targets_dict = run_ai_learning_prediction(
                         client, selected_model, chosen_ticker, selected_stock_name, stats, memory, macro_news=macro_news_str
                     )
                     st.session_state[f"pred_{chosen_ticker}"] = pred_res
                     st.session_state[f"stats_{chosen_ticker}"] = stats
+                    st.session_state[f"targets_{chosen_ticker}"] = targets_dict
+                    st.session_state[f"history_{chosen_ticker}"] = history_series
                     st.success("✅ Analyse abgeschlossen, Muster gelernt & Prognose gesichert!")
                 else:
                     st.error("Konnte historische 365-Tage-Börsendaten nicht vollständig laden.")
@@ -503,19 +505,78 @@ with tab8:
             s = st.session_state[f"stats_{chosen_ticker}"]
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:
-                st.metric("365-Tage Rendite", f"{s['return_365d_pct']:+.2f} %")
+                st.metric("365-Tage Wertentwicklung", f"{s['return_365d_pct']:+.2f} %")
             with m_col2:
-                st.metric("52-Wochen Hoch / Tief", f"{s['high_365d']} €", delta=f"Tief: {s['low_365d']} €")
+                st.metric("52-Wochen Tief / Hoch", f"{s['high_365d']} €", delta=f"Tief: {s['low_365d']} €")
             with m_col3:
-                st.metric("RSI (14D)", f"{s['rsi_14']}")
+                st.metric("RSI (14 Tage)", f"{s['rsi_14']}")
             with m_col4:
-                st.metric("Volumen-Ratio", f"{s.get('volume_ratio', 1.0)}x")
+                st.metric("Trendrichtung", f"{s.get('trend_status', 'Neutral')}")
+
+        # VISUELLER PROGNOSE-CHART
+        if f"history_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
+            h_series = st.session_state[f"history_{chosen_ticker}"]
+            tg = st.session_state[f"targets_{chosen_ticker}"]
+
+            last_date = h_series.index[-1]
+            future_dates = [
+                last_date,
+                last_date + timedelta(days=7),
+                last_date + timedelta(days=30),
+                last_date + timedelta(days=90)
+            ]
+            future_prices = [tg["p_curr"], tg["t_7"], tg["t_30"], tg["t_90"]]
+            bull_prices = [tg["p_curr"], tg["p_curr"] * 1.02, tg["t_bull"], tg["t_bull"] * 1.05]
+            bear_prices = [tg["p_curr"], tg["p_curr"] * 0.98, tg["t_bear"], tg["t_bear"] * 0.95]
+
+            fig_pred = go.Figure()
+
+            # 1. Echte 365-Tage Historie
+            fig_pred.add_trace(go.Scatter(
+                x=h_series.index, y=h_series.values,
+                mode="lines", name="Reale Börsenhistorie (365T)",
+                line=dict(color="#0693E3", width=2.5)
+            ))
+
+            # 2. Bullish Band
+            fig_pred.add_trace(go.Scatter(
+                x=future_dates, y=bull_prices,
+                mode="lines", name="🟢 Best-Case Korridor",
+                line=dict(color="rgba(0, 208, 132, 0.4)", width=1, dash="dot"),
+                showlegend=True
+            ))
+
+            # 3. Bearish Band (mit Fill für den Konfidenzkanal)
+            fig_pred.add_trace(go.Scatter(
+                x=future_dates, y=bear_prices,
+                mode="lines", name="🔴 Absicherungs-Kanal",
+                fill='tonexty', fillcolor='rgba(0, 208, 132, 0.12)',
+                line=dict(color="rgba(235, 20, 76, 0.4)", width=1, dash="dot"),
+                showlegend=True
+            ))
+
+            # 4. Hauptszenario-Projektion
+            fig_pred.add_trace(go.Scatter(
+                x=future_dates, y=future_prices,
+                mode="lines+markers", name="🎯 KI-Hauptprognose (7/30/90 Tage)",
+                line=dict(color="#FCB900", width=3, dash="dash"),
+                marker=dict(size=7, color="#FCB900")
+            ))
+
+            fig_pred.update_layout(
+                title=f"Visuelle 90-Tage Kursprognose für {selected_stock_name} (inkl. Konfidenzkanal)",
+                xaxis=dict(title="Datum", type="date"),
+                yaxis=dict(title="Kurs (€)", ticksuffix=" €"),
+                hovermode="x unified",
+                height=440,
+                margin=dict(l=10, r=10, t=40, b=10)
+            )
+            st.plotly_chart(fig_pred, width="stretch", key=f"plotly_pred_chart_{chosen_ticker}")
 
         if f"pred_{chosen_ticker}" in st.session_state:
             st.divider()
             st.markdown(st.session_state[f"pred_{chosen_ticker}"])
 
-        # Gedächtnis-Historie & Backtesting der KI
         if chosen_ticker in memory and "history" in memory[chosen_ticker]:
             with st.expander(f"📚 Gespeichertes Wissensgedächtnis für {selected_stock_name} ({len(memory[chosen_ticker]['history'])} Lernpunkte)"):
                 for entry in reversed(memory[chosen_ticker]["history"]):
