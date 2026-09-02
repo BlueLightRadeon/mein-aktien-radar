@@ -29,32 +29,68 @@ def get_account_models(api_key):
         return [DEFAULT_MODEL]
 
 def clean_ai_output(text):
-    """Entfernt Thinking-Tags restlos, damit niemals ein Komma dazwischen gerät."""
+    """Entfernt Thinking-Tags und englische Meta-Outlines vor dem Parsen."""
     if not text:
         return ""
     cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
     cleaned = re.sub(r'^<think>.*?\n', '', cleaned, flags=re.DOTALL).strip()
     cleaned = re.sub(r'^(?:Here\'s|Thinking Process).*?\n\n', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
+    # Entfernt vorangestellte 'Content Requirements' Blöcke
+    cleaned = re.sub(r'^.*?Content Requirements:.*?\n(?=(?:<[A-Z_]+>|#{1,4}\s*1|\b1\.))', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
     return cleaned
+
+def extract_section_by_tag(text, tag_name, fallback_regex):
+    """
+    Sucht zuerst nach eindeutigen XML-Tags (<TAG>...</TAG>).
+    Falls nicht vorhanden, greift der Fallback-RegEx auf die längste echte Textpassage zu.
+    """
+    # 1. Priorität: XML-Tags
+    tag_pattern = rf'<{tag_name}>(.*?)(?:</{tag_name}>|$)'
+    matches = re.findall(tag_pattern, text, re.DOTALL | re.IGNORECASE)
+    if matches:
+        best = max(matches, key=len).strip()
+        if len(best) > 40 and "Content Requirements:" not in best:
+            return best
+
+    # 2. Priorität: Fallback per Markdown-Überschrift (filtert Outlines aus)
+    fb_matches = re.findall(fallback_regex, text, re.DOTALL | re.IGNORECASE)
+    if fb_matches:
+        valid_matches = [m.strip() for m in fb_matches if "Content Requirements:" not in m and len(m.strip()) > 50]
+        if valid_matches:
+            return max(valid_matches, key=len)
+
+    return ""
 
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     prompt = f"""
-Du bist ein führender quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
-Schreibe alle Punkte direkt aus und nutze exakt die vier Überschriften:
+Du bist ein quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
+WICHTIG: Antworte zu 100% auf DEUTSCH. Schreibe KEINE englischen Denkprozesse (<think>), KEINE Einleitung und KEINE "Content Requirements" oder Gliederung vorab!
+Beginne deine Ausgabe SOFORT mit dem Tag <MARKTANALYSE>.
 
-### 1. MARKTANALYSE
-- **TOP 10 Marktnachrichten**: Schreibe genau 10 konkrete Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
-- **Gesamtstimmung der Börse**: 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit 3 Sätzen Begründung.
+[AKTUELLE LEIT-NACHRICHTEN & WELTMÄRKTE]
+{news_text}
 
-### 2. DEPOT-BEWERTUNG
-Analysiere alle im Depot gehaltenen Aktien einzeln mit aktuellem Status vs. 3-Monats-Rückblick:
+[DEPOT-KENNZAHLEN & AKTIEN]
 {metrics_summary}
 
+Gliedere deine Antwort zwingend in genau diese vier Tags:
+
+<MARKTANALYSE>
+### 1. MARKTANALYSE
+- **TOP 10 Marktnachrichten**: Genau 10 konkrete, ausführliche Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
+- **Gesamtstimmung der Börse**: 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit 3 Sätzen Begründung.
+</MARKTANALYSE>
+
+<DEPOTBEWERTUNG>
+### 2. DEPOT-BEWERTUNG
+Analysiere alle im Depot gehaltenen Aktien einzeln mit aktuellem Status vs. 3-Monats-Rückblick:
 Für jedes Unternehmen:
 - **🟢/🟡/🔴 Aktuelle Empfehlung & Begründung**: (KGV, Fair Value, Auftragslage, Kurspotenzial).
 - **⏱️ Rückblick vor 3 Monaten**: Damalige Einstufung und damalige Ausgangslage.
 - **📈 Trend & Fazit**: Entwicklung in den letzten 3 Monaten und nächster Schritt.
+</DEPOTBEWERTUNG>
 
+<KAUFEMPFEHLUNGEN>
 ### 3. TOP 5 KAUFEMPFEHLUNGEN
 Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot liegen) zur Portfolio-Erweiterung:
 1. Aktie 1 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
@@ -63,11 +99,14 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
 4. Aktie 4 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
 5. Aktie 5 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
 - **🔴 Aktuell meiden**: 3 Branchen mit erhöhtem Abwärtsrisiko.
+</KAUFEMPFEHLUNGEN>
 
+<RISIKOSTREUUNG>
 ### 4. RISIKOSTREUUNG
 - **Risiko-Score**: 1 (Sehr konservativ) bis 10 (Sehr spekulativ).
 - **Analyse der Branchen- & Länder-Gewichtung**: {cluster_context}
-- **Konkreter Absicherungs-Tipp**: Klare Handlungsanweisung zur Absicherung.
+- **Konkreter Absicherungs-Tipp**: Klare Handlungsanweisung zur Portfolio-Absicherung.
+</RISIKOSTREUUNG>
 """
 
     target_model = model_name if model_name and "orpheus" not in model_name else DEFAULT_MODEL
@@ -79,39 +118,37 @@ Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot lie
             res = client.chat.completions.create(
                 model=target_model,
                 messages=[
-                    {"role": "system", "content": "Du bist ein präziser deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) aus. Verwende exakt die Überschriften '### 1. MARKTANALYSE', '### 2. DEPOT-BEWERTUNG', '### 3. TOP 5 KAUFEMPFEHLUNGEN' und '### 4. RISIKOSTREUUNG'."},
+                    {"role": "system", "content": "Du bist ein führender deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Gib niemals Denkprozesse (<think>) oder Vorbemerkungen aus. Verwende die Tags <MARKTANALYSE>, <DEPOTBEWERTUNG>, <KAUFEMPFEHLUNGEN> und <RISIKOSTREUUNG>."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.2,
-                max_tokens=3000,
-                timeout=45.0
+                temperature=0.1,
+                max_tokens=3200,
+                timeout=35.0
             )
             if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
                 full_text = res.choices[0].message.content
                 break
         except Exception as e:
             last_err = e
-            time.sleep(1.5)
+            time.sleep(1.0)
 
     if not full_text:
         err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
         return err_msg, err_msg, err_msg, err_msg
 
-    # 1. Zuerst Denkblöcke entfernen (verhindert das Komma-Problem dauerhaft)
     cleaned = clean_ai_output(full_text)
 
-    # 2. Robuste, fehlertolerante Abschnittserkennung
-    m_match = re.search(r'#{1,4}\s*(?:1[\.\s\:\-]+)?MARKT[^\n]*\n(.*?)(?=#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT|$)', cleaned, re.DOTALL | re.IGNORECASE)
-    d_match = re.search(r'#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT[^\n]*\n(.*?)(?=#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)|$)', cleaned, re.DOTALL | re.IGNORECASE)
-    s_match = re.search(r'#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)[^\n]*\n(.*?)(?=#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO|$)', cleaned, re.DOTALL | re.IGNORECASE)
-    c_match = re.search(r'#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO[^\n]*\n(.*?)$', cleaned, re.DOTALL | re.IGNORECASE)
+    # 4 Abschnitte zielgenau extrahieren
+    fb_m = r'#{1,4}\s*(?:1[\.\s\:\-]+)?MARKT[^\n]*\n(.*?)(?=#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT|$)'
+    fb_d = r'#{1,4}\s*(?:2[\.\s\:\-]+)?DEPOT[^\n]*\n(.*?)(?=#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)|$)'
+    fb_s = r'#{1,4}\s*(?:3[\.\s\:\-]+)?(?:TOP|KAUF)[^\n]*\n(.*?)(?=#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO|$)'
+    fb_c = r'#{1,4}\s*(?:4[\.\s\:\-]+)?RISIKO[^\n]*\n(.*?)$'
 
-    out_market = m_match.group(1).strip() if m_match else ""
-    out_depot = d_match.group(1).strip() if d_match else ""
-    out_signals = s_match.group(1).strip() if s_match else ""
-    out_cluster = c_match.group(1).strip() if c_match else ""
+    out_market = extract_section_by_tag(cleaned, "MARKTANALYSE", fb_m)
+    out_depot = extract_section_by_tag(cleaned, "DEPOTBEWERTUNG", fb_d)
+    out_signals = extract_section_by_tag(cleaned, "KAUFEMPFEHLUNGEN", fb_s)
+    out_cluster = extract_section_by_tag(cleaned, "RISIKOSTREUUNG", fb_c)
 
-    # Falls Markdown-Header fehlten, den Text nicht verwerfen
     if not out_market and not out_depot:
         out_market = cleaned
 
