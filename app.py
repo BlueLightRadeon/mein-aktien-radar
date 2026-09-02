@@ -523,6 +523,7 @@ with tab8:
             s = st.session_state[f"stats_{chosen_ticker}"]
             tg = st.session_state[f"targets_{chosen_ticker}"]
             curr_sym = tg.get("currency_symbol", s.get("currency_symbol", "€"))
+            p_base = float(s.get("current_price", 1.0))
             
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:
@@ -534,25 +535,32 @@ with tab8:
             with m_col4:
                 st.metric("MACD / Trend", f"{s.get('trend_status', 'Neutral')[:18]}")
 
-            p_col1, p_col2, p_col3, p_col4 = st.columns(4)
-            diff_7 = ((tg['t_7'] - s['current_price']) / s['current_price']) * 100.0
-            diff_14 = ((tg['t_14'] - s['current_price']) / s['current_price']) * 100.0
-            diff_30 = ((tg['t_30'] - s['current_price']) / s['current_price']) * 100.0
+            # Sicheres Auslesen mit Fallback (verhindert KeyError garantiert)
+            val_7 = float(tg.get("t_7", p_base))
+            val_14 = float(tg.get("t_14", tg.get("t_30", p_base)))
+            val_30 = float(tg.get("t_30", p_base))
+            val_bear = float(tg.get("t_bear", p_base * 0.95))
 
+            diff_7 = ((val_7 - p_base) / p_base) * 100.0 if p_base > 0 else 0.0
+            diff_14 = ((val_14 - p_base) / p_base) * 100.0 if p_base > 0 else 0.0
+            diff_30 = ((val_30 - p_base) / p_base) * 100.0 if p_base > 0 else 0.0
+
+            p_col1, p_col2, p_col3, p_col4 = st.columns(4)
             with p_col1:
-                st.metric("Ziel in 7 Tagen", f"{tg['t_7']:.2f} {curr_sym}", delta=f"{diff_7:+.2f} %")
+                st.metric("Ziel in 7 Tagen", f"{val_7:.2f} {curr_sym}", delta=f"{diff_7:+.2f} %")
             with p_col2:
-                st.metric("Ziel in 14 Tagen", f"{tg['t_14']:.2f} {curr_sym}", delta=f"{diff_14:+.2f} %")
+                st.metric("Ziel in 14 Tagen", f"{val_14:.2f} {curr_sym}", delta=f"{diff_14:+.2f} %")
             with p_col3:
-                st.metric("Ziel in 30 Tagen (Hauptpfad)", f"{tg['t_30']:.2f} {curr_sym}", delta=f"{diff_30:+.2f} %")
+                st.metric("Ziel in 30 Tagen (Hauptpfad)", f"{val_30:.2f} {curr_sym}", delta=f"{diff_30:+.2f} %")
             with p_col4:
-                st.metric("Absicherung (Stop-Loss)", f"{tg['t_bear']:.2f} {curr_sym}")
+                st.metric("Absicherung (Stop-Loss)", f"{val_bear:.2f} {curr_sym}")
 
         if f"history_{chosen_ticker}" in st.session_state and f"targets_{chosen_ticker}" in st.session_state:
             h_series = st.session_state[f"history_{chosen_ticker}"]
             tg = st.session_state[f"targets_{chosen_ticker}"]
             s = st.session_state[f"stats_{chosen_ticker}"]
             curr_sym = tg.get("currency_symbol", "€")
+            p_base = float(s.get("current_price", 1.0))
 
             zoom_choice = st.radio(
                 "Historischer Kontext im Chart:", 
@@ -570,15 +578,21 @@ with tab8:
 
             last_date = h_series.index[-1]
 
-            # 30-Tage täglicher Brownian-Bridge-Pfad
+            val_7 = float(tg.get("t_7", p_base))
+            val_14 = float(tg.get("t_14", tg.get("t_30", p_base)))
+            val_30 = float(tg.get("t_30", p_base))
+            val_bull = float(tg.get("t_bull", p_base * 1.05))
+            val_bear = float(tg.get("t_bear", p_base * 0.95))
+
+            # 30-Tage täglicher Brownian-Bridge-Pfad mit sicheren Werten
             future_dates, f_prices, bull_curve, bear_curve, milestones = generate_realistic_30d_forecast_path(
                 last_date=last_date,
-                p_curr=tg["p_curr"],
-                t_7=tg["t_7"],
-                t_14=tg["t_14"],
-                t_30=tg["t_30"],
-                t_bull=tg["t_bull"],
-                t_bear=tg["t_bear"],
+                p_curr=p_base,
+                t_7=val_7,
+                t_14=val_14,
+                t_30=val_30,
+                t_bull=val_bull,
+                t_bear=val_bear,
                 volatility_pct=s.get("volatility_pct", 35.0),
                 ticker_seed=chosen_ticker
             )
