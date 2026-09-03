@@ -1,8 +1,14 @@
 import os
+import sys
 import time
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
+
+# Garantiert, dass alle Untermodule im Ordner tabs/ auf den Hauptordner zugreifen können
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 # Backend-Services importieren
 from storage_service import load_saved_portfolio, save_saved_portfolio, delete_saved_portfolio
