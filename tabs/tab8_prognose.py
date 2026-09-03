@@ -72,14 +72,17 @@ def render(portfolio_list, selected_model, groq_key):
         with col_learn1:
             st.write(f"Aktie im Fokus: **{selected_stock_name}** (`{chosen_ticker}`)")
         with col_learn2:
-            start_learn = st.button("🧠 30-Tage Präzisionsanalyse starten", type="primary", width="stretch")
+            start_learn = st.button("🧠 30-Tage Präzisionsanalyse jetzt berechnen", type="primary", width="stretch", key=f"btn_calc_learn_{chosen_ticker}")
 
         if start_learn:
             with st.spinner(f"Führe Soll-Ist-Abgleich durch & berechne neue 30-Tage-Prognose für {selected_stock_name}..."):
                 stats_raw, history_series = fetch_365d_stats(chosen_ticker)
                 if stats_raw and history_series is not None:
+                    # 1. Autonomer Soll-Ist-Abgleich mit den realen Börsenkursen
                     current_profile = audit_and_update_learning(chosen_ticker, stats_raw["current_price"], history_series, memory)
                     bias_factor = current_profile.get("bias_factor", 1.0)
+                    
+                    # 2. Kennzahlen mit aktualisiertem Bias-Dämpfer laden
                     stats, _ = fetch_365d_stats(chosen_ticker, bias_factor=bias_factor)
                     if not stats:
                         stats = stats_raw
@@ -88,6 +91,7 @@ def render(portfolio_list, selected_model, groq_key):
                     news_data = fetch_all_headlines()
                     macro_news_str = "\n".join(news_data) if news_data else "Stabile Weltwirtschaftslage."
                     
+                    # 3. Hochpräzise Prognose durchführen
                     pred_res, targets_dict = run_ai_learning_prediction(
                         client, selected_model, chosen_ticker, selected_stock_name, stats, memory, macro_news=macro_news_str
                     )
