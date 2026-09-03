@@ -1,5 +1,5 @@
 import os
-import importlib
+import importlib.util
 import time
 from datetime import datetime, timezone, timedelta
 import streamlit as st
@@ -17,57 +17,38 @@ except Exception as e:
     st.error(f"❌ Fehler in den Service-Dateien (Hauptordner): {e}")
     st.stop()
 
-# Fehlertoleranter Tab-Loader (findet tab2 auch bei Groß-/Kleinschreibung oder kleinen Abweichungen)
-def load_tab_module(tab_idx, default_name):
+# Robuster Direkt-Loader: Lädt Dateien auch mit unsichtbaren Steuerzeichen (\u2060)
+def load_tab_by_disk_file(tab_idx):
     tabs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tabs")
-    if os.path.exists(tabs_path):
-        # 1. Exakter Treffer
-        if f"{default_name}.py" in os.listdir(tabs_path):
-            return importlib.import_module(f"tabs.{default_name}")
-        
-        # 2. Tolerante Suche nach Präfix (tab0, Tab0, tab_0 etc.)
-        for fname in os.listdir(tabs_path):
-            lower = fname.lower().strip()
-            if fname.endswith(".py") and (
-                lower.startswith(f"tab{tab_idx}") or 
-                lower.startswith(f"tab_{tab_idx}") or 
-                lower.startswith(f"{tab_idx}_") or 
-                lower == f"{tab_idx}.py"
-            ):
-                return importlib.import_module(f"tabs.{fname[:-3]}")
-                
-    return importlib.import_module(f"tabs.{default_name}")
+    if not os.path.exists(tabs_path):
+        raise FileNotFoundError(f"Ordner {tabs_path} nicht gefunden.")
 
-expected_tabs = [
-    (0, "tab0_konto"),
-    (1, "tab1_empfehlungen"),
-    (2, "tab2_nachrichten"),
-    (3, "tab3_cashflow"),
-    (4, "tab4_kaufideen"),
-    (5, "tab5_charts"),
-    (6, "tab6_streuung"),
-    (7, "tab7_duell"),
-    (8, "tab8_prognose")
-]
+    for fname in os.listdir(tabs_path):
+        # Bereinige unsichtbare Zeichen für den Namensvergleich
+        clean_name = "".join(c for c in fname if c.isascii() and (c.isalnum() or c in "._-")).lower()
+        if clean_name.startswith(f"tab{tab_idx}") and clean_name.endswith(".py"):
+            full_path = os.path.join(tabs_path, fname)
+            spec = importlib.util.spec_from_file_location(f"tab_mod_{tab_idx}", full_path)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+
+    raise FileNotFoundError(f"Keine Datei für Tab {tab_idx} in 'tabs/' gefunden.")
 
 tab_modules = {}
 import_errors = []
 
-for idx, def_name in expected_tabs:
+for idx in range(9):
     try:
-        tab_modules[idx] = load_tab_module(idx, def_name)
+        tab_modules[idx] = load_tab_by_disk_file(idx)
     except Exception as e:
-        import_errors.append(f"Tab {idx} ({def_name}): {e}")
+        import_errors.append(f"Tab {idx}: {e}")
 
 if import_errors:
     st.error("❌ Folgende Tabs konnten im Ordner 'tabs/' nicht geladen werden:")
     for err in import_errors:
         st.write(f"• **{err}**")
-    tabs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tabs")
-    if os.path.exists(tabs_dir):
-        st.info(f"📂 Tatsächlich gefundene Dateien in `tabs/`: `{os.listdir(tabs_dir)}`")
-    else:
-        st.warning("⚠️ Der Ordner 'tabs/' existiert nicht auf dem Server.")
     st.stop()
 
 # Initialisierung
@@ -319,7 +300,8 @@ with tab4:
     tab_modules[4].render(st.session_state.get("last_analysis_time", ""))
 
 with tab5:
-    tab_modules[5].render(portfolio_list)
+    tab5_charts = tab_modules[5]
+    tab5_charts.render(portfolio_list)
 
 with tab6:
     tab_modules[6].render(stock_df, stock_val, fmt_eur)
