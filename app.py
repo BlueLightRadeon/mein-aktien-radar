@@ -1,14 +1,29 @@
 import os
 import sys
 import time
+import importlib.util
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import streamlit as st
 
-# Garantiert, dass alle Untermodule im Ordner tabs/ auf den Hauptordner zugreifen können
+# Pfade absichern
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+
+TABS_DIR = os.path.join(ROOT_DIR, "tabs")
+
+# 1. AUTONOME SELBSTREPARATUR: Unsichtbare Steuerzeichen (\u2060) automatisch entfernen
+if os.path.exists(TABS_DIR):
+    for fname in os.listdir(TABS_DIR):
+        clean_fname = fname.replace("\u2060", "").strip()
+        if clean_fname != fname:
+            old_p = os.path.join(TABS_DIR, fname)
+            new_p = os.path.join(TABS_DIR, clean_fname)
+            try:
+                os.rename(old_p, new_p)
+            except Exception:
+                pass
 
 # Backend-Services importieren
 from storage_service import load_saved_portfolio, save_saved_portfolio, delete_saved_portfolio
@@ -18,12 +33,47 @@ from data_service import (
 )
 from ai_service import get_account_models
 
-# Die 9 modularen Tabs importieren
-from tabs import (
-    tab0_konto, tab1_empfehlungen, tab2_nachrichten, 
-    tab3_cashflow, tab4_kaufideen, tab5_charts, 
-    tab6_streuung, tab7_duell, tab8_prognose
-)
+# 2. ISOLIERTER TAB-LOADER: Verhindert, dass ein einzelner Tab die ganze App lahmlegt
+def safe_load_tab(tab_idx, tab_name):
+    # Versuch A: Regulärer Import
+    try:
+        mod = importlib.import_module(f"tabs.{tab_name}")
+        return mod, None
+    except Exception as e:
+        err_a = str(e)
+
+    # Versuch B: Direkter Dateipfad-Import (falls Dateiname minimal abweicht)
+    if os.path.exists(TABS_DIR):
+        for fname in os.listdir(TABS_DIR):
+            c_name = fname.replace("\u2060", "").lower().strip()
+            if c_name.startswith(f"tab{tab_idx}") and c_name.endswith(".py"):
+                try:
+                    fpath = os.path.join(TABS_DIR, fname)
+                    spec = importlib.util.spec_from_file_location(f"tab_{tab_idx}", fpath)
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    return mod, None
+                except Exception as e:
+                    return None, f"Fehler in {fname}: {e}"
+
+    return None, f"Modul tabs.{tab_name} konnte nicht geladen werden ({err_a})"
+
+tab_names = [
+    (0, "tab0_konto"),
+    (1, "tab1_empfehlungen"),
+    (2, "tab2_nachrichten"),
+    (3, "tab3_cashflow"),
+    (4, "tab4_kaufideen"),
+    (5, "tab5_charts"),
+    (6, "tab6_streuung"),
+    (7, "tab7_duell"),
+    (8, "tab8_prognose")
+]
+
+tabs_dict = {}
+for idx, name in tab_names:
+    mod, err = safe_load_tab(idx, name)
+    tabs_dict[idx] = (mod, err)
 
 # Initialisierung
 if "v_portfolio" not in st.session_state:
@@ -199,12 +249,12 @@ with c_m3:
 
 col_head_info, col_timer_info = st.columns([3, 2])
 with col_head_info:
-    st.caption("💡 **Tipp:** Jeder Tab besitzt nun seinen eigenen roten Button für gezielte und vollständige KI-Auswertungen.")
+    st.caption("💡 Jeder Tab besitzt einen eigenen KI-Button für gezielte und vollständige Auswertungen.")
 with col_timer_info:
     ten_mins = 600.0
     render_live_timer_panel(ten_mins, auto_refresh_active, bool(portfolio_list))
 
-# --- TABS RENDERN ---
+# --- TABS RENDERN (Mit Einzelfall-Absicherung) ---
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏦 TR-Konto",
     "💼 Stimmung & Empfehlungen",
@@ -217,29 +267,37 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🧠 KI-Lernlabor & Prognose"
 ])
 
+def render_or_error(tab_idx, render_func):
+    mod, err = tabs_dict.get(tab_idx, (None, "Nicht gefunden"))
+    if mod and hasattr(mod, "render"):
+        render_func(mod)
+    else:
+        st.error(f"⚠️ Tab {tab_idx} konnte nicht geladen werden:")
+        st.code(err or "Unbekannter Fehler")
+
 with tab0:
-    tab0_konto.render(stock_df, display_cash, stock_val, fmt_eur)
+    render_or_error(0, lambda m: m.render(stock_df, display_cash, stock_val, fmt_eur))
 
 with tab1:
-    tab1_empfehlungen.render(stock_df, selected_model, GROQ_KEY, get_berlin_time_str)
+    render_or_error(1, lambda m: m.render(stock_df, selected_model, GROQ_KEY, get_berlin_time_str))
 
 with tab2:
-    tab2_nachrichten.render(selected_model, GROQ_KEY, get_berlin_time_str)
+    render_or_error(2, lambda m: m.render(selected_model, GROQ_KEY, get_berlin_time_str))
 
 with tab3:
-    tab3_cashflow.render(stock_df, stock_val)
+    render_or_error(3, lambda m: m.render(stock_df, stock_val))
 
 with tab4:
-    tab4_kaufideen.render(portfolio_list, selected_model, GROQ_KEY, get_berlin_time_str)
+    render_or_error(4, lambda m: m.render(portfolio_list, selected_model, GROQ_KEY, get_berlin_time_str))
 
 with tab5:
-    tab5_charts.render(portfolio_list)
+    render_or_error(5, lambda m: m.render(portfolio_list))
 
 with tab6:
-    tab6_streuung.render(stock_df, stock_val, fmt_eur, selected_model, GROQ_KEY, get_berlin_time_str)
+    render_or_error(6, lambda m: m.render(stock_df, stock_val, fmt_eur, selected_model, GROQ_KEY, get_berlin_time_str))
 
 with tab7:
-    tab7_duell.render(stock_df, selected_model, GROQ_KEY)
+    render_or_error(7, lambda m: m.render(stock_df, selected_model, GROQ_KEY))
 
 with tab8:
-    tab8_prognose.render(portfolio_list, selected_model, GROQ_KEY)
+    render_or_error(8, lambda m: m.render(portfolio_list, selected_model, GROQ_KEY))
