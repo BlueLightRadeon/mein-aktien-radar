@@ -4,7 +4,7 @@
       "ticker": "AVGO",
       "name": "Broadcom",
       "shares": 1.0,
-      "buy_price": 75.18
+      "buy_price": 76.08
     },
     {
       "ticker": "RHM.DE",
@@ -49,5 +49,5 @@
       "buy_price": 48.77
     }
   ],
-  "cash": 194.02
+  "cash": 51.57
 }
