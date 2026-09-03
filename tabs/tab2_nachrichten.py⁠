@@ -1,10 +1,40 @@
 import streamlit as st
+from groq import Groq
+from data_service import fetch_all_headlines
+from ai_service import run_market_news_analysis
 
-def render(last_analysis_time):
-    st.info("ℹ️ **Kurzinfo:** Scannt Finanzquellen und fasst die wichtigsten Markt-Ereignisse zusammen.")
+def render(selected_model, groq_key, get_berlin_time_str):
+    st.info("ℹ️ **Kurzinfo:** Scannt aktuelle Finanzquellen und analysiert die wichtigsten weltweiten Leitnachrichten.")
+    
+    col_btn, col_time = st.columns([2, 2])
+    with col_btn:
+        btn_news = st.button("🌍 Marktnachrichten & Leitbörsen jetzt analysieren", type="primary", key="btn_eval_news", width="stretch")
+    with col_time:
+        news_time = st.session_state.get("last_news_time", "")
+        if news_time:
+            st.caption(f"🕒 Stand (deutsche Zeit): **{news_time}**")
+
+    if btn_news:
+        if not groq_key:
+            st.error("⚠️ Bitte hinterlege deinen GROQ_API_KEY in den Secrets.")
+            return
+
+        with st.spinner("Lese Weltbörsen-News & analysiere Marktlage..."):
+            try:
+                client = Groq(api_key=groq_key)
+                headlines = fetch_all_headlines()
+                news_text = "\n".join(headlines) if headlines else "Stabile Weltwirtschaftslage."
+                
+                market_report = run_market_news_analysis(client, selected_model, news_text)
+                st.session_state["ai_market"] = market_report
+                st.session_state["last_news_time"] = get_berlin_time_str()
+                st.success("✅ Marktnachrichten erfolgreich analysiert!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler bei der Marktanalyse: {e}")
+
     market_text = st.session_state.get("ai_market", "")
     if market_text and len(market_text.strip()) > 15:
-        st.caption(f"🕒 Stand (deutsche Zeit): **{last_analysis_time}**")
         st.markdown(market_text)
     else:
-        st.info("Klicke oben auf '🚀 Jetzt sofort manuell aktualisieren', um den Marktbericht zu laden.")
+        st.info("Klicke oben auf '🌍 Marktnachrichten & Leitbörsen jetzt analysieren', um die Top-10-Marktlage zu laden.")
