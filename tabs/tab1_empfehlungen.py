@@ -1,6 +1,16 @@
 import streamlit as st
 from groq import Groq
-from ai_service import run_depot_analysis
+
+# Selbstheilender Import: Verhindert App-Abstürze beim Starten
+try:
+    from ai_service import run_depot_analysis
+except ImportError:
+    def run_depot_analysis(client, model_name, metrics_summary):
+        import ai_service
+        if hasattr(ai_service, "run_analysis"):
+            _, depot_text, _, _ = ai_service.run_analysis(client, model_name, "", metrics_summary)
+            return depot_text
+        return "⚠️ Bitte ai_service.py im Hauptordner auf GitHub aktualisieren."
 
 def render(stock_df, selected_model, groq_key, get_berlin_time_str):
     st.info("ℹ️ **Kurzinfo:** Vollständige Gegenüberstellung: Aktuelle Empfehlungen & Begründungen vs. historische 3-Monats-Analyse.")
