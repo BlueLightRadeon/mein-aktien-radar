@@ -1,10 +1,44 @@
 import streamlit as st
+from groq import Groq
+from data_service import fetch_all_headlines
+from ai_service import run_buy_recommendations_analysis
 
-def render(last_analysis_time):
+def render(portfolio_list, selected_model, groq_key, get_berlin_time_str):
     st.info("ℹ️ **Kurzinfo:** KI-Ratgeber zur Portfolio-Erweiterung: 5 konkrete Top-Aktien basierend auf der aktuellen Welt- und Marktlage.")
+    
+    col_btn, col_time = st.columns([2, 2])
+    with col_btn:
+        btn_ideas = st.button("🎯 Top 5 Kaufempfehlungen jetzt berechnen", type="primary", key="btn_eval_ideas", width="stretch")
+    with col_time:
+        ideas_time = st.session_state.get("last_ideas_time", "")
+        if ideas_time:
+            st.caption(f"🕒 Stand (deutsche Zeit): **{ideas_time}**")
+
+    if btn_ideas:
+        if not groq_key:
+            st.error("⚠️ Bitte hinterlege deinen GROQ_API_KEY in den Secrets.")
+            return
+
+        with st.spinner("Recherchiere die besten 5 Zukäufe außerhalb deines Depots..."):
+            try:
+                client = Groq(api_key=groq_key)
+                headlines = fetch_all_headlines()
+                news_text = "\n".join(headlines) if headlines else "Stabile Weltwirtschaftslage."
+                
+                # Gehaltene Aktien übergeben, damit diese NICHT empfohlen werden
+                existing_names = [item.get("name", item.get("ticker", "")) for item in portfolio_list]
+                existing_str = ", ".join(existing_names) if existing_names else "Keine"
+
+                ideas_report = run_buy_recommendations_analysis(client, selected_model, existing_str, news_text)
+                st.session_state["ai_signals"] = ideas_report
+                st.session_state["last_ideas_time"] = get_berlin_time_str()
+                st.success("✅ Top 5 Kaufempfehlungen erfolgreich berechnet!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler bei den Kaufempfehlungen: {e}")
+
     signals_text = st.session_state.get("ai_signals", "")
     if signals_text and len(signals_text.strip()) > 15:
-        st.caption(f"🕒 Stand (deutsche Zeit): **{last_analysis_time}**")
         st.markdown(signals_text)
     else:
-        st.info("Klicke oben auf '🚀 Jetzt sofort manuell aktualisieren', um die Kaufempfehlungen zu laden.")
+        st.info("Klicke oben auf '🎯 Top 5 Kaufempfehlungen jetzt berechnen', um 5 neue Investment-Ideen zu laden.")
