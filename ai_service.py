@@ -204,6 +204,7 @@ Aktie B: {stock_b_info}
     except Exception as e:
         return f"⚠️ Duell-Analyse Fehler: {str(e)}"
 
+# Kompatibilität für ältere Gesamtaufrufe
 def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
     m = run_market_news_analysis(client, model_name, news_text)
     d = run_depot_analysis(client, model_name, metrics_summary)
