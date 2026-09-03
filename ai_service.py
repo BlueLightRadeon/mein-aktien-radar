@@ -36,123 +36,152 @@ def clean_ai_output(text):
     cleaned = re.sub(r'^(?:Here\'s|Thinking Process).*?\n\n', '', cleaned, flags=re.DOTALL | re.IGNORECASE).strip()
     return cleaned.strip()
 
-def extract_4_sections(text):
-    cleaned = clean_ai_output(text)
-    if not cleaned:
-        return "", "", "", ""
-
-    # Finde alle Abschnitte fehlertolerant (auch wenn Markdown-Überschriften mehrfach im Text vorkommen)
-    pat_m = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?1[\.\s\:\-]+MARKT[^\n]*', cleaned, re.IGNORECASE))
-    pat_d = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?2[\.\s\:\-]+DEPOT[^\n]*', cleaned, re.IGNORECASE))
-    pat_s = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?3[\.\s\:\-]+(?:TOP|KAUF)[^\n]*', cleaned, re.IGNORECASE))
-    pat_c = list(re.finditer(r'(?:#{1,4}\s*|\*{1,2})?4[\.\s\:\-]+RISIKO[^\n]*', cleaned, re.IGNORECASE))
-
-    # Nimm das jeweils letzte Vorkommen, um vorangestellte Planungsnotizen/Outlines zu überspringen
-    idx_m = pat_m[-1].end() if pat_m else None
-    idx_d_start = pat_d[-1].start() if pat_d else None
-    idx_d_end = pat_d[-1].end() if pat_d else None
-    idx_s_start = pat_s[-1].start() if pat_s else None
-    idx_s_end = pat_s[-1].end() if pat_s else None
-    idx_c_start = pat_c[-1].start() if pat_c else None
-    idx_c_end = pat_c[-1].end() if pat_c else None
-
-    out_market = ""
-    out_depot = ""
-    out_signals = ""
-    out_cluster = ""
-
-    if idx_m is not None and idx_d_start is not None:
-        out_market = cleaned[idx_m:idx_d_start].strip()
-    elif idx_m is not None:
-        out_market = cleaned[idx_m:].strip()
-
-    if idx_d_end is not None and idx_s_start is not None:
-        out_depot = cleaned[idx_d_end:idx_s_start].strip()
-    elif idx_d_end is not None:
-        out_depot = cleaned[idx_d_end:].strip()
-
-    if idx_s_end is not None and idx_c_start is not None:
-        out_signals = cleaned[idx_s_end:idx_c_start].strip()
-    elif idx_s_end is not None:
-        out_signals = cleaned[idx_s_end:].strip()
-
-    if idx_c_end is not None:
-        out_cluster = cleaned[idx_c_end:].strip()
-
-    # Falls Trenner komplett fehlten, Text nicht verwerfen
-    if not out_market and not out_depot:
-        out_market = cleaned
-
-    return out_market, out_depot, out_signals, out_cluster
-
-def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
+# --- 1. SPEZIALISIERTE NACHRICHTEN-ANALYSE (TAB 2) ---
+def run_market_news_analysis(client, model_name, news_text):
     prompt = f"""
-Du bist ein führender quantitativer Chef-Aktienanalyst. Erstelle einen vollständigen Finanzbericht auf Deutsch.
-Beginne direkt mit '### 1. MARKTANALYSE'. Schreibe keine englischen Entwürfe, keine Vorbemerkungen und kein Brainstorming.
+Du bist ein führender deutscher Börsenanalyst. Analysiere die aktuellen Weltmärkte und Leitnachrichten zu 100% auf Deutsch.
+Schreibe keine englischen Denkprozesse, keine Vorbemerkungen und kein Brainstorming.
 
 [AKTUELLE LEIT-NACHRICHTEN & WELTMÄRKTE]
 {news_text}
 
+Erstelle deinen Bericht mit exakt dieser Struktur:
+
+### 1. 🌍 Globale Top 10 Marktnachrichten
+Erstelle genau 10 ausführliche, konkrete und nummerierte Punkte. Decke dabei zwingend ab:
+1. Globale Zinsen & Leitzinsentscheidungen der Fed & EZB
+2. Halbleiterbranche & Auslastung von Sub-3nm-Nodes
+3. Energieversorgung & Strombedarf für KI-Rechenzentren
+4. Rüstungssektor & NATO-Auftragsbestände
+5. Geopolitische Spannungen & Rohstoffpreise
+6. DAX & europäische Leitindizes
+7. US-Tech-Giganten & Hyperscaler-Investitionen
+8. Anleihemärkte & Renditekurven
+9. Währungsmärkte (EUR/USD)
+10. Typische Anleger-Fehler im aktuellen Marktumfeld
+
+### 2. 🧭 Gesamtstimmung der Börse
+- **Stimmung**: 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig
+- **Begründung**: Genau 3 prägnante, fundierte Sätze zur aktuellen Marktlage.
+"""
+    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
+    try:
+        res = client.chat.completions.create(
+            model=target_model,
+            messages=[
+                {"role": "system", "content": "Du bist ein führender quantitativer Analyst. Antworte ausschließlich auf Deutsch. Gib alle 10 Punkte vollständig aus."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=2500,
+            timeout=40.0
+        )
+        return clean_ai_output(res.choices[0].message.content)
+    except Exception as e:
+        return f"⚠️ Fehler bei der Marktanalyse: {e}"
+
+# --- 2. SPEZIALISIERTE DEPOT-BEWERTUNG (TAB 1) ---
+def run_depot_analysis(client, model_name, metrics_summary):
+    prompt = f"""
+Du bist ein quantitativer Chef-Aktienanalyst. Analysiere alle im Depot gehaltenen Aktien einzeln auf Deutsch.
+
 [DEPOT-KENNZAHLEN & AKTIEN]
 {metrics_summary}
 
-Gliedere deine Antwort zwingend in genau diese vier Abschnitte:
+Analysiere JEDES gehaltene Unternehmen mit folgender Gliederung:
 
-### 1. MARKTANALYSE
-- **TOP 10 Marktnachrichten**: Genau 10 konkrete, nummerierte Stichpunkte zu globalen Zinsen, Notenbanken, Halbleitern, Energie/KI-Rechenzentren, Rüstung und Geopolitik.
-- **Gesamtstimmung der Börse**: 🟢 Optimistisch, 🟡 Neutral oder 🔴 Vorsichtig mit 3 Sätzen Begründung.
-
-### 2. DEPOT-BEWERTUNG
-Analysiere alle im Depot gehaltenen Aktien einzeln mit aktuellem Status vs. 3-Monats-Rückblick:
-Für jedes Unternehmen:
-- **🟢/🟡/🔴 Aktuelle Empfehlung & Begründung**: (KGV, Fair Value, Auftragslage, Kurspotenzial).
+### [Unternehmensname]
+- **🟢/🟡/🔴 Aktuelle Einstufung & Begründung**: Konkrete Bewertung anhand von KGV, Fair Value, Auftragslage und Kurspotenzial.
 - **⏱️ Rückblick vor 3 Monaten**: Damalige Einstufung und damalige Ausgangslage.
-- **📈 Trend & Fazit**: Entwicklung in den letzten 3 Monaten und nächster Schritt.
-
-### 3. TOP 5 KAUFEMPFEHLUNGEN
-Empfehle 5 konkrete neue Qualitätsaktien/ETFs (die NICHT im aktuellen Depot liegen) zur Portfolio-Erweiterung:
-1. Aktie 1 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
-2. Aktie 2 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
-3. Aktie 3 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
-4. Aktie 4 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
-5. Aktie 5 (Ticker | Branche | Land) - Einstiegsgrund, Kurspotenzial, Risiko.
-- **🔴 Aktuell meiden**: 3 Branchen mit erhöhtem Abwärtsrisiko.
-
-### 4. RISIKOSTREUUNG
-- **Risiko-Score**: 1 (Sehr konservativ) bis 10 (Sehr spekulativ).
-- **Analyse der Branchen- & Länder-Gewichtung**: {cluster_context}
-- **Konkreter Absicherungs-Tipp**: Klare Handlungsanweisung zur Portfolio-Absicherung.
+- **📈 3-Monats-Trend & Fazit**: Wie hat sich das Papier entwickelt und welcher Schritt ist jetzt ratsam (Kauf/Halten/Verkauf).
 """
+    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
+    try:
+        res = client.chat.completions.create(
+            model=target_model,
+            messages=[
+                {"role": "system", "content": "Du bist ein präziser deutscher Portfoliomanager. Antworte ausschließlich auf Deutsch."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=3000,
+            timeout=45.0
+        )
+        return clean_ai_output(res.choices[0].message.content)
+    except Exception as e:
+        return f"⚠️ Fehler bei der Depotanalyse: {e}"
 
-    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1", "qwq"]) else DEFAULT_MODEL
-    full_text = ""
-    last_err = None
+# --- 3. SPEZIALISIERTE KAUFEMPFEHLUNGEN (TAB 4) ---
+def run_buy_recommendations_analysis(client, model_name, existing_holdings, news_text):
+    prompt = f"""
+Du bist ein quantitativer Investmentstratege. Empfehle 5 neue Qualitätsaktien/ETFs zur Erweiterung des Portfolios.
+WICHTIG: Die folgenden Aktien sind BEREITS im Depot und dürfen NICHT empfohlen werden:
+{existing_holdings}
 
-    for attempt in range(2):
-        try:
-            res = client.chat.completions.create(
-                model=target_model,
-                messages=[
-                    {"role": "system", "content": "Du bist ein präziser deutscher Börsenanalyst. Antworte ausschließlich auf Deutsch. Beginne direkt mit '### 1. MARKTANALYSE'. Gib niemals Denkprozesse, Entwürfe oder englische Einleitungen aus."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.2,
-                max_tokens=3200,
-                timeout=40.0
-            )
-            if res.choices and len(res.choices) > 0 and res.choices[0].message and res.choices[0].message.content:
-                full_text = res.choices[0].message.content
-                break
-        except Exception as e:
-            last_err = e
-            time.sleep(1.0)
+[MARKTKONTEXT]
+{news_text}
 
-    if not full_text:
-        err_msg = f"⚠️ Fehler bei Groq-Generierung: {str(last_err)}"
-        return err_msg, err_msg, err_msg, err_msg
+Gliedere deine Antwort exakt so:
 
-    return extract_4_sections(full_text)
+### 🎯 Top 5 Kaufempfehlungen (Neu im Depot)
+Empfehle 5 konkrete, qualitativ hochwertige Aktien oder ETFs:
+1. **Name** (Ticker | Branche | Land)
+   - **Einstiegsgrund**: Warum jetzt kaufen?
+   - **Kurspotenzial**: Erwartete Rendite auf 12 Monate.
+   - **Risikofaktor**: Größte Gefahr für die These.
+(Wiederhole das für 2., 3., 4. und 5.)
 
+### 🔴 Aktuell meiden
+Nenne 3 konkrete Branchen oder Marktsegmente mit erhöhtem Abwärtsrisiko und begründe dies kurz.
+"""
+    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
+    try:
+        res = client.chat.completions.create(
+            model=target_model,
+            messages=[
+                {"role": "system", "content": "Du bist ein führender deutscher Börsenstratege. Antworte auf Deutsch."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=2500,
+            timeout=40.0
+        )
+        return clean_ai_output(res.choices[0].message.content)
+    except Exception as e:
+        return f"⚠️ Fehler bei Kaufempfehlungen: {e}"
+
+# --- 4. SPEZIALISIERTES RISIKOGUTACHTEN (TAB 6) ---
+def run_cluster_analysis(client, model_name, cluster_context):
+    prompt = f"""
+Du bist ein Experte für Portfolio-Risikomanagement. Erstelle ein Risikogutachten zur Diversifikation auf Deutsch.
+
+[PORTFOLIO-STRUKTUR (Sektoren, Länder, Rollen, Werte)]
+{cluster_context}
+
+Gliedere deine Antwort wie folgt:
+
+### 🛡️ KI-Risikogutachten & Klumpenrisiken
+- **Risiko-Score**: Vergib eine Note von 1 (Sehr konservativ) bis 10 (Sehr spekulativ) mit kurzer Einordnung.
+- **Klumpenrisiko-Analyse**: Wo ist das Portfolio über- oder untergewichtet (z. B. Tech-Übergewicht, USA-Dominanz)?
+- **Konkreter Absicherungs-Tipp**: Welche konkrete defensive Maßnahme (z. B. Gold, Anleihen, Puts oder defensive Dividendenwerte) stabilisiert dieses Depot am besten?
+"""
+    target_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
+    try:
+        res = client.chat.completions.create(
+            model=target_model,
+            messages=[
+                {"role": "system", "content": "Du bist ein präziser deutscher Risikoanalyst. Antworte ausschließlich auf Deutsch."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=1500,
+            timeout=30.0
+        )
+        return clean_ai_output(res.choices[0].message.content)
+    except Exception as e:
+        return f"⚠️ Fehler beim Risikogutachten: {e}"
+
+# --- 5. 1-VS-1 DUELL (TAB 7) ---
 def run_duel_analysis(client, model_name, stock_a_info, stock_b_info):
     prompt = f"""
 Vergleiche als quantitativer Analyst diese beiden Aktien objektiv und detailliert auf Deutsch:
@@ -162,15 +191,23 @@ Aktie B: {stock_b_info}
 1. Fundamentaler Kennzahlenvergleich (KGV, Dividende, Fair Value, Burggraben)
 2. Klares Fazit: Welche Aktie ist aktuell der bessere Kauf und warum?
 """
-    duel_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1", "qwq"]) else DEFAULT_MODEL
+    duel_model = model_name if model_name and not any(bad in model_name.lower() for bad in ["orpheus", "deepseek", "r1"]) else DEFAULT_MODEL
     try:
         res = client.chat.completions.create(
             model=duel_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=800,
-            timeout=20.0
+            max_tokens=1000,
+            timeout=25.0
         )
         return clean_ai_output(res.choices[0].message.content)
     except Exception as e:
         return f"⚠️ Duell-Analyse Fehler: {str(e)}"
+
+# Fallback-Kompatibilität für ältere Gesamtaufrufe
+def run_analysis(client, model_name, news_text, metrics_summary, ticker_news_text="", cluster_context=""):
+    m = run_market_news_analysis(client, model_name, news_text)
+    d = run_depot_analysis(client, model_name, metrics_summary)
+    s = run_buy_recommendations_analysis(client, model_name, "", news_text)
+    c = run_cluster_analysis(client, model_name, cluster_context)
+    return m, d, s, c
