@@ -1,7 +1,9 @@
 import streamlit as st
 import plotly.express as px
+from groq import Groq
+from ai_service import run_cluster_analysis
 
-def render(stock_df, stock_val, fmt_eur):
+def render(stock_df, stock_val, fmt_eur, selected_model, groq_key, get_berlin_time_str):
     st.info("ℹ️ **Kurzinfo:** Prüft die Verteilung deines realen Geldes auf Rollen, Branchen und Länder.")
     if not stock_df.empty:
         c_pie1, c_pie2, c_pie3 = st.columns(3)
@@ -59,8 +61,39 @@ def render(stock_df, stock_val, fmt_eur):
                     st.write(f"**Deine Aktien hier:** {stock_names}")
                     st.write(f"**Anteil am Depot:** `{fmt_eur(role_sum)}` ({role_pct:.1f} %)")
 
-    cluster_text = st.session_state.get("ai_cluster", "")
-    if cluster_text and len(cluster_text.strip()) > 15:
         st.divider()
-        st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
-        st.markdown(cluster_text)
+        col_btn, col_time = st.columns([2, 2])
+        with col_btn:
+            btn_cluster = st.button("🛡️ KI-Risikogutachten & Absicherung jetzt berechnen", type="primary", key="btn_eval_cluster", width="stretch")
+        with col_time:
+            cluster_time = st.session_state.get("last_cluster_time", "")
+            if cluster_time:
+                st.caption(f"🕒 Stand: **{cluster_time}**")
+
+        if btn_cluster:
+            if not groq_key:
+                st.error("⚠️ Bitte hinterlege deinen GROQ_API_KEY in den Secrets.")
+                return
+
+            with st.spinner("Analysiere Klumpenrisiken und Portfoliostruktur..."):
+                try:
+                    client = Groq(api_key=groq_key)
+                    cluster_cols = [c for c in ["Unternehmen", "Sektor", "Land", "Rolle", "Aktueller Wert (TR)"] if c in stock_df.columns]
+                    cluster_context = stock_df[cluster_cols].to_string(index=False)
+                    
+                    rep_cluster = run_cluster_analysis(client, selected_model, cluster_context)
+                    st.session_state["ai_cluster"] = rep_cluster
+                    st.session_state["last_cluster_time"] = get_berlin_time_str()
+                    st.success("✅ Risikogutachten erfolgreich erstellt!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Fehler beim Risikogutachten: {e}")
+
+        cluster_text = st.session_state.get("ai_cluster", "")
+        if cluster_text and len(cluster_text.strip()) > 15:
+            st.subheader("🛡️ KI-Gutachten & Empfehlungen zur Absicherung:")
+            st.markdown(cluster_text)
+        else:
+            st.info("Klicke oben auf '🛡️ KI-Risikogutachten & Absicherung jetzt berechnen', um das Gutachten zu laden.")
+    else:
+        st.info("Lade ein Depot hoch, um die Streuungs-Analyse zu aktivieren.")
