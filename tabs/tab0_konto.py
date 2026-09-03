@@ -2,6 +2,7 @@ import streamlit as st
 
 def render(stock_df, display_cash, stock_val, fmt_eur):
     st.info("ℹ️ **Kurzinfo:** Zeigt dein reales Trade Republic Depot – getrennt nach Bargeld (Cash aus Auszug) und dem aktuellen Wert deiner Wertpapiere.")
+    
     col_tr1, col_tr2 = st.columns(2)
     with col_tr1:
         st.success(f"💶 **Bargeld (Cash aus Auszug):** {fmt_eur(display_cash)}")
