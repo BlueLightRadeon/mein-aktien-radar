@@ -1,9 +1,11 @@
+import os
+import importlib
 import time
 from datetime import datetime, timezone, timedelta
 import streamlit as st
 from groq import Groq
 
-# Auslagerungen importieren
+# Backend-Services importieren
 try:
     from storage_service import load_saved_portfolio, save_saved_portfolio, delete_saved_portfolio
     from data_service import (
@@ -15,18 +17,57 @@ except Exception as e:
     st.error(f"❌ Fehler in den Service-Dateien (Hauptordner): {e}")
     st.stop()
 
-# Die 9 modularen Tabs fehlersicher importieren
-try:
-    from tabs import (
-        tab0_konto, tab1_empfehlungen, tab2_nachrichten, 
-        tab3_cashflow, tab4_kaufideen, tab5_charts, 
-        tab6_streuung, tab7_duell, tab8_prognose
-    )
-except Exception as e:
-    st.error(f"❌ Tab-Import-Fehler: {e}")
-    st.info("💡 Prüfe die Dateinamen im Ordner 'tabs/' anhand der Checkliste unten.")
-    import traceback
-    st.code(traceback.format_exc())
+# Fehlertoleranter Tab-Loader (findet tab2 auch bei Groß-/Kleinschreibung oder kleinen Abweichungen)
+def load_tab_module(tab_idx, default_name):
+    tabs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tabs")
+    if os.path.exists(tabs_path):
+        # 1. Exakter Treffer
+        if f"{default_name}.py" in os.listdir(tabs_path):
+            return importlib.import_module(f"tabs.{default_name}")
+        
+        # 2. Tolerante Suche nach Präfix (tab0, Tab0, tab_0 etc.)
+        for fname in os.listdir(tabs_path):
+            lower = fname.lower().strip()
+            if fname.endswith(".py") and (
+                lower.startswith(f"tab{tab_idx}") or 
+                lower.startswith(f"tab_{tab_idx}") or 
+                lower.startswith(f"{tab_idx}_") or 
+                lower == f"{tab_idx}.py"
+            ):
+                return importlib.import_module(f"tabs.{fname[:-3]}")
+                
+    return importlib.import_module(f"tabs.{default_name}")
+
+expected_tabs = [
+    (0, "tab0_konto"),
+    (1, "tab1_empfehlungen"),
+    (2, "tab2_nachrichten"),
+    (3, "tab3_cashflow"),
+    (4, "tab4_kaufideen"),
+    (5, "tab5_charts"),
+    (6, "tab6_streuung"),
+    (7, "tab7_duell"),
+    (8, "tab8_prognose")
+]
+
+tab_modules = {}
+import_errors = []
+
+for idx, def_name in expected_tabs:
+    try:
+        tab_modules[idx] = load_tab_module(idx, def_name)
+    except Exception as e:
+        import_errors.append(f"Tab {idx} ({def_name}): {e}")
+
+if import_errors:
+    st.error("❌ Folgende Tabs konnten im Ordner 'tabs/' nicht geladen werden:")
+    for err in import_errors:
+        st.write(f"• **{err}**")
+    tabs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tabs")
+    if os.path.exists(tabs_dir):
+        st.info(f"📂 Tatsächlich gefundene Dateien in `tabs/`: `{os.listdir(tabs_dir)}`")
+    else:
+        st.warning("⚠️ Der Ordner 'tabs/' existiert nicht auf dem Server.")
     st.stop()
 
 # Initialisierung
@@ -207,6 +248,7 @@ with st.sidebar:
     selected_model = st.selectbox("KI-Modell:", available_models, index=model_idx)
     st.session_state["selected_groq_model"] = selected_model
 
+# --- BERECHNUNGEN & METRIKEN ---
 stock_df, ticker_news, resolved_tickers = get_stock_data(portfolio_list)
 
 if not stock_df.empty and "_raw_val" in stock_df.columns:
@@ -248,6 +290,7 @@ with col_btn:
 with col_info:
     render_live_timer_panel(ten_mins, auto_refresh_active, bool(portfolio_list))
 
+# --- TABS ---
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏦 TR-Konto",
     "💼 Stimmung & Empfehlungen",
@@ -261,28 +304,28 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 ])
 
 with tab0:
-    tab0_konto.render(stock_df, display_cash, stock_val, fmt_eur)
+    tab_modules[0].render(stock_df, display_cash, stock_val, fmt_eur)
 
 with tab1:
-    tab1_empfehlungen.render(stock_df)
+    tab_modules[1].render(stock_df)
 
 with tab2:
-    tab2_nachrichten.render(st.session_state.get("last_analysis_time", ""))
+    tab_modules[2].render(st.session_state.get("last_analysis_time", ""))
 
 with tab3:
-    tab3_cashflow.render(stock_df, stock_val)
+    tab_modules[3].render(stock_df, stock_val)
 
 with tab4:
-    tab4_kaufideen.render(st.session_state.get("last_analysis_time", ""))
+    tab_modules[4].render(st.session_state.get("last_analysis_time", ""))
 
 with tab5:
-    tab5_charts.render(portfolio_list)
+    tab_modules[5].render(portfolio_list)
 
 with tab6:
-    tab6_streuung.render(stock_df, stock_val, fmt_eur)
+    tab_modules[6].render(stock_df, stock_val, fmt_eur)
 
 with tab7:
-    tab7_duell.render(stock_df, selected_model, GROQ_KEY)
+    tab_modules[7].render(stock_df, selected_model, GROQ_KEY)
 
 with tab8:
-    tab8_prognose.render(portfolio_list, selected_model, GROQ_KEY)
+    tab_modules[8].render(portfolio_list, selected_model, GROQ_KEY)
